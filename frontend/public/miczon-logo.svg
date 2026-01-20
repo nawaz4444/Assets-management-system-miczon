@@ -1,0 +1,28 @@
+<svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+  <!-- M Logo with ribbon-like 3D effect -->
+  <defs>
+    <linearGradient id="orangeGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6B35;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F7931E;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="orangeGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#E55A2B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D94A1A;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle for transparency -->
+  <circle cx="30" cy="30" r="30" fill="transparent"/>
+  
+  <!-- M shape - Left vertical -->
+  <path d="M 12 45 L 12 15 L 20 15 L 20 30 L 30 15 L 40 30 L 40 15 L 48 15 L 48 45 L 40 45 L 40 32 L 30 47 L 20 32 L 20 45 Z" 
+        fill="url(#orangeGradient1)" 
+        opacity="0.95"/>
+  
+  <!-- M shape shadow/underlay for depth -->
+  <path d="M 12 45 L 12 15 L 20 15 L 20 30 L 30 15 L 40 30 L 40 15 L 48 15 L 48 45 L 40 45 L 40 32 L 30 47 L 20 32 L 20 45 Z" 
+        fill="url(#orangeGradient2)" 
+        opacity="0.7"
+        transform="translate(1, 1)"/>
+</svg>
+
