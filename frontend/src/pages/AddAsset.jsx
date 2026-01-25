@@ -130,6 +130,7 @@ function AddAsset({ token }) {
                                 onChange={handleChange}
                                 placeholder="e.g., MIC-001"
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -149,6 +150,7 @@ function AddAsset({ token }) {
                                 onChange={handleChange}
                                 placeholder="e.g., Dell Latitude"
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -169,6 +171,7 @@ function AddAsset({ token }) {
                                 onChange={handleChange}
                                 placeholder="e.g., Laptop"
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -179,8 +182,8 @@ function AddAsset({ token }) {
                             />
                         </Grid>
 
-                        <Grid item xs={12} md={4}>
-                            <FormControl fullWidth variant="outlined">
+                        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                            <FormControl fullWidth variant="outlined" size="small">
                                 <InputLabel id="department-label" shrink>Department</InputLabel>
                                 <Select
                                     labelId="department-label"
@@ -189,6 +192,7 @@ function AddAsset({ token }) {
                                     onChange={handleChange}
                                     label="Department"
                                     displayEmpty
+                                    size="small"
                                     startAdornment={
                                         <InputAdornment position="start" sx={{ pl: 1 }}>
                                             <BusinessIcon color="action" />
@@ -207,8 +211,8 @@ function AddAsset({ token }) {
                             </FormControl>
                         </Grid>
 
-                        <Grid item xs={12} md={4}>
-                            <FormControl fullWidth variant="outlined">
+                        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                            <FormControl fullWidth variant="outlined" size="small">
                                 <InputLabel id="status-label" shrink>Status</InputLabel>
                                 <Select
                                     labelId="status-label"
@@ -216,6 +220,7 @@ function AddAsset({ token }) {
                                     value={formData.current_status}
                                     onChange={handleChange}
                                     label="Status"
+                                    size="small"
                                     startAdornment={
                                         <InputAdornment position="start" sx={{ pl: 1 }}>
                                             <InfoIcon color={
@@ -242,6 +247,7 @@ function AddAsset({ token }) {
                                 onChange={handleChange}
                                 placeholder="Processor, RAM..."
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -262,6 +268,7 @@ function AddAsset({ token }) {
                                 onChange={handleChange}
                                 placeholder="Additional notes..."
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">

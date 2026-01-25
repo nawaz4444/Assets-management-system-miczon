@@ -127,14 +127,15 @@ function InspectionReport({ token }) {
 
                 {/* Filters Section */}
                 <Box className="no-print" mb={4}>
-                    <Grid container spacing={3} alignItems="center">
-                        <Grid item xs={12} md={4}>
-                            <FormControl fullWidth variant="outlined">
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                            <FormControl fullWidth variant="outlined" size="small">
                                 <InputLabel>Department</InputLabel>
                                 <Select
                                     value={selectedDept}
                                     label="Department"
                                     onChange={(e) => setSelectedDept(e.target.value)}
+                                    size="small"
                                     startAdornment={<InputAdornment position="start"><BusinessIcon color="action" /></InputAdornment>}
                                 >
                                     <MenuItem value=""><em>All Departments</em></MenuItem>
@@ -142,13 +143,14 @@ function InspectionReport({ token }) {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={12} md={4}>
-                            <FormControl fullWidth variant="outlined">
+                        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                            <FormControl fullWidth variant="outlined" size="small">
                                 <InputLabel>Employee</InputLabel>
                                 <Select
                                     value={selectedEmp}
                                     label="Employee"
                                     onChange={(e) => setSelectedEmp(e.target.value)}
+                                    size="small"
                                     startAdornment={<InputAdornment position="start"><AssignmentIndIcon color="action" /></InputAdornment>}
                                 >
                                     <MenuItem value=""><em>All Employees</em></MenuItem>
@@ -156,7 +158,7 @@ function InspectionReport({ token }) {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={12} md={4} display="flex" gap={2}>
+                        <Grid item xs={12} md="auto" display="flex" gap={2}>
                             <Button
                                 variant="contained"
                                 startIcon={<SearchIcon />}

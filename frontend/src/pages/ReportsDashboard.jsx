@@ -352,51 +352,91 @@ export default function ReportsDashboard({ token }) {
                     </Grid>
 
                     {/* FILTERS */}
-                    <Box className="no-print" sx={{ p: 0, mb: 4 }}>
-                        <Grid container spacing={2} alignItems="center">
-                            <Grid item xs={12} md={3}>
-                                <Autocomplete
-                                    options={deptOptions}
-                                    getOptionLabel={(option) => option.name}
-                                    value={filters.department}
-                                    onChange={(_, newVal) => handleFilterChange('department', newVal)}
-                                    renderInput={(params) => <TextField {...params} label="Department" fullWidth size="small" />}
-                                />
-                            </Grid>
-                            <Grid item xs={12} md={3}>
-                                <Autocomplete
-                                    options={catOptions}
-                                    value={filters.category}
-                                    onChange={(_, newVal) => handleFilterChange('category', newVal)}
-                                    renderInput={(params) => <TextField {...params} label="Category" fullWidth size="small" />}
-                                />
-                            </Grid>
-                            <Grid item xs={12} md={3}>
-                                <Autocomplete
-                                    options={['AVAILABLE', 'ASSIGNED', 'BROKEN', 'IN_REPAIR']}
-                                    value={filters.status}
-                                    onChange={(_, newVal) => handleFilterChange('status', newVal)}
-                                    renderInput={(params) => <TextField {...params} label="Status" fullWidth size="small" />}
-                                />
-                            </Grid>
-                            <Grid item xs={12} md={3} display="flex" justifyContent="flex-end" gap={1}>
-                                <Button
-                                    variant="contained"
-                                    startIcon={<Print />}
-                                    onClick={handlePrint}
-                                >
-                                    Print
-                                </Button>
-                                <Button
-                                    variant="outlined"
-                                    startIcon={<Refresh />}
-                                    onClick={() => setFilters({ department: null, category: null, status: null })}
-                                >
-                                    Reset
-                                </Button>
-                            </Grid>
-                        </Grid>
-                    </Box>
+<Box className="no-print" sx={{ p: 0, mb: 4 }}>
+    <Grid container spacing={2} alignItems="center">
+
+        {/* Department */}
+        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+            <Autocomplete
+                options={deptOptions}
+                getOptionLabel={(option) => option.name}
+                value={filters.department}
+                onChange={(_, newVal) => handleFilterChange('department', newVal)}
+                renderInput={(params) => (
+                    <TextField
+                        {...params}
+                        label="Department"
+                        fullWidth
+                        size="small"
+                    />
+                )}
+            />
+        </Grid>
+
+        {/* Category */}
+        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+            <Autocomplete
+                options={catOptions}
+                value={filters.category}
+                onChange={(_, newVal) => handleFilterChange('category', newVal)}
+                renderInput={(params) => (
+                    <TextField
+                        {...params}
+                        label="Category"
+                        fullWidth
+                        size="small"
+                    />
+                )}
+            />
+        </Grid>
+
+        {/* Status */}
+        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+            <Autocomplete
+                options={['AVAILABLE', 'ASSIGNED', 'BROKEN', 'IN_REPAIR']}
+                value={filters.status}
+                onChange={(_, newVal) => handleFilterChange('status', newVal)}
+                renderInput={(params) => (
+                    <TextField
+                        {...params}
+                        label="Status"
+                        fullWidth
+                        size="small"
+                    />
+                )}
+            />
+        </Grid>
+
+        {/* Buttons */}
+        <Grid
+            item
+            xs={12}
+            md="auto"
+            display="flex"
+            justifyContent="flex-end"
+            gap={1}
+        >
+            <Button
+                variant="contained"
+                startIcon={<Print />}
+                onClick={handlePrint}
+            >
+                Print
+            </Button>
+            <Button
+                variant="outlined"
+                startIcon={<Refresh />}
+                onClick={() =>
+                    setFilters({ department: null, category: null, status: null })
+                }
+            >
+                Reset
+            </Button>
+        </Grid>
+
+    </Grid>
+</Box>
+
 
                     {/* TABS & VIEW */}
                     <Box>

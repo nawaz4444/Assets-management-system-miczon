@@ -189,15 +189,16 @@ function AddAssetLog({ token }) {
                 <Divider sx={{ mb: 4 }} />
 
                 {/* --- TOP SECTION: FILTERS --- */}
-                <Grid container spacing={3} alignItems="center" sx={{ mb: 4 }}>
-                    <Grid item xs={12} md={5}>
-                        <FormControl fullWidth variant="outlined">
+                <Grid container spacing={2} alignItems="center" sx={{ mb: 4 }}>
+                    <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                        <FormControl fullWidth variant="outlined" size="small">
                             <InputLabel id="dept-label">Select Department</InputLabel>
                             <Select
                                 labelId="dept-label"
                                 label="Select Department"
                                 value={selectedDept}
                                 onChange={(e) => setSelectedDept(e.target.value)}
+                                size="small"
                                 startAdornment={
                                     <InputAdornment position="start">
                                         <BusinessIcon color="action" />
@@ -211,14 +212,15 @@ function AddAssetLog({ token }) {
                         </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} md={5}>
-                        <FormControl fullWidth variant="outlined">
+                    <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                        <FormControl fullWidth variant="outlined" size="small">
                             <InputLabel id="emp-label">Select Employee</InputLabel>
                             <Select
                                 labelId="emp-label"
                                 label="Select Employee"
                                 value={selectedEmp}
                                 onChange={(e) => setSelectedEmp(e.target.value)}
+                                size="small"
                                 startAdornment={
                                     <InputAdornment position="start">
                                         <AssignmentIndIcon color="action" />
@@ -235,7 +237,7 @@ function AddAssetLog({ token }) {
                         </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} md={2}>
+                    <Grid item xs={12} md="auto">
                         <Button
                             fullWidth
                             variant="outlined"

@@ -241,7 +241,7 @@ function ReturnAsset({ token }) {
                 {activeStep === 0 && (
                     <Box>
                         <Grid container spacing={4}>
-                            <Grid item xs={12}>
+                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
                                 <Autocomplete
                                     options={employees}
                                     getOptionLabel={(option) => `${option.name} (${option.employee_id})`}
@@ -254,6 +254,7 @@ function ReturnAsset({ token }) {
                                             placeholder="Search by Name or ID"
                                             fullWidth
                                             variant="outlined"
+                                            size="small"
                                             InputProps={{
                                                 ...params.InputProps,
                                                 startAdornment: (

@@ -124,7 +124,7 @@ function AssignAsset({ token }) {
                     <Grid container spacing={4}>
 
                         {/* Row 1: Asset Selection */}
-                        <Grid item xs={12} md={6}>
+                        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
                             <Autocomplete
                                 id="select-asset"
                                 options={assets}
@@ -140,6 +140,7 @@ function AssignAsset({ token }) {
                                         variant="outlined"
                                         required
                                         fullWidth
+                                        size="small"
                                         InputProps={{
                                             ...params.InputProps,
                                             startAdornment: (
@@ -157,7 +158,7 @@ function AssignAsset({ token }) {
                         </Grid>
 
                         {/* Row 1: Employee Selection */}
-                        <Grid item xs={12} md={6}>
+                        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
                             <Autocomplete
                                 id="select-employee"
                                 options={employees}
@@ -173,6 +174,7 @@ function AssignAsset({ token }) {
                                         variant="outlined"
                                         required
                                         fullWidth
+                                        size="small"
                                         InputProps={{
                                             ...params.InputProps,
                                             startAdornment: (
@@ -198,6 +200,7 @@ function AssignAsset({ token }) {
                                 onChange={(e) => setPurpose(e.target.value)}
                                 placeholder="e.g. Remote Work, New Joinee"
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -217,6 +220,7 @@ function AssignAsset({ token }) {
                                 onChange={(e) => setAssignedBy(e.target.value)}
                                 placeholder="Admin Name"
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
@@ -236,6 +240,7 @@ function AssignAsset({ token }) {
                                 onChange={(e) => setRemarks(e.target.value)}
                                 placeholder="Any additional details..."
                                 variant="outlined"
+                                size="small"
                                 InputProps={{
                                     startAdornment: (
                                         <InputAdornment position="start">
