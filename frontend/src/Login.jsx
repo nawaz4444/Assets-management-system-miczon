@@ -7,6 +7,16 @@ function Login({ setToken }) {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
+    const params = new URLSearchParams(window.location.search);
+    const googleError = params.get('error');
+    const googleErrorMessage = (() => {
+        if (!googleError) return '';
+        if (googleError === 'invalid_domain') return 'Please sign in using your miczon.com Google account.';
+        if (googleError === 'missing_email') return 'Google did not provide an email for this account. Please use your miczon.com account.';
+        if (googleError === 'unverified_email') return 'Your Google email is not verified. Please verify it and try again.';
+        return 'Google login failed. Please try again.';
+    })();
+
     const handleSubmit = (e) => {
         e.preventDefault();
         axios.post('http://127.0.0.1:8000/api-token-auth/', {
@@ -29,6 +39,17 @@ function Login({ setToken }) {
             <Paper elevation={3} style={{ padding: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <Typography component="h1" variant="h5">Inventory Login</Typography>
                 {error && <Alert severity="error" style={{ width: '100%', marginTop: '10px' }}>{error}</Alert>}
+                {googleErrorMessage && <Alert severity="error" style={{ width: '100%', marginTop: '10px' }}>{googleErrorMessage}</Alert>}
+
+                <Button
+                    fullWidth
+                    variant="outlined"
+                    style={{ marginTop: '16px' }}
+                    onClick={() => { window.location.href = 'http://localhost:8000/accounts/google/login/'; }}
+                >
+                    Continue with Google
+                </Button>
+
                 <Box component="form" onSubmit={handleSubmit} style={{ marginTop: '20px', width: '100%' }}>
                     <TextField variant="outlined" margin="normal" required fullWidth label="Username" autoFocus value={username} onChange={(e) => setUsername(e.target.value)} />
                     <TextField variant="outlined" margin="normal" required fullWidth label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />

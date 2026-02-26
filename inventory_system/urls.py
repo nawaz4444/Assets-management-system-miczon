@@ -9,6 +9,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('inventory.urls')),
     path('api-token-auth/', obtain_auth_token),
+    path('accounts/', include('allauth.urls')),
 ]
 
 if settings.DEBUG:

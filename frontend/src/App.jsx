@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { AppBar, Toolbar, Typography, Button, Box, Tabs, Tab, ThemeProvider, CssBaseline } from '@mui/material';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -24,8 +24,22 @@ import InspectionReport from './pages/InspectionReport';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('userToken'));
+  const getInitialToken = () => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+      localStorage.setItem('userToken', urlToken);
+      // Clean URL immediately
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return urlToken;
+    }
+    return localStorage.getItem('userToken');
+  };
+
+  const [token, setToken] = useState(getInitialToken);
   const [currentTab, setCurrentTab] = useState(0);
+
+
 
   const handleLogout = () => {
     localStorage.removeItem('userToken');
@@ -47,40 +61,40 @@ function App() {
           <div style={{ minHeight: '100vh' }}>
             <AppBar position="static">
               <Toolbar>
-              <Box
-                component={Link}
-                to="/"
-                onClick={() => window.location.href = '/'}
-                sx={{
-                  flexGrow: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  textDecoration: 'none',
-                  color: 'inherit'
-                }}
-              >
                 <Box
-                  component="img"
-                  src={logoMic}
-                  alt="Miczon Logo"
+                  component={Link}
+                  to="/"
+                  onClick={() => window.location.href = '/'}
                   sx={{
-                    width: 40,
-                    height: 40,
-                    objectFit: 'contain'
-                  }}
-                />
-                <Typography
-                  variant="h6"
-                  sx={{
-                    fontWeight: 'bold',
-                    letterSpacing: '0.5px',
-                    fontSize: '1.1rem'
+                    flexGrow: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    textDecoration: 'none',
+                    color: 'inherit'
                   }}
                 >
-                  ASSET MANAGEMENT SYSTEM
-                </Typography>
-              </Box>
+                  <Box
+                    component="img"
+                    src={logoMic}
+                    alt="Miczon Logo"
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      objectFit: 'contain'
+                    }}
+                  />
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontWeight: 'bold',
+                      letterSpacing: '0.5px',
+                      fontSize: '1.1rem'
+                    }}
+                  >
+                    ASSET MANAGEMENT SYSTEM
+                  </Typography>
+                </Box>
 
                 <Box sx={{ mr: 3 }}>
                   <Tabs
@@ -134,11 +148,11 @@ function App() {
                   </Tabs>
                 </Box>
 
-                <Button 
-                  variant="outlined" 
-                  onClick={handleLogout} 
+                <Button
+                  variant="outlined"
+                  onClick={handleLogout}
                   startIcon={<LogoutIcon />}
-                  sx={{ 
+                  sx={{
                     borderColor: '#1E293B',
                     color: '#1E293B',
                     '&:hover': {
@@ -150,19 +164,19 @@ function App() {
                 >
                   Logout
                 </Button>
-            </Toolbar>
-          </AppBar>
+              </Toolbar>
+            </AppBar>
 
-          <Routes>
-            <Route path="/" element={<Dashboard token={token} handleLogout={handleLogout} />} />
-            <Route path="/reports" element={<ReportsDashboard token={token} />} />
-            <Route path="/add-asset" element={<AddAsset token={token} />} />
-            <Route path="/assign" element={<AssignAsset token={token} />} />
-            <Route path="/return" element={<ReturnAsset token={token} />} />
-            <Route path="/inspection" element={<AddAssetLog token={token} />} />
-            <Route path="/inspection-report" element={<InspectionReport token={token} />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+            <Routes>
+              <Route path="/" element={<Dashboard token={token} handleLogout={handleLogout} />} />
+              <Route path="/reports" element={<ReportsDashboard token={token} />} />
+              <Route path="/add-asset" element={<AddAsset token={token} />} />
+              <Route path="/assign" element={<AssignAsset token={token} />} />
+              <Route path="/return" element={<ReturnAsset token={token} />} />
+              <Route path="/inspection" element={<AddAssetLog token={token} />} />
+              <Route path="/inspection-report" element={<InspectionReport token={token} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
           </div>
         )}
       </BrowserRouter>
