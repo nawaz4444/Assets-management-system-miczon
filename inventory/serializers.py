@@ -113,4 +113,27 @@ class AssetAssignmentSerializer(serializers.ModelSerializer):
         model = AssetAssignment
         fields = '__all__'
 
+from django.contrib.auth.models import User
 
+class UserSerializer(serializers.ModelSerializer):
+    permissions = serializers.SerializerMethodField()
+    employee_details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'is_superuser', 'permissions', 'employee_details']
+
+    def get_permissions(self, obj):
+        return list(obj.get_all_permissions())
+
+    def get_employee_details(self, obj):
+        try:
+            profile = obj.employee_profile
+            return {
+                'id': profile.id,
+                'name': profile.name,
+                'employee_id': profile.employee_id,
+                'department': profile.department_id
+            }
+        except:
+            return None

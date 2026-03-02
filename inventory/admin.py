@@ -7,8 +7,8 @@ class DepartmentAdmin(admin.ModelAdmin):
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'employee_id', 'department')
-    search_fields = ('name', 'employee_id')
+    list_display = ('name', 'employee_id', 'department', 'user')
+    search_fields = ('name', 'employee_id', 'user__username', 'user__email')
 
 @admin.register(Asset)
 class AssetAdmin(admin.ModelAdmin):

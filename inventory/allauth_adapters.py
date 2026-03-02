@@ -11,6 +11,7 @@ class CustomAccountAdapter(DefaultAccountAdapter):
             parsed = urllib.parse.urlparse(url)
             query = dict(urllib.parse.parse_qsl(parsed.query))
             query['token'] = token.key
+            query['user_id'] = request.user.id
             parsed = parsed._replace(query=urllib.parse.urlencode(query))
             return urllib.parse.urlunparse(parsed)
         return url

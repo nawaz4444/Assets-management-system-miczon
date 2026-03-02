@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
+import { UserContext } from '../App';
 import {
     Container, Paper, Typography, TextField, Button, Box, Autocomplete, Alert,
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Checkbox,
@@ -37,6 +38,9 @@ function ReturnAsset({ token }) {
     // --- Step 2: Return Details ---
     const [returnDetails, setReturnDetails] = useState({});
 
+    // --- Auth context ---
+    const { user } = useContext(UserContext);
+
     const authConfig = { headers: { Authorization: `Token ${token}` } };
     const steps = ['Select Employee & Assets', 'Enter Return Details', 'Confirm'];
 
@@ -45,6 +49,16 @@ function ReturnAsset({ token }) {
             fetchData();
         }
     }, [token]);
+
+    // Handle initial selection for non-superusers
+    useEffect(() => {
+        if (user && !user.is_superuser && user.employee_details && employees.length > 0) {
+            const myProfile = employees.find(e => e.id === user.employee_details.id);
+            if (myProfile) {
+                setSelectedEmployee(myProfile);
+            }
+        }
+    }, [user, employees]);
 
     // 🚀 FIXED: Fetch ALL pages for employees and assets
     const fetchData = async () => {
@@ -241,35 +255,43 @@ function ReturnAsset({ token }) {
                 {activeStep === 0 && (
                     <Box>
                         <Grid container spacing={4}>
-                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
-                                <Autocomplete
-                                    options={employees}
-                                    getOptionLabel={(option) => `${option.name} (${option.employee_id})`}
-                                    value={selectedEmployee}
-                                    onChange={(e, newValue) => setSelectedEmployee(newValue)}
-                                    renderInput={(params) => (
-                                        <TextField
-                                            {...params}
-                                            label="Select Employee"
-                                            placeholder="Search by Name or ID"
-                                            fullWidth
-                                            variant="outlined"
-                                            size="small"
-                                            InputProps={{
-                                                ...params.InputProps,
-                                                startAdornment: (
-                                                    <>
-                                                        <InputAdornment position="start">
-                                                            <PersonIcon color="primary" />
-                                                        </InputAdornment>
-                                                        {params.InputProps.startAdornment}
-                                                    </>
-                                                )
-                                            }}
-                                        />
-                                    )}
-                                />
-                            </Grid>
+                            {(!user?.is_superuser && user?.employee_details) ? (
+                                <Grid item xs={12}>
+                                    <Alert severity="info" variant="outlined" sx={{ borderRadius: 2 }}>
+                                        Processing return for: <strong>{user.employee_details.name} ({user.employee_details.employee_id})</strong>
+                                    </Alert>
+                                </Grid>
+                            ) : (
+                                <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                                    <Autocomplete
+                                        options={employees}
+                                        getOptionLabel={(option) => `${option.name} (${option.employee_id})`}
+                                        value={selectedEmployee}
+                                        onChange={(e, newValue) => setSelectedEmployee(newValue)}
+                                        renderInput={(params) => (
+                                            <TextField
+                                                {...params}
+                                                label="Select Employee"
+                                                placeholder="Search by Name or ID"
+                                                fullWidth
+                                                variant="outlined"
+                                                size="small"
+                                                InputProps={{
+                                                    ...params.InputProps,
+                                                    startAdornment: (
+                                                        <>
+                                                            <InputAdornment position="start">
+                                                                <PersonIcon color="primary" />
+                                                            </InputAdornment>
+                                                            {params.InputProps.startAdornment}
+                                                        </>
+                                                    )
+                                                }}
+                                            />
+                                        )}
+                                    />
+                                </Grid>
+                            )}
                         </Grid>
 
                         {selectedEmployee && (

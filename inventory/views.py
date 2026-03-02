@@ -1,9 +1,13 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog
-from .serializers import AssetSerializer, EmployeeSerializer, DepartmentSerializer, AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer, AssetDetailSerializer
+from .serializers import (
+    AssetSerializer, EmployeeSerializer, DepartmentSerializer, 
+    AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer, 
+    AssetDetailSerializer, UserSerializer
+)
 from rest_framework.decorators import action
 from django.db.models import Count, Q
 import pandas as pd
@@ -17,19 +21,69 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size_query_param = 'page_size'
     max_page_size = 100
 
+# --- UTILS ---
+def get_employee_filter(user, prefix=''):
+    """
+    Returns a Q object to filter by the current user's employee profile.
+    Matches by linked user, email, or full name.
+    """
+    if user.is_superuser:
+        return Q()
+    
+    # 1. Match by direct linked user field
+    q = Q(**{f"{prefix}user": user})
+    
+    # 2. Match by email
+    if user.email:
+        q |= Q(**{f"{prefix}email": user.email})
+    
+    # 3. Match by full name
+    full_name = f"{user.first_name} {user.last_name}".strip()
+    if full_name:
+        q |= Q(**{f"{prefix}name__iexact": full_name})
+    elif user.username:
+        q |= Q(**{f"{prefix}name__iexact": user.username})
+        
+    return q
+
+# --- AUTH VIEWS ---
+class CurrentUserView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
 # --- VIEWSETS ---
 class AssetAssignmentViewSet(viewsets.ModelViewSet):
     queryset = AssetAssignment.objects.all().order_by('-assigned_date')
     serializer_class = AssetAssignmentSerializer
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if not self.request.user.is_superuser:
+            # Filter assignments by the employee
+            emp_filter = get_employee_filter(self.request.user, prefix='employee__')
+            queryset = queryset.filter(emp_filter)
+        return queryset
+
 class InspectionLogViewSet(viewsets.ModelViewSet):
     queryset = InspectionLog.objects.all().order_by('-date')
     serializer_class = InspectionLogSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if not self.request.user.is_superuser:
+            # Filter logs for assets where the user is the custodian
+            emp_filter = get_employee_filter(self.request.user, prefix='asset__custodian__')
+            queryset = queryset.filter(emp_filter)
+        return queryset
 
 class AssetViewSet(viewsets.ModelViewSet):
     queryset = Asset.objects.all().order_by('-created_at')
     serializer_class = AssetDetailSerializer  # Default for create/update
     pagination_class = StandardResultsSetPagination
+    permission_classes = [permissions.DjangoModelPermissions]
 
     def get_serializer_class(self):
         """
@@ -78,6 +132,11 @@ class AssetViewSet(viewsets.ModelViewSet):
                 Q(category__icontains=search)
             )
         
+        # OWNER RESTRICTION: Non-superusers only see assets assigned to them
+        if not self.request.user.is_superuser:
+            emp_filter = get_employee_filter(self.request.user, prefix='custodian__')
+            queryset = queryset.filter(emp_filter)
+            
         return queryset
 
     def perform_update(self, serializer):
@@ -193,6 +252,12 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         department = self.request.query_params.get('department')
         if department:
             queryset = queryset.filter(department_id=department)
+            
+        # Security: Employees only see their own profile
+        if not self.request.user.is_superuser:
+            emp_filter = get_employee_filter(self.request.user)
+            queryset = queryset.filter(emp_filter)
+            
         return queryset
 
 class DepartmentViewSet(viewsets.ModelViewSet):
@@ -206,7 +271,12 @@ class ReportsViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'], url_path='dashboard-stats')
     def dashboard_stats(self, request):
-        stats = Asset.objects.aggregate(
+        queryset = Asset.objects.all()
+        if not request.user.is_superuser:
+            emp_filter = get_employee_filter(request.user, prefix='custodian__')
+            queryset = queryset.filter(emp_filter)
+
+        stats = queryset.aggregate(
             total_assets=Count('id'),
             total_assigned=Count('id', filter=Q(current_status='ASSIGNED')),
             total_unassigned=Count('id', filter=Q(current_status='AVAILABLE')),
@@ -216,8 +286,13 @@ class ReportsViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'], url_path='category-breakdown')
     def category_breakdown(self, request):
+        queryset = Asset.objects.all()
+        if not request.user.is_superuser:
+            emp_filter = get_employee_filter(request.user, prefix='custodian__')
+            queryset = queryset.filter(emp_filter)
+
         # Return asset counts grouped by Category.
-        data = Asset.objects.values('category').annotate(
+        data = queryset.values('category').annotate(
             count=Count('id'),
             assigned=Count('id', filter=Q(current_status='ASSIGNED')),
             available=Count('id', filter=Q(current_status='AVAILABLE'))
@@ -250,6 +325,11 @@ class ReportsViewSet(viewsets.ViewSet):
 
         if status:
             queryset = queryset.filter(current_status=status)
+
+        # Owner restricted export
+        if not request.user.is_superuser:
+            emp_filter = get_employee_filter(request.user, prefix='custodian__')
+            queryset = queryset.filter(emp_filter)
 
         serializer = AssetSerializer(queryset, many=True, context={'request': request})
         return Response(serializer.data)

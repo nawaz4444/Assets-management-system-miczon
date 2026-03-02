@@ -11,6 +11,7 @@ class Department(models.Model):
     def __str__(self): return self.name
 
 class Employee(models.Model):
+    user = models.OneToOneField('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='employee_profile')
     name = models.CharField(max_length=100)
     employee_id = models.CharField(max_length=50, unique=True)
     department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True)
