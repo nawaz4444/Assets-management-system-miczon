@@ -2,11 +2,11 @@ from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
-from .models import Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog
+from .models import Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog, AssetActionRequest
 from .serializers import (
     AssetSerializer, EmployeeSerializer, DepartmentSerializer, 
     AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer, 
-    AssetDetailSerializer, UserSerializer
+    AssetDetailSerializer, UserSerializer, AssetActionRequestSerializer
 )
 from rest_framework.decorators import action
 from django.db.models import Count, Q
@@ -139,6 +139,17 @@ class AssetViewSet(viewsets.ModelViewSet):
             
         return queryset
 
+    def _get_requester(self, user):
+        """Helper to get Employee profile for a User"""
+        from .models import Employee
+        # Use existing logic to find the employee profile
+        q = Q(user=user)
+        if user.email: q |= Q(email=user.email)
+        full_name = f"{user.first_name} {user.last_name}".strip()
+        if full_name: q |= Q(name__iexact=full_name)
+        elif user.username: q |= Q(name__iexact=user.username)
+        return Employee.objects.filter(q).first()
+
     def perform_update(self, serializer):
         instance = self.get_object()
         old_custodian = instance.custodian
@@ -163,22 +174,33 @@ class AssetViewSet(viewsets.ModelViewSet):
         except Employee.DoesNotExist:
             return Response({"error": "Employee not found"}, status=400)
 
-        # 1. Find current active assignment
-        active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+        # If user is not superuser, create request for approval
+        if not request.user.is_superuser:
+            requester = self._get_requester(request.user)
+            if not requester:
+                return Response({"error": "Employee profile not found for user"}, status=400)
+            
+            AssetActionRequest.objects.create(
+                asset=asset,
+                requester=requester,
+                action_type='TRANSFER',
+                target_employee=to_employee,
+                remarks=remarks
+            )
+            return Response({"status": "Transfer request submitted for approval"})
+
+        # Superuser: Direct transfer logic
         from_employee = asset.custodian
-        
+        active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
         if active_assignment:
             active_assignment.mark_returned(returned_by='Transfer Action', condition='Good')
         
-        # 2. Create new assignment
         AssetAssignment.objects.create(
             asset=asset,
             employee=to_employee,
             remarks=remarks,
             status='ASSIGNED'
         )
-        
-        # 3. Log history
         AssetHistory.objects.create(
             asset=asset,
             action="TRANSFER",
@@ -186,7 +208,6 @@ class AssetViewSet(viewsets.ModelViewSet):
             to_employee=to_employee,
             remarks=remarks
         )
-        
         return Response({"status": "Asset transferred successfully"})
 
     @action(detail=True, methods=['post'])
@@ -196,25 +217,38 @@ class AssetViewSet(viewsets.ModelViewSet):
         expected_return = request.data.get('expected_return')
         issue = request.data.get('issue', 'Broken/Repair')
         
-        # 1. Auto-return if assigned
+        # If user is not superuser, create request for approval
+        if not request.user.is_superuser:
+            requester = self._get_requester(request.user)
+            if not requester:
+                return Response({"error": "Employee profile not found for user"}, status=400)
+            
+            AssetActionRequest.objects.create(
+                asset=asset,
+                requester=requester,
+                action_type='REPAIR',
+                vendor=vendor,
+                expected_return_date=expected_return,
+                remarks=issue
+            )
+            return Response({"status": "Repair request submitted for approval"})
+
+        # Superuser logic
         active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
         if active_assignment:
             active_assignment.mark_returned(returned_by='Repair Action', condition='Broken')
             
-        # 2. Update Asset Status and Maintenance Info
         asset.current_status = 'BROKEN'
         asset.maintenance_vendor = vendor
         asset.sent_to_repair_date = date.today()
         asset.expected_return_date = expected_return
         asset.save()
         
-        # 3. Log history
         AssetHistory.objects.create(
             asset=asset,
             action="REPAIR",
             remarks=f"Sent to {vendor}. Issue: {issue}"
         )
-        
         return Response({"status": "Asset sent to repair"})
 
     @action(detail=True, methods=['post'])
@@ -263,6 +297,107 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 class DepartmentViewSet(viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
+
+class AssetActionRequestViewSet(viewsets.ModelViewSet):
+    queryset = AssetActionRequest.objects.all().order_by('-created_at')
+    serializer_class = AssetActionRequestSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status = self.request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        if not self.request.user.is_superuser:
+            emp_filter = get_employee_filter(self.request.user, prefix='requester__')
+            queryset = queryset.filter(emp_filter)
+        return queryset
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        if not request.user.is_superuser:
+            return Response({"error": "Only admins can approve requests"}, status=403)
+        
+        req = self.get_object()
+        if req.status != 'PENDING':
+            return Response({"error": "Request is already processed"}, status=400)
+        
+        admin_remarks = request.data.get('admin_remarks', '')
+        asset = req.asset
+        
+        # --- PERFORM THE ACTION ---
+        if req.action_type == 'RETURN':
+            active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+            if active_assignment:
+                active_assignment.mark_returned(returned_by=f"Approved by {request.user.username}", condition='Good')
+        
+        elif req.action_type == 'ASSIGN' or req.action_type == 'TRANSFER':
+            from_employee = asset.custodian
+            to_employee = req.target_employee
+            
+            # Return current assignment if transfer
+            if req.action_type == 'TRANSFER':
+                active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+                if active_assignment:
+                    active_assignment.mark_returned(returned_by=f"Transfer Approved by {request.user.username}", condition='Good')
+            
+            AssetAssignment.objects.create(
+                asset=asset,
+                employee=to_employee,
+                remarks=req.remarks,
+                status='ASSIGNED'
+            )
+            AssetHistory.objects.create(
+                asset=asset,
+                action=req.action_type,
+                from_employee=from_employee,
+                to_employee=to_employee,
+                remarks=req.remarks
+            )
+            
+        elif req.action_type == 'REPAIR':
+            active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+            if active_assignment:
+                active_assignment.mark_returned(returned_by="Repair Approved", condition='Broken')
+                
+            asset.current_status = 'BROKEN'
+            asset.maintenance_vendor = req.vendor
+            asset.sent_to_repair_date = date.today()
+            asset.expected_return_date = req.expected_return_date
+            asset.save()
+            
+            AssetHistory.objects.create(
+                asset=asset,
+                action="REPAIR",
+                remarks=f"Repair Approved. Vendor: {req.vendor}. Info: {req.remarks}"
+            )
+
+        # Update Request Status
+        req.status = 'APPROVED'
+        req.admin_remarks = admin_remarks
+        req.processed_at = timezone.now()
+        req.processed_by = request.user
+        req.save()
+        
+        return Response({"status": "Request approved and action performed"})
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        if not request.user.is_superuser:
+            return Response({"error": "Only admins can reject requests"}, status=403)
+        
+        req = self.get_object()
+        if req.status != 'PENDING':
+            return Response({"error": "Request is already processed"}, status=400)
+            
+        admin_remarks = request.data.get('admin_remarks', '')
+        req.status = 'REJECTED'
+        req.admin_remarks = admin_remarks
+        req.processed_at = timezone.now()
+        req.processed_by = request.user
+        req.save()
+        
+        return Response({"status": "Request rejected"})
 
 class ReportsViewSet(viewsets.ViewSet):
     """

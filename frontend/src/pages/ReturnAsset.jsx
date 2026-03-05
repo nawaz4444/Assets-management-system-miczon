@@ -42,6 +42,7 @@ function ReturnAsset({ token }) {
     const { user } = useContext(UserContext);
 
     const authConfig = { headers: { Authorization: `Token ${token}` } };
+    const API_BASE = 'http://localhost:8000/api';
     const steps = ['Select Employee & Assets', 'Enter Return Details', 'Confirm'];
 
     useEffect(() => {
@@ -174,8 +175,18 @@ function ReturnAsset({ token }) {
                 const asset = allAssets.find(a => a.id === assetId);
                 const details = returnDetails[assetId];
 
-                // Logic: If there is an active assignment ID, use that endpoint. 
-                // Otherwise patch the asset directly.
+                // If user is not superuser, create a request for approval
+                if (user && !user.is_superuser) {
+                    const payload = {
+                        asset: asset.id,
+                        requester: user.employee_details?.id,
+                        action_type: 'RETURN',
+                        remarks: `Date: ${details.returned_date}, By: ${details.returned_by}, Cond: ${details.condition}. ${details.remarks}`
+                    };
+                    return axios.post(`${API_BASE}/requests/`, payload, authConfig);
+                }
+
+                // Superuser Logic: Existing direct update
                 if (asset.active_assignment_id) {
                     const payload = {
                         status: 'RETURNED',
@@ -189,7 +200,6 @@ function ReturnAsset({ token }) {
                         payload, authConfig
                     );
                 } else {
-                    // Fallback if no assignment ID is tracked on the asset object
                     const returnNote = `[RETURNED] Date: ${details.returned_date}, By: ${details.returned_by}, Cond: ${details.condition}. ${details.remarks}`;
                     const payload = {
                         custodian: null,

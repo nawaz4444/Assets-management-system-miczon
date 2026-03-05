@@ -145,3 +145,38 @@ class AssetAssignment(models.Model):
     def __str__(self):
         return f"{self.asset.miczon_id} -> {self.employee.name} ({self.status})"
 
+class AssetActionRequest(models.Model):
+    ACTION_TYPES = [
+        ('ASSIGN', 'Assign'),
+        ('TRANSFER', 'Transfer'),
+        ('RETURN', 'Return'),
+        ('REPAIR', 'Repair'),
+    ]
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE)
+    requester = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='requests_made')
+    action_type = models.CharField(max_length=20, choices=ACTION_TYPES)
+    
+    # Target for ASSIGN or TRANSFER
+    target_employee = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='requests_received')
+    
+    # Data for REPAIR
+    vendor = models.CharField(max_length=255, blank=True)
+    expected_return_date = models.DateField(null=True, blank=True)
+    
+    remarks = models.TextField(blank=True)
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    admin_remarks = models.TextField(blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.action_type} Request: {self.asset.miczon_id} by {self.requester.name}"

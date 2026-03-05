@@ -155,3 +155,14 @@ class UserSerializer(serializers.ModelSerializer):
                 'department': profile.department_id
             }
         return None
+from .models import AssetActionRequest
+class AssetActionRequestSerializer(serializers.ModelSerializer):
+    asset_miczon_id = serializers.CharField(source='asset.miczon_id', read_only=True)
+    asset_name = serializers.CharField(source='asset.name', read_only=True)
+    requester_name = serializers.CharField(source='requester.name', read_only=True)
+    target_employee_name = serializers.CharField(source='target_employee.name', read_only=True)
+    processed_by_name = serializers.CharField(source='processed_by.username', read_only=True)
+
+    class Meta:
+        model = AssetActionRequest
+        fields = '__all__'

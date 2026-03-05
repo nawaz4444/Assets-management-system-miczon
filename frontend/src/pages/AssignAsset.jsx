@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
+import { UserContext } from '../App';
 import {
     Container, Paper, Typography, TextField, Button, Box, Autocomplete,
     Alert, Grid, CircularProgress, InputAdornment, Snackbar, Divider
@@ -30,6 +31,7 @@ function AssignAsset({ token }) {
     const [loading, setLoading] = useState(false);
     const [alert, setAlert] = useState({ open: false, message: '', severity: 'success' });
 
+    const { user } = useContext(UserContext);
     const authConfig = { headers: { Authorization: `Token ${token}` } };
 
     useEffect(() => {
@@ -42,7 +44,7 @@ function AssignAsset({ token }) {
                 fetchAllPages('http://127.0.0.1:8000/api/assets/', authConfig),
                 fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig)
             ]);
-            
+
             // Filter for available assets only
             setAssets(assetsData.filter(a => a.current_status === 'AVAILABLE'));
             setEmployees(employeesData);
@@ -77,6 +79,28 @@ function AssignAsset({ token }) {
             assigned_by: assignedBy,
             status: 'ASSIGNED'
         };
+
+        if (user && !user.is_superuser) {
+            const reqPayload = {
+                asset: selectedAsset.id,
+                requester: user.employee_details?.id,
+                action_type: 'ASSIGN',
+                target_employee: selectedEmployee.id,
+                remarks: `Purpose: ${purpose}, Assigned By: ${assignedBy}. Notes: ${remarks}`
+            };
+            axios.post('http://127.0.0.1:8000/api/requests/', reqPayload, authConfig)
+                .then(() => {
+                    setAlert({ open: true, message: `Assignment request for ${selectedAsset.miczon_id} submitted for approval.`, severity: 'success' });
+                    handleClear();
+                    fetchData();
+                })
+                .catch(err => {
+                    console.error("Request Error:", err);
+                    setAlert({ open: true, message: 'Failed to submit request.', severity: 'error' });
+                })
+                .finally(() => setLoading(false));
+            return;
+        }
 
         axios.post('http://127.0.0.1:8000/api/assignments/', payload, authConfig)
             .then(() => {

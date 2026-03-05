@@ -8,6 +8,7 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import AssignmentReturnIcon from '@mui/icons-material/AssignmentReturn';
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import AssessmentIcon from '@mui/icons-material/Assessment';
+import RuleIcon from '@mui/icons-material/Rule';
 import logoMic from './logo.mic.png';
 import theme from './theme';
 
@@ -22,6 +23,7 @@ import AssignAsset from './pages/AssignAsset';
 import ReturnAsset from './pages/ReturnAsset';
 import AddAssetLog from './pages/AddAssetLog';
 import InspectionReport from './pages/InspectionReport';
+import PendingRequests from './pages/PendingRequests';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 
 export const UserContext = createContext(null);
@@ -201,6 +203,13 @@ function App() {
                         component={Link}
                         to="/inspection"
                       />
+                      <Tab
+                        label="Approvals"
+                        icon={<RuleIcon />}
+                        iconPosition="start"
+                        component={Link}
+                        to="/approvals"
+                      />
                     </Tabs>
                   </Box>
 
@@ -252,6 +261,7 @@ function App() {
                 <Route path="/return" element={<ReturnAsset token={token} />} />
                 <Route path="/inspection" element={<AddAssetLog token={token} />} />
                 <Route path="/inspection-report" element={<InspectionReport token={token} />} />
+                <Route path="/approvals" element={<PendingRequests token={token} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </div>

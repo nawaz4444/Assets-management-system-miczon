@@ -218,11 +218,11 @@ function Dashboard({ token, handleLogout }) {
     const handleTransfer = async () => {
         if (!transferTo) return alert("Select an employee!");
         try {
-            await axios.post(`http://127.0.0.1:8000/api/assets/${selectedAsset.id}/transfer/`, {
+            const res = await axios.post(`http://127.0.0.1:8000/api/assets/${selectedAsset.id}/transfer/`, {
                 to_employee_id: transferTo,
                 remarks: transferRemarks
             }, authConfig);
-            alert("Transfer successful!");
+            alert(res.data.status || "Transfer processed!");
             setOpenTransfer(false);
             setOpenDetails(false);
             fetchData();
@@ -235,12 +235,12 @@ function Dashboard({ token, handleLogout }) {
     const handleRepair = async () => {
         if (!repairVendor || !repairExpectedReturn) return alert("Fill required fields!");
         try {
-            await axios.post(`http://127.0.0.1:8000/api/assets/${selectedAsset.id}/repair/`, {
+            const res = await axios.post(`http://127.0.0.1:8000/api/assets/${selectedAsset.id}/repair/`, {
                 vendor: repairVendor,
                 expected_return: repairExpectedReturn,
                 issue: repairIssue
             }, authConfig);
-            alert("Asset sent to repair!");
+            alert(res.data.status || "Repair processed!");
             setOpenRepair(false);
             setOpenDetails(false);
             fetchData();
@@ -695,8 +695,12 @@ function Dashboard({ token, handleLogout }) {
                                             <Button variant="outlined" fullWidth startIcon={<DownloadIcon />} href={selectedAsset.qr_code_url} download={`QR_${selectedAsset.miczon_id}.png`} sx={{ mt: 1 }}>Download PNG</Button>
                                             <Divider sx={{ my: 3, width: '100%' }} />
                                             <Typography variant="caption" color="textSecondary" sx={{ mb: 1 }}>Lifecycle Actions</Typography>
-                                            <Button variant="outlined" fullWidth startIcon={<CompareArrowsIcon />} onClick={() => { setOpenTransfer(true); setTransferTo(''); setTransferRemarks(''); }} sx={{ mb: 1, borderColor: 'primary.main', color: 'primary.main' }}>Direct Transfer</Button>
-                                            <Button variant="outlined" fullWidth startIcon={<BuildIcon />} onClick={() => { setOpenRepair(true); setRepairVendor(''); setRepairIssue(''); }} color="error">Send to Repair</Button>
+                                            <Button variant="outlined" fullWidth startIcon={<CompareArrowsIcon />} onClick={() => { setOpenTransfer(true); setTransferTo(''); setTransferRemarks(''); }} sx={{ mb: 1, borderColor: 'primary.main', color: 'primary.main' }}>
+                                                {user?.is_superuser ? 'Direct Transfer' : 'Request Transfer'}
+                                            </Button>
+                                            <Button variant="outlined" fullWidth startIcon={<BuildIcon />} onClick={() => { setOpenRepair(true); setRepairVendor(''); setRepairIssue(''); }} color="error">
+                                                {user?.is_superuser ? 'Send to Repair' : 'Request Repair'}
+                                            </Button>
                                         </>
                                     ) : (
                                         <Typography color="textSecondary">No QR Code generated</Typography>
@@ -722,7 +726,9 @@ function Dashboard({ token, handleLogout }) {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setOpenTransfer(false)}>Cancel</Button>
-                    <Button onClick={handleTransfer} variant="contained">Confirm Transfer</Button>
+                    <Button onClick={handleTransfer} variant="contained">
+                        {user?.is_superuser ? 'Confirm Transfer' : 'Submit Request'}
+                    </Button>
                 </DialogActions>
             </Dialog>
 
@@ -738,7 +744,9 @@ function Dashboard({ token, handleLogout }) {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setOpenRepair(false)}>Cancel</Button>
-                    <Button onClick={handleRepair} variant="contained" color="error" sx={{ '&.MuiButton-containedError': { backgroundColor: '#BA1A1A' } }}>Confirm Send to Repair</Button>
+                    <Button onClick={handleRepair} variant="contained" color="error" sx={{ '&.MuiButton-containedError': { backgroundColor: '#BA1A1A' } }}>
+                        {user?.is_superuser ? 'Confirm Send to Repair' : 'Submit Request'}
+                    </Button>
                 </DialogActions>
             </Dialog>
 
