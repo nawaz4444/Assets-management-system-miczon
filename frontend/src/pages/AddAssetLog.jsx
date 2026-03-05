@@ -118,8 +118,13 @@ function AddAssetLog({ token }) {
     };
 
     const handleReset = () => {
-        setSelectedDept('');
-        setSelectedEmp('');
+        if (user && !user.is_superuser && user.employee_details) {
+            setSelectedDept(user.employee_details.department || '');
+            setSelectedEmp(user.employee_details.id || '');
+        } else {
+            setSelectedDept('');
+            setSelectedEmp('');
+        }
         setAssets([]);
         setInspections({});
     };
@@ -202,75 +207,69 @@ function AddAssetLog({ token }) {
 
                 {/* --- TOP SECTION: FILTERS --- */}
                 <Grid container spacing={2} alignItems="center" sx={{ mb: 4 }}>
-                    {(!user?.is_superuser && user?.employee_details) ? (
-                        <Grid item xs={12}>
-                            <Alert severity="info" variant="outlined" sx={{ borderRadius: 2 }}>
-                                Recording inspections for: <strong>{user.employee_details.name} ({user.employee_details.employee_id})</strong>
-                            </Alert>
-                        </Grid>
-                    ) : (
-                        <>
-                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
-                                <FormControl fullWidth variant="outlined" size="small">
-                                    <InputLabel id="dept-label">Select Department</InputLabel>
-                                    <Select
-                                        labelId="dept-label"
-                                        label="Select Department"
-                                        value={selectedDept}
-                                        onChange={(e) => setSelectedDept(e.target.value)}
-                                        size="small"
-                                        startAdornment={
-                                            <InputAdornment position="start">
-                                                <BusinessIcon color="action" />
-                                            </InputAdornment>
-                                        }
-                                    >
-                                        {departments.map(d => (
-                                            <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                            </Grid>
+                    <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                        <FormControl fullWidth variant="outlined" size="small">
+                            <InputLabel id="dept-label">Select Department</InputLabel>
+                            <Select
+                                labelId="dept-label"
+                                label="Select Department"
+                                value={selectedDept}
+                                onChange={(e) => setSelectedDept(e.target.value)}
+                                size="small"
+                                startAdornment={
+                                    <InputAdornment position="start">
+                                        <BusinessIcon color="action" />
+                                    </InputAdornment>
+                                }
+                            >
+                                {departments
+                                    .filter(d => (user && !user.is_superuser && user.employee_details) ? d.id === user.employee_details.department : true)
+                                    .map(d => (
+                                        <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>
+                                    ))}
+                            </Select>
+                        </FormControl>
+                    </Grid>
 
-                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
-                                <FormControl fullWidth variant="outlined" size="small">
-                                    <InputLabel id="emp-label">Select Employee</InputLabel>
-                                    <Select
-                                        labelId="emp-label"
-                                        label="Select Employee"
-                                        value={selectedEmp}
-                                        onChange={(e) => setSelectedEmp(e.target.value)}
-                                        size="small"
-                                        startAdornment={
-                                            <InputAdornment position="start">
-                                                <AssignmentIndIcon color="action" />
-                                            </InputAdornment>
-                                        }
-                                    >
-                                        <MenuItem value="">
-                                            <em>All Employees</em>
-                                        </MenuItem>
-                                        {filteredEmployees.map(e => (
-                                            <MenuItem key={e.id} value={e.id}>{e.name} ({e.employee_id})</MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                            </Grid>
+                    <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                        <FormControl fullWidth variant="outlined" size="small">
+                            <InputLabel id="emp-label">Select Employee</InputLabel>
+                            <Select
+                                labelId="emp-label"
+                                label="Select Employee"
+                                value={selectedEmp}
+                                onChange={(e) => setSelectedEmp(e.target.value)}
+                                size="small"
+                                startAdornment={
+                                    <InputAdornment position="start">
+                                        <AssignmentIndIcon color="action" />
+                                    </InputAdornment>
+                                }
+                            >
+                                <MenuItem value="">
+                                    <em>All Employees</em>
+                                </MenuItem>
+                                {filteredEmployees
+                                    .filter(e => (user && !user.is_superuser && user.employee_details) ? e.id === user.employee_details.id : true)
+                                    .map(e => (
+                                        <MenuItem key={e.id} value={e.id}>{e.name} ({e.employee_id})</MenuItem>
+                                    ))}
+                            </Select>
+                        </FormControl>
+                    </Grid>
 
-                            <Grid item xs={12} md="auto">
-                                <Button
-                                    fullWidth
-                                    variant="outlined"
-                                    color="inherit"
-                                    startIcon={<RestartAltIcon />}
-                                    onClick={handleReset}
-                                    sx={{ height: '56px', borderColor: '#ccc', color: '#666' }}
-                                >
-                                    Reset
-                                </Button>
-                            </Grid>
-                        </>
-                    )}
+                    <Grid item xs={12} md="auto">
+                        <Button
+                            fullWidth
+                            variant="outlined"
+                            color="inherit"
+                            startIcon={<RestartAltIcon />}
+                            onClick={handleReset}
+                            sx={{ height: '56px', borderColor: '#ccc', color: '#666' }}
+                        >
+                            Reset
+                        </Button>
+                    </Grid>
                 </Grid>
 
                 {/* --- BOTTOM SECTION: TABLE --- */}

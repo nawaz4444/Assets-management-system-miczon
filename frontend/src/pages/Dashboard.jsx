@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import axios from 'axios';
+import { UserContext } from '../App';
 import {
     Container, Typography, Table, TableBody, TableCell,
     TableContainer, TableHead, TableRow, Paper, Button, Box,
@@ -70,6 +71,7 @@ function Dashboard({ token, handleLogout }) {
     const [repairExpectedReturn, setRepairExpectedReturn] = useState('');
     const [repairIssue, setRepairIssue] = useState('');
 
+    const { user } = useContext(UserContext);
     const authConfig = { headers: { Authorization: `Token ${token}` } };
 
     // --- Effects ---
@@ -78,6 +80,13 @@ function Dashboard({ token, handleLogout }) {
             initDashboard();
         }
     }, [token]);
+
+    // Auto-select and lock department for non-superusers
+    useEffect(() => {
+        if (user && !user.is_superuser && user.employee_details) {
+            setFilterDept(user.employee_details.department || '');
+        }
+    }, [user]);
 
     // 🚀 OPTIMIZATION 1: Parallel Fetching with Crash Fix
     const initDashboard = async () => {
@@ -247,7 +256,7 @@ function Dashboard({ token, handleLogout }) {
     const uniqueCategories = [...new Set(assets.map(item => item.category).filter(Boolean))];
 
     // Filter assets
-    const filteredAssets = (filterDept || filterStatus || filterCategory || searchTerm) 
+    const filteredAssets = (filterDept || filterStatus || filterCategory || searchTerm)
         ? assets // Server-side filtering already applied, use assets as-is
         : assets.filter(asset => {
             // Only apply client-side filtering if no server filters are active
@@ -322,13 +331,18 @@ function Dashboard({ token, handleLogout }) {
         if (sortBy !== column) {
             return <UnfoldMoreIcon sx={{ fontSize: 16, ml: 0.5, opacity: 0.5 }} />;
         }
-        return sortOrder === 'asc' 
+        return sortOrder === 'asc'
             ? <ArrowUpwardIcon sx={{ fontSize: 16, ml: 0.5, color: 'primary.main' }} />
             : <ArrowDownwardIcon sx={{ fontSize: 16, ml: 0.5, color: 'primary.main' }} />;
     };
 
     const clearFilters = () => {
-        setSearchTerm(''); setFilterDept(''); setFilterStatus(''); setFilterCategory('');
+        setSearchTerm(''); setFilterStatus(''); setFilterCategory('');
+        if (user && !user.is_superuser && user.employee_details) {
+            setFilterDept(user.employee_details.department || '');
+        } else {
+            setFilterDept('');
+        }
         fetchData();
     };
 
@@ -365,7 +379,11 @@ function Dashboard({ token, handleLogout }) {
                         filterDept={filterDept} setFilterDept={setFilterDept}
                         filterStatus={filterStatus} setFilterStatus={setFilterStatus}
                         filterCategory={filterCategory} setFilterCategory={setFilterCategory}
-                        departments={departments}
+                        departments={
+                            (user && !user.is_superuser && user.employee_details)
+                                ? departments.filter(d => d.id === user.employee_details.department)
+                                : departments
+                        }
                         uniqueCategories={uniqueCategories}
                         clearFilters={clearFilters}
                     >
@@ -407,9 +425,9 @@ function Dashboard({ token, handleLogout }) {
                     <Table stickyHeader>
                         <TableHead>
                             <TableRow>
-                                <TableCell 
-                                    sx={{ 
-                                        bgcolor: '#e3f2fd', 
+                                <TableCell
+                                    sx={{
+                                        bgcolor: '#e3f2fd',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         userSelect: 'none',
@@ -422,9 +440,9 @@ function Dashboard({ token, handleLogout }) {
                                         {getSortIcon('miczon_id')}
                                     </Box>
                                 </TableCell>
-                                <TableCell 
-                                    sx={{ 
-                                        bgcolor: '#e3f2fd', 
+                                <TableCell
+                                    sx={{
+                                        bgcolor: '#e3f2fd',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         userSelect: 'none',
@@ -437,9 +455,9 @@ function Dashboard({ token, handleLogout }) {
                                         {getSortIcon('name')}
                                     </Box>
                                 </TableCell>
-                                <TableCell 
-                                    sx={{ 
-                                        bgcolor: '#e3f2fd', 
+                                <TableCell
+                                    sx={{
+                                        bgcolor: '#e3f2fd',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         userSelect: 'none',
@@ -452,9 +470,9 @@ function Dashboard({ token, handleLogout }) {
                                         {getSortIcon('specifications')}
                                     </Box>
                                 </TableCell>
-                                <TableCell 
-                                    sx={{ 
-                                        bgcolor: '#e3f2fd', 
+                                <TableCell
+                                    sx={{
+                                        bgcolor: '#e3f2fd',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         userSelect: 'none',
@@ -467,9 +485,9 @@ function Dashboard({ token, handleLogout }) {
                                         {getSortIcon('department')}
                                     </Box>
                                 </TableCell>
-                                <TableCell 
-                                    sx={{ 
-                                        bgcolor: '#e3f2fd', 
+                                <TableCell
+                                    sx={{
+                                        bgcolor: '#e3f2fd',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         userSelect: 'none',
@@ -482,9 +500,9 @@ function Dashboard({ token, handleLogout }) {
                                         {getSortIcon('custodian')}
                                     </Box>
                                 </TableCell>
-                                <TableCell 
-                                    sx={{ 
-                                        bgcolor: '#e3f2fd', 
+                                <TableCell
+                                    sx={{
+                                        bgcolor: '#e3f2fd',
                                         fontWeight: 'bold',
                                         cursor: 'pointer',
                                         userSelect: 'none',
@@ -724,12 +742,12 @@ function Dashboard({ token, handleLogout }) {
                 </DialogActions>
             </Dialog>
 
-            <RepairWatchlist 
-                token={token} 
+            <RepairWatchlist
+                token={token}
                 onAssetReturned={() => {
                     fetchData();
                     initDashboard();
-                }} 
+                }}
             />
         </Container>
     );

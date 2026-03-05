@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import axios from 'axios';
+import { UserContext } from '../App';
 import {
     Container, Grid, Card, CardContent, Typography, Box,
     Button, Tab, Tabs, Table, TableBody, TableCell, TableContainer,
@@ -97,6 +98,8 @@ function StatsCard({ title, value, icon, color, onClick, loading }) {
 }
 
 export default function ReportsDashboard({ token }) {
+    const { user } = useContext(UserContext);
+
     // --- STATE ---
     const [stats, setStats] = useState({ total_assets: 0, total_assigned: 0, total_unassigned: 0, total_repair: 0 });
     const [loadingStats, setLoadingStats] = useState(true);
@@ -139,6 +142,16 @@ export default function ReportsDashboard({ token }) {
             if (tabValue === 1) fetchCategoryBreakdown();
         }
     }, [filters, tabValue, token]);
+
+    // Auto-select and lock department for non-superusers
+    useEffect(() => {
+        if (user && !user.is_superuser && user.employee_details && deptOptions.length > 0) {
+            const userDept = deptOptions.find(d => d.id === user.employee_details.department);
+            if (userDept && (!filters.department || filters.department.id !== userDept.id)) {
+                setFilters(prev => ({ ...prev, department: userDept }));
+            }
+        }
+    }, [user, deptOptions]);
 
     const fetchDashboardStats = () => {
         setLoadingStats(true);
@@ -263,7 +276,7 @@ export default function ReportsDashboard({ token }) {
         if (sortBy !== column) {
             return <UnfoldMoreIcon sx={{ fontSize: 16, ml: 0.5, opacity: 0.5 }} />;
         }
-        return sortOrder === 'asc' 
+        return sortOrder === 'asc'
             ? <ArrowUpwardIcon sx={{ fontSize: 16, ml: 0.5, color: 'primary.main' }} />
             : <ArrowDownwardIcon sx={{ fontSize: 16, ml: 0.5, color: 'primary.main' }} />;
     };
@@ -352,90 +365,97 @@ export default function ReportsDashboard({ token }) {
                     </Grid>
 
                     {/* FILTERS */}
-<Box className="no-print" sx={{ p: 0, mb: 4 }}>
-    <Grid container spacing={2} alignItems="center">
+                    <Box className="no-print" sx={{ p: 0, mb: 4 }}>
+                        <Grid container spacing={2} alignItems="center">
 
-        {/* Department */}
-        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
-            <Autocomplete
-                options={deptOptions}
-                getOptionLabel={(option) => option.name}
-                value={filters.department}
-                onChange={(_, newVal) => handleFilterChange('department', newVal)}
-                renderInput={(params) => (
-                    <TextField
-                        {...params}
-                        label="Department"
-                        fullWidth
-                        size="small"
-                    />
-                )}
-            />
-        </Grid>
+                            {/* Department */}
+                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                                <Autocomplete
+                                    options={
+                                        (user && !user.is_superuser && user.employee_details)
+                                            ? deptOptions.filter(d => d.id === user.employee_details.department)
+                                            : deptOptions
+                                    }
+                                    getOptionLabel={(option) => option.name || ''}
+                                    value={filters.department}
+                                    onChange={(_, newVal) => handleFilterChange('department', newVal)}
+                                    renderInput={(params) => (
+                                        <TextField
+                                            {...params}
+                                            label="Department"
+                                            fullWidth
+                                            size="small"
+                                        />
+                                    )}
+                                />
+                            </Grid>
 
-        {/* Category */}
-        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
-            <Autocomplete
-                options={catOptions}
-                value={filters.category}
-                onChange={(_, newVal) => handleFilterChange('category', newVal)}
-                renderInput={(params) => (
-                    <TextField
-                        {...params}
-                        label="Category"
-                        fullWidth
-                        size="small"
-                    />
-                )}
-            />
-        </Grid>
+                            {/* Category */}
+                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                                <Autocomplete
+                                    options={catOptions}
+                                    value={filters.category}
+                                    onChange={(_, newVal) => handleFilterChange('category', newVal)}
+                                    renderInput={(params) => (
+                                        <TextField
+                                            {...params}
+                                            label="Category"
+                                            fullWidth
+                                            size="small"
+                                        />
+                                    )}
+                                />
+                            </Grid>
 
-        {/* Status */}
-        <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
-            <Autocomplete
-                options={['AVAILABLE', 'ASSIGNED', 'BROKEN', 'IN_REPAIR']}
-                value={filters.status}
-                onChange={(_, newVal) => handleFilterChange('status', newVal)}
-                renderInput={(params) => (
-                    <TextField
-                        {...params}
-                        label="Status"
-                        fullWidth
-                        size="small"
-                    />
-                )}
-            />
-        </Grid>
+                            {/* Status */}
+                            <Grid item xs={12} md="auto" sx={{ minWidth: 240 }}>
+                                <Autocomplete
+                                    options={['AVAILABLE', 'ASSIGNED', 'BROKEN', 'IN_REPAIR']}
+                                    value={filters.status}
+                                    onChange={(_, newVal) => handleFilterChange('status', newVal)}
+                                    renderInput={(params) => (
+                                        <TextField
+                                            {...params}
+                                            label="Status"
+                                            fullWidth
+                                            size="small"
+                                        />
+                                    )}
+                                />
+                            </Grid>
 
-        {/* Buttons */}
-        <Grid
-            item
-            xs={12}
-            md="auto"
-            display="flex"
-            justifyContent="flex-end"
-            gap={1}
-        >
-            <Button
-                variant="contained"
-                startIcon={<Print />}
-                onClick={handlePrint}
-            >
-                Print
-            </Button>
-            <Button
-                variant="outlined"
-                startIcon={<Refresh />}
-                onClick={() =>
-                    setFilters({ department: null, category: null, status: null })
-                }
-            >
-                Reset
-            </Button>
-        </Grid>
+                            {/* Buttons */}
+                            <Grid
+                                item
+                                xs={12}
+                                md="auto"
+                                display="flex"
+                                justifyContent="flex-end"
+                                gap={1}
+                            >
+                                <Button
+                                    variant="contained"
+                                    startIcon={<Print />}
+                                    onClick={handlePrint}
+                                >
+                                    Print
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<Refresh />}
+                                    onClick={() => {
+                                        const defaultDept = (user && !user.is_superuser && user.employee_details)
+                                            ? deptOptions.find(d => d.id === user.employee_details.department) || null
+                                            : null;
+                                        setFilters({ department: defaultDept, category: null, status: null });
+                                    }}
+                                >
+                                    Reset
+                                </Button>
+                            </Grid>
 
-    </Grid>
-</Box>
+                        </Grid>
+                    </Box>
 
 
                     {/* TABS & VIEW */}
@@ -464,9 +484,9 @@ export default function ReportsDashboard({ token }) {
                                             <Table stickyHeader size="small">
                                                 <TableHead>
                                                     <TableRow>
-                                                        <TableCell 
-                                                            sx={{ 
-                                                                bgcolor: '#e3f2fd', 
+                                                        <TableCell
+                                                            sx={{
+                                                                bgcolor: '#e3f2fd',
                                                                 fontWeight: 'bold',
                                                                 cursor: 'pointer',
                                                                 userSelect: 'none',
@@ -479,9 +499,9 @@ export default function ReportsDashboard({ token }) {
                                                                 {getSortIcon('miczon_id')}
                                                             </Box>
                                                         </TableCell>
-                                                        <TableCell 
-                                                            sx={{ 
-                                                                bgcolor: '#e3f2fd', 
+                                                        <TableCell
+                                                            sx={{
+                                                                bgcolor: '#e3f2fd',
                                                                 fontWeight: 'bold',
                                                                 cursor: 'pointer',
                                                                 userSelect: 'none',
@@ -494,9 +514,9 @@ export default function ReportsDashboard({ token }) {
                                                                 {getSortIcon('name')}
                                                             </Box>
                                                         </TableCell>
-                                                        <TableCell 
-                                                            sx={{ 
-                                                                bgcolor: '#e3f2fd', 
+                                                        <TableCell
+                                                            sx={{
+                                                                bgcolor: '#e3f2fd',
                                                                 fontWeight: 'bold',
                                                                 cursor: 'pointer',
                                                                 userSelect: 'none',
@@ -509,9 +529,9 @@ export default function ReportsDashboard({ token }) {
                                                                 {getSortIcon('category')}
                                                             </Box>
                                                         </TableCell>
-                                                        <TableCell 
-                                                            sx={{ 
-                                                                bgcolor: '#e3f2fd', 
+                                                        <TableCell
+                                                            sx={{
+                                                                bgcolor: '#e3f2fd',
                                                                 fontWeight: 'bold',
                                                                 cursor: 'pointer',
                                                                 userSelect: 'none',
@@ -524,9 +544,9 @@ export default function ReportsDashboard({ token }) {
                                                                 {getSortIcon('custodian')}
                                                             </Box>
                                                         </TableCell>
-                                                        <TableCell 
-                                                            sx={{ 
-                                                                bgcolor: '#e3f2fd', 
+                                                        <TableCell
+                                                            sx={{
+                                                                bgcolor: '#e3f2fd',
                                                                 fontWeight: 'bold',
                                                                 cursor: 'pointer',
                                                                 userSelect: 'none',
@@ -539,9 +559,9 @@ export default function ReportsDashboard({ token }) {
                                                                 {getSortIcon('department')}
                                                             </Box>
                                                         </TableCell>
-                                                        <TableCell 
-                                                            sx={{ 
-                                                                bgcolor: '#e3f2fd', 
+                                                        <TableCell
+                                                            sx={{
+                                                                bgcolor: '#e3f2fd',
                                                                 fontWeight: 'bold',
                                                                 cursor: 'pointer',
                                                                 userSelect: 'none',

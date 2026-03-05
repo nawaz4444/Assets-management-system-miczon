@@ -129,11 +129,29 @@ class UserSerializer(serializers.ModelSerializer):
     def get_employee_details(self, obj):
         try:
             profile = obj.employee_profile
+        except:
+            profile = None
+            
+        if not profile:
+            from django.db.models import Q
+            from .models import Employee
+            
+            q = Q(user=obj)
+            if obj.email:
+                q |= Q(email=obj.email)
+            full_name = f"{obj.first_name} {obj.last_name}".strip()
+            if full_name:
+                q |= Q(name__iexact=full_name)
+            elif obj.username:
+                q |= Q(name__iexact=obj.username)
+                
+            profile = Employee.objects.filter(q).first()
+
+        if profile:
             return {
                 'id': profile.id,
                 'name': profile.name,
                 'employee_id': profile.employee_id,
                 'department': profile.department_id
             }
-        except:
-            return None
+        return None
