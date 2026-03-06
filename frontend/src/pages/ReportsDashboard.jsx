@@ -127,6 +127,7 @@ export default function ReportsDashboard({ token }) {
     const [catOptions, setCatOptions] = useState([]);
 
     const authConfig = { headers: { Authorization: `Token ${token}` } };
+    const API_BASE = 'http://localhost:8000/api';
 
     // --- API CALLS ---
     useEffect(() => {
@@ -155,20 +156,20 @@ export default function ReportsDashboard({ token }) {
 
     const fetchDashboardStats = () => {
         setLoadingStats(true);
-        axios.get('http://127.0.0.1:8000/api/reports/dashboard-stats/', authConfig)
+        axios.get(`${API_BASE}/reports/dashboard-stats/`, authConfig)
             .then(res => setStats(res.data))
             .catch(err => console.error("Stats Error", err))
             .finally(() => setLoadingStats(false));
     };
 
     const fetchDepartments = () => {
-        axios.get('http://127.0.0.1:8000/api/departments/', authConfig)
+        axios.get(`${API_BASE}/departments/`, authConfig)
             .then(res => setDeptOptions(res.data))
             .catch(err => console.error(err));
     };
 
     const fetchCategoryBreakdown = () => {
-        axios.get('http://127.0.0.1:8000/api/reports/category-breakdown/', authConfig)
+        axios.get(`${API_BASE}/reports/category-breakdown/`, authConfig)
             .then(res => setCategoryStats(res.data))
             .catch(err => console.error(err));
     };
@@ -180,7 +181,7 @@ export default function ReportsDashboard({ token }) {
         if (filters.category) params.append('category', filters.category);
         if (filters.status) params.append('status', filters.status);
 
-        axios.get(`http://127.0.0.1:8000/api/reports/custom-export/?${params.toString()}`, authConfig)
+        axios.get(`${API_BASE}/reports/custom-export/?${params.toString()}`, authConfig)
             .then(res => {
                 setAssets(res.data);
                 if (catOptions.length === 0) {

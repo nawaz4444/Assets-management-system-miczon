@@ -36,6 +36,7 @@ function AddAssetLog({ token }) {
     // --- UI State ---
     const [loading, setLoading] = useState(false);
     const [alert, setAlert] = useState({ open: false, message: '', severity: 'success' });
+    const API_BASE = 'http://localhost:8000/api';
 
     const authConfig = {
         headers: { Authorization: `Token ${token}` }
@@ -46,11 +47,11 @@ function AddAssetLog({ token }) {
 
     // 1. Fetch Departments and Employees on Load
     useEffect(() => {
-        axios.get('http://127.0.0.1:8000/api/departments/', authConfig)
+        axios.get(`${API_BASE}/departments/`, authConfig)
             .then(res => setDepartments(res.data))
             .catch(err => console.error("Error fetching departments", err));
 
-        fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig)
+        fetchAllPages(`${API_BASE}/employees/`, authConfig)
             .then(res => setEmployees(res))
             .catch(err => console.error("Error fetching employees", err));
     }, []);
@@ -81,7 +82,7 @@ function AddAssetLog({ token }) {
             if (selectedDept) params.department = selectedDept;
             if (selectedEmp) params.custodian = selectedEmp;
 
-            const fetchedAssets = await fetchAllPages('http://127.0.0.1:8000/api/assets/', authConfig, params);
+            const fetchedAssets = await fetchAllPages(`${API_BASE}/assets/`, authConfig, params);
             setAssets(fetchedAssets);
 
             // Preserve existing inspection data if any, otherwise init new
@@ -145,7 +146,7 @@ function AddAssetLog({ token }) {
                 notes: data.notes,
                 inspector_name: 'Admin'
             };
-            return axios.post('http://127.0.0.1:8000/api/inspections/', payload, authConfig);
+            return axios.post(`${API_BASE}/inspections/`, payload, authConfig);
         });
 
         try {

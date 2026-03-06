@@ -66,8 +66,8 @@ function ReturnAsset({ token }) {
         setLoading(true);
         try {
             const [employeesData, assetsData] = await Promise.all([
-                fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig),
-                fetchAllPages('http://127.0.0.1:8000/api/assets/', authConfig)
+                fetchAllPages(`${API_BASE}/employees/`, authConfig),
+                fetchAllPages(`${API_BASE}/assets/`, authConfig)
             ]);
 
             setEmployees(employeesData);
@@ -196,7 +196,7 @@ function ReturnAsset({ token }) {
                         remarks: details.remarks
                     };
                     return axios.patch(
-                        `http://127.0.0.1:8000/api/assignments/${asset.active_assignment_id}/`,
+                        `${API_BASE}/assignments/${asset.active_assignment_id}/`,
                         payload, authConfig
                     );
                 } else {
@@ -207,14 +207,17 @@ function ReturnAsset({ token }) {
                         remarks: asset.remarks ? `${asset.remarks}\n${returnNote}` : returnNote
                     };
                     return axios.patch(
-                        `http://127.0.0.1:8000/api/assets/${asset.id}/`,
+                        `${API_BASE}/assets/${asset.id}/`,
                         payload, authConfig
                     );
                 }
             });
 
             await Promise.all(promises);
-            setMessage({ type: 'success', text: `Successfully returned ${selectedAssetsToReturn.length} asset(s)!` });
+            const successText = (user && !user.is_superuser)
+                ? `Return requests for ${selectedAssetsToReturn.length} asset(s) submitted for approval!`
+                : `Successfully returned ${selectedAssetsToReturn.length} asset(s)!`;
+            setMessage({ type: 'success', text: successText });
 
             // Refresh Data
             fetchData();
@@ -528,7 +531,7 @@ function ReturnAsset({ token }) {
                                     px: 4,
                                 }}
                             >
-                                {loading ? 'Submitting...' : 'Confirm Return'}
+                                {loading ? 'Submitting...' : (user?.is_superuser ? 'Confirm Return' : 'Request Return')}
                             </Button>
                         )}
                     </Box>

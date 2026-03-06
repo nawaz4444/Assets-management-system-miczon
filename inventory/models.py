@@ -147,6 +147,7 @@ class AssetAssignment(models.Model):
 
 class AssetActionRequest(models.Model):
     ACTION_TYPES = [
+        ('ADD', 'Add'),
         ('ASSIGN', 'Assign'),
         ('TRANSFER', 'Transfer'),
         ('RETURN', 'Return'),
@@ -158,7 +159,8 @@ class AssetActionRequest(models.Model):
         ('REJECTED', 'Rejected'),
     ]
 
-    asset = models.ForeignKey(Asset, on_delete=models.CASCADE)
+    # Made optional since ADD requests won't have an asset initially.
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, null=True, blank=True)
     requester = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='requests_made')
     action_type = models.CharField(max_length=20, choices=ACTION_TYPES)
     
@@ -171,6 +173,9 @@ class AssetActionRequest(models.Model):
     
     remarks = models.TextField(blank=True)
     
+    # Data for ADD
+    asset_data = models.JSONField(null=True, blank=True)
+    
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     admin_remarks = models.TextField(blank=True)
     
@@ -179,4 +184,5 @@ class AssetActionRequest(models.Model):
     processed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
-        return f"{self.action_type} Request: {self.asset.miczon_id} by {self.requester.name}"
+        asset_id = self.asset.miczon_id if self.asset else "New Asset"
+        return f"{self.action_type} Request: {asset_id} by {self.requester.name}"

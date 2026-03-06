@@ -21,10 +21,11 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
     const authConfig = { headers: { Authorization: `Token ${token}` } };
+    const API_BASE = 'http://localhost:8000/api';
 
     const fetchRepairs = async () => {
         try {
-            const allRepairs = await fetchAllPages('http://127.0.0.1:8000/api/assets/', authConfig, { status: 'BROKEN' });
+            const allRepairs = await fetchAllPages(`${API_BASE}/assets/`, authConfig, { status: 'BROKEN' });
             setRepairAssets(allRepairs);
         } catch (err) {
             console.error("Error fetching repairs", err);
@@ -58,19 +59,19 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
 
     const handleReturnFromRepair = async () => {
         if (!selectedAsset) return;
-        
+
         setLoading(true);
         setMessage(null);
-        
+
         try {
             await axios.post(
-                `http://127.0.0.1:8000/api/assets/${selectedAsset.id}/return_from_repair/`,
+                `${API_BASE}/assets/${selectedAsset.id}/return_from_repair/`,
                 returnForm,
                 authConfig
             );
-            
+
             setMessage({ type: 'success', text: 'Asset returned to inventory successfully!' });
-            
+
             // Refresh the repair list
             setTimeout(async () => {
                 await fetchRepairs();
@@ -80,12 +81,12 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
                     onAssetReturned();
                 }
             }, 1500);
-            
+
         } catch (err) {
             console.error("Error returning from repair", err);
-            setMessage({ 
-                type: 'error', 
-                text: err.response?.data?.error || 'Failed to return asset from repair' 
+            setMessage({
+                type: 'error',
+                text: err.response?.data?.error || 'Failed to return asset from repair'
             });
         } finally {
             setLoading(false);
@@ -130,7 +131,7 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
                                     onClick={() => handleRowClick(asset)}
                                     sx={{
                                         bgcolor: asset.is_overdue_repair ? '#ffebee' : 'inherit',
-                                        '&:hover': { 
+                                        '&:hover': {
                                             bgcolor: asset.is_overdue_repair ? '#ffcdd2' : '#f5f5f5',
                                             cursor: 'pointer'
                                         }
@@ -162,8 +163,8 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
             </TableContainer>
 
             {/* Return from Repair Dialog */}
-            <Dialog 
-                open={openReturnDialog} 
+            <Dialog
+                open={openReturnDialog}
                 onClose={handleCloseDialog}
                 maxWidth="sm"
                 fullWidth
@@ -190,7 +191,7 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
                             )}
                         </Box>
                     )}
-                    
+
                     {message && (
                         <Alert severity={message.type} sx={{ mb: 2 }}>
                             {message.text}
@@ -234,9 +235,9 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
                     <Button onClick={handleCloseDialog} disabled={loading}>
                         Cancel
                     </Button>
-                    <Button 
-                        onClick={handleReturnFromRepair} 
-                        variant="contained" 
+                    <Button
+                        onClick={handleReturnFromRepair}
+                        variant="contained"
                         color="success"
                         disabled={loading}
                         startIcon={loading ? <CircularProgress size={20} /> : <CheckCircle />}

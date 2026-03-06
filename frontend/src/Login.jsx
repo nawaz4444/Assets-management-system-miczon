@@ -19,7 +19,7 @@ function Login({ setToken }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        axios.post('http://127.0.0.1:8000/api-token-auth/', {
+        axios.post('http://localhost:8000/api-token-auth/', {
             username: username,
             password: password
         })

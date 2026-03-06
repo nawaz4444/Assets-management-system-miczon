@@ -30,7 +30,7 @@ function ResetPassword() {
     useEffect(() => {
         const validateToken = async () => {
             try {
-                const response = await axios.post('http://127.0.0.1:8000/api/password-reset/validate/', {
+                const response = await axios.post('http://localhost:8000/api/password-reset/validate/', {
                     uid: uid,
                     token: token
                 });
@@ -73,7 +73,7 @@ function ResetPassword() {
         setLoading(true);
 
         try {
-            const response = await axios.post('http://127.0.0.1:8000/api/password-reset/confirm/', {
+            const response = await axios.post('http://localhost:8000/api/password-reset/confirm/', {
                 uid: uid,
                 token: token,
                 new_password: newPassword

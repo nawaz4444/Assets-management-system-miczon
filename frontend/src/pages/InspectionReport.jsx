@@ -30,15 +30,16 @@ function InspectionReport({ token }) {
     const authConfig = {
         headers: { Authorization: `Token ${token}` }
     };
+    const API_BASE = 'http://localhost:8000/api';
 
     useEffect(() => {
         // Fetch Departments
-        axios.get('http://127.0.0.1:8000/api/departments/', authConfig)
+        axios.get(`${API_BASE}/departments/`, authConfig)
             .then(res => setDepartments(res.data))
             .catch(err => console.error(err));
 
         // Fetch Employees - get all pages
-        fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig)
+        fetchAllPages(`${API_BASE}/employees/`, authConfig)
             .then(res => setEmployees(res))
             .catch(err => console.error(err));
     }, []);
@@ -50,7 +51,7 @@ function InspectionReport({ token }) {
             if (selectedDept) params.department = selectedDept;
             if (selectedEmp) params.custodian = selectedEmp;
 
-            const allAssets = await fetchAllPages('http://127.0.0.1:8000/api/assets/', authConfig, params);
+            const allAssets = await fetchAllPages(`${API_BASE}/assets/`, authConfig, params);
             setAssets(allAssets);
         } catch (err) {
             console.error(err);

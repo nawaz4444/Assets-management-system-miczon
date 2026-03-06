@@ -73,6 +73,7 @@ export default function PendingRequests({ token }) {
             case 'TRANSFER': return 'info';
             case 'RETURN': return 'warning';
             case 'REPAIR': return 'error';
+            case 'ADD': return 'primary';
             default: return 'default';
         }
     };
@@ -165,8 +166,12 @@ export default function PendingRequests({ token }) {
                                         </TableCell>
                                         <TableCell>
                                             <Box>
-                                                <Typography variant="body2" fontWeight="bold">{req.asset_miczon_id}</Typography>
-                                                <Typography variant="caption">{req.asset_name}</Typography>
+                                                <Typography variant="body2" fontWeight="bold">
+                                                    {req.asset_miczon_id || (req.action_type === 'ADD' ? 'New Asset' : 'Unknown')}
+                                                </Typography>
+                                                <Typography variant="caption">
+                                                    {req.asset_name || (req.action_type === 'ADD' ? 'Pending Creation' : '')}
+                                                </Typography>
                                             </Box>
                                         </TableCell>
                                         <TableCell>
@@ -181,6 +186,7 @@ export default function PendingRequests({ token }) {
                                             <Typography variant="body2" sx={{ maxWidth: 200 }} noWrap title={req.remarks}>
                                                 {req.action_type === 'TRANSFER' && `To: ${req.target_employee_name}`}
                                                 {req.action_type === 'REPAIR' && `Vendor: ${req.vendor}`}
+                                                {req.action_type === 'ADD' && `Category: ${req.asset_data?.category || 'N/A'}`}
                                                 {req.remarks && ` (${req.remarks})`}
                                             </Typography>
                                         </TableCell>
@@ -231,7 +237,7 @@ export default function PendingRequests({ token }) {
                         <Alert severity="info" variant="outlined">
                             <Typography variant="body2">
                                 <strong>Requester:</strong> {selectedReq?.requester_name}<br />
-                                <strong>Asset:</strong> {selectedReq?.asset_miczon_id} - {selectedReq?.asset_name}<br />
+                                <strong>Asset:</strong> {selectedReq?.asset_miczon_id || (selectedReq?.action_type === 'ADD' ? 'New Asset' : 'Unknown')} - {selectedReq?.asset_name || (selectedReq?.action_type === 'ADD' ? 'Pending Creation' : '')}<br />
                                 <strong>Action:</strong> {selectedReq?.action_type}<br />
                                 {selectedReq?.target_employee_name && <><strong>Target:</strong> {selectedReq?.target_employee_name}<br /></>}
                                 {selectedReq?.vendor && <><strong>Vendor:</strong> {selectedReq?.vendor}<br /></>}

@@ -13,6 +13,7 @@ from django.db.models import Count, Q
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
 from datetime import date
+from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
 
 # --- PAGINATION ---
@@ -46,6 +47,17 @@ def get_employee_filter(user, prefix=''):
         
     return q
 
+def _get_employee_requester(user):
+    """Helper to get Employee profile for a User"""
+    from .models import Employee
+    # Use existing logic to find the employee profile
+    q = Q(user=user)
+    if user.email: q |= Q(email=user.email)
+    full_name = f"{user.first_name} {user.last_name}".strip()
+    if full_name: q |= Q(name__iexact=full_name)
+    elif user.username: q |= Q(name__iexact=user.username)
+    return Employee.objects.filter(q).first()
+
 # --- AUTH VIEWS ---
 class CurrentUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -66,6 +78,59 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
             emp_filter = get_employee_filter(self.request.user, prefix='employee__')
             queryset = queryset.filter(emp_filter)
         return queryset
+
+    def create(self, request, *args, **kwargs):
+        # Strict Admin Approval Interception for Assign
+        if not request.user.is_superuser:
+            from .models import AssetActionRequest, Asset
+            
+            # Use same logic to find employee requester profile
+            asset_id = request.data.get('asset')
+            employee_id = request.data.get('employee')
+            
+            # Redirect to approval flow
+            requester = _get_employee_requester(request.user)
+            if not requester:
+                return Response({"error": "Employee profile not found. Please contact admin to link your user account to an employee profile."}, status=400)
+            
+            try:
+                asset = Asset.objects.get(id=asset_id)
+            except Asset.DoesNotExist:
+                return Response({"error": "Asset not found"}, status=400)
+                
+            AssetActionRequest.objects.create(
+                asset=asset,
+                requester=requester,
+                action_type='ASSIGN',
+                target_employee_id=employee_id,
+                remarks=request.data.get('remarks', 'Direct Assignment Request')
+            )
+            return Response({"status": "Assignment request submitted for approval"}, status=201)
+            
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        # Intercept Return (PATCH to assignment status)
+        print(f"DEBUG: Update Assignment - User: {request.user.username}, IsSuper: {request.user.is_superuser}, Data: {request.data}")
+        if not request.user.is_superuser:
+            if request.data.get('status') == 'RETURNED':
+                 # Redirect to approval flow for Return
+                 from .models import AssetActionRequest
+                 asset = self.get_object().asset
+                 requester = _get_employee_requester(request.user)
+                 
+                 AssetActionRequest.objects.create(
+                     asset=asset,
+                     requester=requester,
+                     action_type='RETURN',
+                     remarks=f"Return Details: {request.data.get('remarks', 'N/A')}"
+                 )
+                 return Response({"status": "Return request submitted for approval"}, status=201)
+            return Response({"error": "Only admins can modify assignments directly"}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
 
 class InspectionLogViewSet(viewsets.ModelViewSet):
     queryset = InspectionLog.objects.all().order_by('-date')
@@ -139,18 +204,34 @@ class AssetViewSet(viewsets.ModelViewSet):
             
         return queryset
 
-    def _get_requester(self, user):
-        """Helper to get Employee profile for a User"""
-        from .models import Employee
-        # Use existing logic to find the employee profile
-        q = Q(user=user)
-        if user.email: q |= Q(email=user.email)
-        full_name = f"{user.first_name} {user.last_name}".strip()
-        if full_name: q |= Q(name__iexact=full_name)
-        elif user.username: q |= Q(name__iexact=user.username)
-        return Employee.objects.filter(q).first()
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            miczon_id = request.data.get('miczon_id')
+            if not miczon_id:
+                return Response({"error": "Miczon ID is required"}, status=400)
+                
+            if Asset.objects.filter(miczon_id=miczon_id).exists():
+                return Response({"miczon_id": ["Asset with this Miczon ID already exists."]}, status=400)
+                
+            requester = _get_employee_requester(request.user)
+            if not requester:
+                return Response({"error": "Employee profile not found for user. Please contact admin to link your user account to an employee profile."}, status=400)
+            
+            AssetActionRequest.objects.create(
+                requester=requester,
+                action_type='ADD',
+                asset_data=request.data,
+                remarks='Requesting to add new asset'
+            )
+            return Response({"status": "Add asset request submitted for approval", "miczon_id": request.data.get('miczon_id')}, status=201)
+        
+        return super().create(request, *args, **kwargs)
 
     def perform_update(self, serializer):
+        # Only superusers can directly update assets
+        if not self.request.user.is_superuser:
+            return # Should have been blocked by update/partial_update anyway
+            
         instance = self.get_object()
         old_custodian = instance.custodian
         updated_asset = serializer.save()
@@ -160,8 +241,23 @@ class AssetViewSet(viewsets.ModelViewSet):
             AssetHistory.objects.create(
                 asset=updated_asset, action=action,
                 from_employee=old_custodian, to_employee=updated_asset.custodian,
-                remarks=f"Status changed to {updated_asset.current_status}"
+                remarks=f"Status changed to {updated_asset.current_status}. (Direct Admin Update)"
             )
+
+    def update(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            return Response({"error": "Direct updates are restricted. Please use specific action flows (Transfer/Repair/etc) which are subject to approval."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+             return self.update(request, *args, **kwargs)
+        return super().partial_update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            return Response({"error": "Deletions restricted to administrators."}, status=403)
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def transfer(self, request, pk=None):
@@ -176,7 +272,7 @@ class AssetViewSet(viewsets.ModelViewSet):
 
         # If user is not superuser, create request for approval
         if not request.user.is_superuser:
-            requester = self._get_requester(request.user)
+            requester = _get_employee_requester(request.user)
             if not requester:
                 return Response({"error": "Employee profile not found for user"}, status=400)
             
@@ -219,7 +315,7 @@ class AssetViewSet(viewsets.ModelViewSet):
         
         # If user is not superuser, create request for approval
         if not request.user.is_superuser:
-            requester = self._get_requester(request.user)
+            requester = _get_employee_requester(request.user)
             if not requester:
                 return Response({"error": "Employee profile not found for user"}, status=400)
             
@@ -326,51 +422,109 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         asset = req.asset
         
         # --- PERFORM THE ACTION ---
-        if req.action_type == 'RETURN':
-            active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
-            if active_assignment:
-                active_assignment.mark_returned(returned_by=f"Approved by {request.user.username}", condition='Good')
-        
-        elif req.action_type == 'ASSIGN' or req.action_type == 'TRANSFER':
-            from_employee = asset.custodian
-            to_employee = req.target_employee
-            
-            # Return current assignment if transfer
-            if req.action_type == 'TRANSFER':
+        try:
+            if req.action_type == 'ADD':
+                data = req.asset_data or {}
+                miczon_id = data.get('miczon_id')
+                
+                if not miczon_id:
+                    return Response({"error": "Miczon ID is missing in request data"}, status=400)
+                
+                if Asset.objects.filter(miczon_id=miczon_id).exists():
+                    return Response({"error": f"Asset with Miczon ID {miczon_id} already exists"}, status=400)
+
+                department_id = data.get('department')
+                department = Department.objects.filter(id=department_id).first() if department_id else None
+                
+                new_asset = Asset.objects.create(
+                    miczon_id=miczon_id,
+                    name=data.get('name', 'Unknown Asset'),
+                    category=data.get('category', ''),
+                    specifications=data.get('specifications', ''),
+                    department=department,
+                    current_status=data.get('current_status', 'AVAILABLE'),
+                    remarks=data.get('remarks', f"Created via approval by {request.user.username}"),
+                    # Add extra fields if they exist in data
+                    maintenance_vendor=data.get('maintenance_vendor', ''),
+                    sent_to_repair_date=data.get('sent_to_repair_date'),
+                    expected_return_date=data.get('expected_return_date'),
+                )
+                req.asset = new_asset
+                asset = new_asset
+                
+                AssetHistory.objects.create(
+                    asset=asset,
+                    action="ADD",
+                    remarks=f"Asset added to system via approval by {request.user.username}"
+                )
+
+            elif req.action_type == 'RETURN':
+                if not asset:
+                    return Response({"error": "No asset associated with this request"}, status=400)
                 active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
                 if active_assignment:
-                    active_assignment.mark_returned(returned_by=f"Transfer Approved by {request.user.username}", condition='Good')
-            
-            AssetAssignment.objects.create(
-                asset=asset,
-                employee=to_employee,
-                remarks=req.remarks,
-                status='ASSIGNED'
-            )
-            AssetHistory.objects.create(
-                asset=asset,
-                action=req.action_type,
-                from_employee=from_employee,
-                to_employee=to_employee,
-                remarks=req.remarks
-            )
-            
-        elif req.action_type == 'REPAIR':
-            active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
-            if active_assignment:
-                active_assignment.mark_returned(returned_by="Repair Approved", condition='Broken')
+                    active_assignment.mark_returned(returned_by=f"Approved by {request.user.username}", condition='Good')
+                else:
+                    # Fallback if no active assignment found but request exists
+                    asset.custodian = None
+                    asset.current_status = 'AVAILABLE'
+                    asset.save()
                 
-            asset.current_status = 'BROKEN'
-            asset.maintenance_vendor = req.vendor
-            asset.sent_to_repair_date = date.today()
-            asset.expected_return_date = req.expected_return_date
-            asset.save()
+                AssetHistory.objects.create(
+                    asset=asset,
+                    action="RETURN",
+                    remarks=f"Return request approved by {request.user.username}"
+                )
+        
+            elif req.action_type == 'ASSIGN' or req.action_type == 'TRANSFER':
+                if not asset:
+                    return Response({"error": "No asset associated with this request"}, status=400)
+                if not req.target_employee:
+                    return Response({"error": "Target employee is missing in request"}, status=400)
+                
+                from_employee = asset.custodian
+                to_employee = req.target_employee
+                
+                # Return current assignment if transfer or if already assigned
+                active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+                if active_assignment:
+                    active_assignment.mark_returned(returned_by=f"System (Prior to {req.action_type} Approval)", condition='Good')
+                
+                AssetAssignment.objects.create(
+                    asset=asset,
+                    employee=to_employee,
+                    remarks=req.remarks,
+                    status='ASSIGNED'
+                )
+                AssetHistory.objects.create(
+                    asset=asset,
+                    action=req.action_type,
+                    from_employee=from_employee,
+                    to_employee=to_employee,
+                    remarks=req.remarks or f"{req.action_type} Approved by {request.user.username}"
+                )
             
-            AssetHistory.objects.create(
-                asset=asset,
-                action="REPAIR",
-                remarks=f"Repair Approved. Vendor: {req.vendor}. Info: {req.remarks}"
-            )
+            elif req.action_type == 'REPAIR':
+                if not asset:
+                    return Response({"error": "No asset associated with this request"}, status=400)
+                
+                active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+                if active_assignment:
+                    active_assignment.mark_returned(returned_by=f"Repair Approved by {request.user.username}", condition='Broken')
+                    
+                asset.current_status = 'BROKEN'
+                asset.maintenance_vendor = req.vendor
+                asset.sent_to_repair_date = date.today()
+                asset.expected_return_date = req.expected_return_date
+                asset.save()
+                
+                AssetHistory.objects.create(
+                    asset=asset,
+                    action="REPAIR",
+                    remarks=f"Repair Approved. Vendor: {req.vendor}. Info: {req.remarks}"
+                )
+        except Exception as e:
+            return Response({"error": f"Failed to process approval: {str(e)}"}, status=500)
 
         # Update Request Status
         req.status = 'APPROVED'

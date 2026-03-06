@@ -33,6 +33,7 @@ function AssignAsset({ token }) {
 
     const { user } = useContext(UserContext);
     const authConfig = { headers: { Authorization: `Token ${token}` } };
+    const API_BASE = 'http://localhost:8000/api';
 
     useEffect(() => {
         fetchData();
@@ -41,8 +42,8 @@ function AssignAsset({ token }) {
     const fetchData = async () => {
         try {
             const [assetsData, employeesData] = await Promise.all([
-                fetchAllPages('http://127.0.0.1:8000/api/assets/', authConfig),
-                fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig)
+                fetchAllPages(`${API_BASE}/assets/`, authConfig),
+                fetchAllPages(`${API_BASE}/employees/`, authConfig)
             ]);
 
             // Filter for available assets only
@@ -88,7 +89,7 @@ function AssignAsset({ token }) {
                 target_employee: selectedEmployee.id,
                 remarks: `Purpose: ${purpose}, Assigned By: ${assignedBy}. Notes: ${remarks}`
             };
-            axios.post('http://127.0.0.1:8000/api/requests/', reqPayload, authConfig)
+            axios.post(`${API_BASE}/requests/`, reqPayload, authConfig)
                 .then(() => {
                     setAlert({ open: true, message: `Assignment request for ${selectedAsset.miczon_id} submitted for approval.`, severity: 'success' });
                     handleClear();
@@ -102,7 +103,7 @@ function AssignAsset({ token }) {
             return;
         }
 
-        axios.post('http://127.0.0.1:8000/api/assignments/', payload, authConfig)
+        axios.post(`${API_BASE}/assignments/`, payload, authConfig)
             .then(() => {
                 setAlert({ open: true, message: `Successfully assigned ${selectedAsset.miczon_id} to ${selectedEmployee.name}`, severity: 'success' });
                 handleClear();
@@ -300,7 +301,7 @@ function AssignAsset({ token }) {
                                     px: 6,
                                 }}
                             >
-                                {loading ? 'Processing...' : 'Confirm Assignment'}
+                                {loading ? 'Processing...' : (user?.is_superuser ? 'Confirm Assignment' : 'Request Assignment')}
                             </Button>
                         </Box>
                     </Box>

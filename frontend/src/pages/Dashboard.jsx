@@ -38,6 +38,8 @@ function Dashboard({ token, handleLogout }) {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    const API_BASE = 'http://localhost:8000/api';
+
     // Pagination State
     const [nextPage, setNextPage] = useState(null);
     const [prevPage, setPrevPage] = useState(null);
@@ -93,11 +95,11 @@ function Dashboard({ token, handleLogout }) {
         setLoading(true);
         try {
             const [assetRes, deptRes, empRes, statsRes] = await Promise.all([
-                axios.get('http://127.0.0.1:8000/api/assets/', authConfig),
-                axios.get('http://127.0.0.1:8000/api/departments/', authConfig),
-                fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig),
+                axios.get(`${API_BASE}/assets/`, authConfig),
+                axios.get(`${API_BASE}/departments/`, authConfig),
+                fetchAllPages(`${API_BASE}/employees/`, authConfig),
                 // Handle missing stats endpoint gracefully
-                axios.get('http://127.0.0.1:8000/api/reports/dashboard-stats/', authConfig).catch(() => ({ data: null }))
+                axios.get(`${API_BASE}/reports/dashboard-stats/`, authConfig).catch(() => ({ data: null }))
             ]);
 
             // Handle Pagination vs List
@@ -129,7 +131,7 @@ function Dashboard({ token, handleLogout }) {
     // 🚀 OPTIMIZATION 2: Server-Side Pagination & Filtering - Fetches ALL pages when filtering
     const fetchData = async (url = null, applyFilters = true) => {
         setLoading(true);
-        let apiUrl = url || 'http://127.0.0.1:8000/api/assets/';
+        let apiUrl = url || `${API_BASE}/assets/`;
 
         try {
             if (applyFilters && !url) {
@@ -189,7 +191,7 @@ function Dashboard({ token, handleLogout }) {
         setOpenHistory(true);
         setHistoryLoading(true);
         try {
-            const res = await axios.get(`http://127.0.0.1:8000/api/assets/${asset.id}/`, authConfig);
+            const res = await axios.get(`${API_BASE}/assets/${asset.id}/`, authConfig);
             setAssetHistory(res.data.history || []);
         } catch (err) {
             console.error("Failed to fetch history", err);
@@ -199,8 +201,8 @@ function Dashboard({ token, handleLogout }) {
         }
     };
 
-    const fetchDepartments = () => axios.get('http://127.0.0.1:8000/api/departments/', authConfig).then(res => setDepartments(res.data));
-    const fetchEmployees = () => fetchAllPages('http://127.0.0.1:8000/api/employees/', authConfig).then(res => setEmployees(res));
+    const fetchDepartments = () => axios.get(`${API_BASE}/departments/`, authConfig).then(res => setDepartments(res.data));
+    const fetchEmployees = () => fetchAllPages(`${API_BASE}/employees/`, authConfig).then(res => setEmployees(res));
 
     const handleError = (error) => { if (error.response && error.response.status === 401) handleLogout(); };
 
@@ -210,7 +212,7 @@ function Dashboard({ token, handleLogout }) {
         if (!file) return;
         const formData = new FormData();
         formData.append('file', file);
-        axios.post('http://127.0.0.1:8000/api/upload/', formData, authConfig)
+        axios.post(`${API_BASE}/upload/`, formData, authConfig)
             .then(res => { alert(res.data.message); fetchData(); fetchDepartments(); fetchEmployees(); })
             .catch(err => { console.error(err); alert("Upload Failed!"); });
     };
@@ -218,7 +220,7 @@ function Dashboard({ token, handleLogout }) {
     const handleTransfer = async () => {
         if (!transferTo) return alert("Select an employee!");
         try {
-            const res = await axios.post(`http://127.0.0.1:8000/api/assets/${selectedAsset.id}/transfer/`, {
+            const res = await axios.post(`${API_BASE}/assets/${selectedAsset.id}/transfer/`, {
                 to_employee_id: transferTo,
                 remarks: transferRemarks
             }, authConfig);
@@ -235,7 +237,7 @@ function Dashboard({ token, handleLogout }) {
     const handleRepair = async () => {
         if (!repairVendor || !repairExpectedReturn) return alert("Fill required fields!");
         try {
-            const res = await axios.post(`http://127.0.0.1:8000/api/assets/${selectedAsset.id}/repair/`, {
+            const res = await axios.post(`${API_BASE}/assets/${selectedAsset.id}/repair/`, {
                 vendor: repairVendor,
                 expected_return: repairExpectedReturn,
                 issue: repairIssue

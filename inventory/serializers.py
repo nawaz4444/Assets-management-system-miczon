@@ -157,8 +157,8 @@ class UserSerializer(serializers.ModelSerializer):
         return None
 from .models import AssetActionRequest
 class AssetActionRequestSerializer(serializers.ModelSerializer):
-    asset_miczon_id = serializers.CharField(source='asset.miczon_id', read_only=True)
-    asset_name = serializers.CharField(source='asset.name', read_only=True)
+    asset_miczon_id = serializers.SerializerMethodField()
+    asset_name = serializers.SerializerMethodField()
     requester_name = serializers.CharField(source='requester.name', read_only=True)
     target_employee_name = serializers.CharField(source='target_employee.name', read_only=True)
     processed_by_name = serializers.CharField(source='processed_by.username', read_only=True)
@@ -166,3 +166,17 @@ class AssetActionRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssetActionRequest
         fields = '__all__'
+
+    def get_asset_miczon_id(self, obj):
+        if obj.asset:
+            return obj.asset.miczon_id
+        if obj.asset_data and 'miczon_id' in obj.asset_data:
+            return obj.asset_data['miczon_id']
+        return None
+
+    def get_asset_name(self, obj):
+        if obj.asset:
+            return obj.asset.name
+        if obj.asset_data and 'name' in obj.asset_data:
+            return obj.asset_data['name']
+        return None

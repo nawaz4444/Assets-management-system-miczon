@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
+import { UserContext } from '../App';
 import {
     Container, Paper, TextField, Button, Typography, Box,
     MenuItem, FormControl, InputLabel, Select, Alert,
@@ -32,6 +33,10 @@ function AddAsset({ token }) {
     const [loading, setLoading] = useState(false);
     const [alert, setAlert] = useState({ open: false, message: '', severity: 'success' });
 
+    const API_BASE = 'http://localhost:8000/api';
+
+    const { user } = useContext(UserContext);
+
     const authConfig = {
         headers: { Authorization: `Token ${token}` }
     };
@@ -41,7 +46,7 @@ function AddAsset({ token }) {
     }, []);
 
     const fetchDepartments = () => {
-        axios.get('http://127.0.0.1:8000/api/departments/', authConfig)
+        axios.get(`${API_BASE}/departments/`, authConfig)
             .then(res => setDepartments(res.data))
             .catch(err => console.error("Error fetching departments", err));
     };
@@ -73,9 +78,14 @@ function AddAsset({ token }) {
             return;
         }
 
-        axios.post('http://127.0.0.1:8000/api/assets/', formData, authConfig)
+        axios.post(`${API_BASE}/assets/`, formData, authConfig)
             .then(res => {
-                setAlert({ open: true, message: 'Asset added successfully!', severity: 'success' });
+                const isRequest = res.status === 201 && res.data.status?.includes('for approval');
+                setAlert({
+                    open: true,
+                    message: isRequest ? res.data.status : 'Asset added successfully!',
+                    severity: 'success'
+                });
                 handleClear();
             })
             .catch(err => {
@@ -306,7 +316,7 @@ function AddAsset({ token }) {
                                     px: 6,
                                 }}
                             >
-                                {loading ? 'Saving...' : 'Save Asset'}
+                                {loading ? 'Saving...' : (user?.is_superuser ? 'Save Asset' : 'Request to Add')}
                             </Button>
                         </Box>
                     </Box>
