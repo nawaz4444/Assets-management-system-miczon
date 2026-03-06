@@ -1,0 +1,20 @@
+# Exclude files not needed inside the Docker image
+.git
+.gitignore
+.venv/
+venv/
+*.md
+*.txt.bak
+db.sqlite3
+media/
+staticfiles/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+*.pyo
+.env.example
+.DS_Store
+Thumbs.db
+postgres_data/
+test_*.png

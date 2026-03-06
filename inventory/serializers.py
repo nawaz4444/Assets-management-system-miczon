@@ -48,7 +48,7 @@ class AssetListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Asset
         fields = [
-            'id', 'miczon_id', 'name', 'category', 
+            'id', 'miczon_id', 'name', 'category', 'specifications',
             'current_status', 'custodian', 'custodian_name', 
             'department', 'department_name', 'qr_code_url',
             'maintenance_vendor', 'sent_to_repair_date', 'expected_return_date', 'is_overdue_repair',

@@ -1,10 +1,38 @@
-venv/
+# ── Python ────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtualenvs ───────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Django ────────────────────────────────────────────────────
 db.sqlite3
-.env
-.env.*
 staticfiles/
 media/
+*.log
+
+# ── Environment secrets ───────────────────────────────────────
+.env
+
+# ── Node / Frontend ───────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── Docker ───────────────────────────────────────────────────-
+postgres_data/
+
+# ── OS / Editor ─────────────────────────────────────────────-
+.DS_Store
+Thumbs.db
 .idea/
 .vscode/
+*.swp
+*.swo

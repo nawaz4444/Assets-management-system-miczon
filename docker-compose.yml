@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+  # ──────────────────────────────────────────────────────────────
+  # PostgreSQL Database
+  # ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: inventory_db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # These POSTGRES_* vars initialise the database on first run.
+      # They MUST match DB_NAME / DB_USER / DB_PASSWORD in .env.
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - inventory_net
+
+  # ──────────────────────────────────────────────────────────────
+  # Django Backend (Gunicorn)
+  # Runs: migrate → gunicorn
+  # ──────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inventory_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Override DB_HOST to use the docker-compose service name 'db'
+      DB_HOST: db
+    volumes:
+      # Mount media directory so uploads survive container restarts
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - inventory_net
+
+  # ──────────────────────────────────────────────────────────────
+  # React Frontend (Nginx)
+  # Serves the Vite build
+  # ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: inventory_frontend
+    restart: unless-stopped
+    ports:
+      # Expose port 5173 on the host
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - inventory_net
+
+# ──────────────────────────────────────────────────────────────
+# Persistent volumes
+# ──────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  media_data:
+
+
+networks:
+  inventory_net:
+    driver: bridge

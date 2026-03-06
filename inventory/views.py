@@ -636,27 +636,27 @@ class UploadAssetsView(APIView):
             else:
                 df = pd.read_excel(file_obj)
 
-            df.columns = df.columns.str.strip()
-            print("COLUMNS FOUND:", df.columns.tolist())
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            print("LOWERCASE COLUMNS:", df.columns.tolist())
 
             count = 0
             for index, row in df.iterrows():
                 # A. Get Miczon ID (Asset Tag)
-                m_id = str(row.get('Miczon ID', row.get('Mic ID', row.get('Serial No', '')))).strip()
+                m_id = str(row.get('miczon id', row.get('mic id', row.get('serial no', '')))).strip()
                 if not m_id or m_id.lower() == 'nan':
                     continue 
 
                 # B. Handle Department
-                dept_name = str(row.get('Department', 'General')).strip()
+                dept_name = str(row.get('department', 'General')).strip()
                 department, _ = Department.objects.get_or_create(name=dept_name)
 
                 # C. Handle Custodian (SAFE METHOD)
-                cust_name = str(row.get('Custodian', row.get('User', ''))).strip()
+                cust_name = str(row.get('custodian', row.get('user', ''))).strip()
                 custodian = None
                 
                 if cust_name and cust_name.lower() != 'nan':
                     # 1. Try to find existing employee by name
-                    custodian = Employee.objects.filter(name=cust_name).first()
+                    custodian = Employee.objects.filter(name__iexact=cust_name).first()
                     
                     # 2. If not found, create a new one with a RANDOM UNIQUE ID
                     if not custodian:
@@ -671,10 +671,10 @@ class UploadAssetsView(APIView):
                 Asset.objects.update_or_create(
                     miczon_id=m_id,
                     defaults={
-                        'name': row.get('Device Name', row.get('Device', 'Unknown Device')),
-                        'category': row.get('Categary', ''), 
-                        'specifications': row.get('Specifications', ''),
-                        'remarks': row.get('Remarks / Notes', ''),
+                        'name': row.get('device name', row.get('device', 'Unknown Device')),
+                        'category': row.get('category', row.get('categary', '')), 
+                        'specifications': row.get('specifications', row.get('specs', row.get('details', row.get('hardware info', row.get('technical specs', ''))))),
+                        'remarks': row.get('remarks / notes', row.get('remarks', row.get('notes', ''))),
                         'department': department,
                         'custodian': custodian,
                         'current_status': 'ASSIGNED' if custodian else 'AVAILABLE'
