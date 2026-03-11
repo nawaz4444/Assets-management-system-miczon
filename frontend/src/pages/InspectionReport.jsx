@@ -16,6 +16,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 
+import { API_BASE } from '../utils/config';
+
 function InspectionReport({ token }) {
     // --- State ---
     const [departments, setDepartments] = useState([]);
@@ -30,7 +32,6 @@ function InspectionReport({ token }) {
     const authConfig = {
         headers: { Authorization: `Token ${token}` }
     };
-    const API_BASE = 'http://localhost:8000/api';
 
     useEffect(() => {
         // Fetch Departments

@@ -20,6 +20,8 @@ import AssessmentIcon from '@mui/icons-material/Assessment';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import NotesIcon from '@mui/icons-material/Notes';
 
+import { API_BASE } from '../utils/config';
+
 function AddAssetLog({ token }) {
     // --- State ---
     const [departments, setDepartments] = useState([]);
@@ -36,7 +38,6 @@ function AddAssetLog({ token }) {
     // --- UI State ---
     const [loading, setLoading] = useState(false);
     const [alert, setAlert] = useState({ open: false, message: '', severity: 'success' });
-    const API_BASE = 'http://localhost:8000/api';
 
     const authConfig = {
         headers: { Authorization: `Token ${token}` }

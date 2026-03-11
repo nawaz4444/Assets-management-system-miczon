@@ -9,6 +9,8 @@ import {
 import { Build, Warning, CheckCircle } from '@mui/icons-material';
 import { fetchAllPages } from './utils/apiHelpers';
 
+import { API_BASE } from './utils/config';
+
 const RepairWatchlist = ({ token, onAssetReturned }) => {
     const [repairAssets, setRepairAssets] = useState([]);
     const [openReturnDialog, setOpenReturnDialog] = useState(false);
@@ -21,7 +23,6 @@ const RepairWatchlist = ({ token, onAssetReturned }) => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
     const authConfig = { headers: { Authorization: `Token ${token}` } };
-    const API_BASE = 'http://localhost:8000/api';
 
     const fetchRepairs = async () => {
         try {

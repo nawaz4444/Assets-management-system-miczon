@@ -10,6 +10,8 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
+import { API_BASE } from './utils/config';
+
 function ResetPassword() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -30,7 +32,7 @@ function ResetPassword() {
     useEffect(() => {
         const validateToken = async () => {
             try {
-                const response = await axios.post('http://localhost:8000/api/password-reset/validate/', {
+                const response = await axios.post(`${API_BASE}/password-reset/validate/`, {
                     uid: uid,
                     token: token
                 });
@@ -73,7 +75,7 @@ function ResetPassword() {
         setLoading(true);
 
         try {
-            const response = await axios.post('http://localhost:8000/api/password-reset/confirm/', {
+            const response = await axios.post(`${API_BASE}/password-reset/confirm/`, {
                 uid: uid,
                 token: token,
                 new_password: newPassword

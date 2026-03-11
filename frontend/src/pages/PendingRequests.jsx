@@ -16,6 +16,8 @@ import {
 } from '@mui/icons-material';
 import { UserContext } from '../App';
 
+import { API_BASE } from '../utils/config';
+
 export default function PendingRequests({ token }) {
     const { user } = useContext(UserContext);
     const [requests, setRequests] = useState([]);
@@ -29,7 +31,6 @@ export default function PendingRequests({ token }) {
     const [processing, setProcessing] = useState(false);
 
     const authConfig = { headers: { Authorization: `Token ${token}` } };
-    const API_BASE = 'http://localhost:8000/api';
 
     const fetchRequests = async () => {
         setLoading(true);

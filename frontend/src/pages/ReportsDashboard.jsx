@@ -97,6 +97,8 @@ function StatsCard({ title, value, icon, color, onClick, loading }) {
     );
 }
 
+import { API_BASE } from '../utils/config';
+
 export default function ReportsDashboard({ token }) {
     const { user } = useContext(UserContext);
 
@@ -127,7 +129,6 @@ export default function ReportsDashboard({ token }) {
     const [catOptions, setCatOptions] = useState([]);
 
     const authConfig = { headers: { Authorization: `Token ${token}` } };
-    const API_BASE = 'http://localhost:8000/api';
 
     // --- API CALLS ---
     useEffect(() => {

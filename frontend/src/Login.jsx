@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Container, Paper, TextField, Button, Typography, Box, Alert } from '@mui/material';
 
+import { BACKEND_BASE } from './utils/config';
+
 function Login({ setToken }) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -19,7 +21,7 @@ function Login({ setToken }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        axios.post('http://localhost:8000/api-token-auth/', {
+        axios.post(`${BACKEND_BASE}/api-token-auth/`, {
             username: username,
             password: password
         })
@@ -45,7 +47,7 @@ function Login({ setToken }) {
                     fullWidth
                     variant="outlined"
                     style={{ marginTop: '16px' }}
-                    onClick={() => { window.location.href = 'http://localhost:8000/accounts/google/login/'; }}
+                    onClick={() => { window.location.href = `${BACKEND_BASE}/accounts/google/login/`; }}
                 >
                     Continue with Google
                 </Button>

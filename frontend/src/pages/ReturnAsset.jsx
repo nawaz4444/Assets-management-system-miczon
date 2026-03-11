@@ -20,6 +20,8 @@ import BuildIcon from '@mui/icons-material/Build'; // For Condition
 import NotesIcon from '@mui/icons-material/Notes';
 import BadgeIcon from '@mui/icons-material/Badge';
 
+import { API_BASE } from '../utils/config';
+
 function ReturnAsset({ token }) {
     // --- Data States ---
     const [employees, setEmployees] = useState([]);
@@ -42,7 +44,6 @@ function ReturnAsset({ token }) {
     const { user } = useContext(UserContext);
 
     const authConfig = { headers: { Authorization: `Token ${token}` } };
-    const API_BASE = 'http://localhost:8000/api';
     const steps = ['Select Employee & Assets', 'Enter Return Details', 'Confirm'];
 
     useEffect(() => {

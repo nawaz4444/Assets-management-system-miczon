@@ -18,6 +18,8 @@ import InfoIcon from '@mui/icons-material/Info';
 import MemoryIcon from '@mui/icons-material/Memory';
 import NotesIcon from '@mui/icons-material/Notes';
 
+import { API_BASE } from '../utils/config';
+
 function AddAsset({ token }) {
     const [formData, setFormData] = useState({
         miczon_id: '',
@@ -32,8 +34,6 @@ function AddAsset({ token }) {
     const [departments, setDepartments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [alert, setAlert] = useState({ open: false, message: '', severity: 'success' });
-
-    const API_BASE = 'http://localhost:8000/api';
 
     const { user } = useContext(UserContext);
 
