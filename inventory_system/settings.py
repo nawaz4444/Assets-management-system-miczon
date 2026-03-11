@@ -22,6 +22,13 @@ DEBUG = os.getenv('DEBUG', 'True') == 'True'
 _allowed = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
 
+# CSRF settings for production (helps with SSL and cross-origin requests)
+_csrf_origins = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://localhost:8000')
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()]
+
+# Inform Django it's behind a secure proxy (Nginx with SSL)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # After successful Allauth login, send user back to the React app.
 LOGIN_REDIRECT_URL = os.getenv('LOGIN_REDIRECT_URL', 'http://localhost:5173/')
 
@@ -199,7 +206,7 @@ SOCIALACCOUNT_PROVIDERS = {
             'access_type': 'online',
             'prompt': 'select_account',
         },
-        'CALLBACK_URL': '/api/auth/google/callback/',
+        'CALLBACK_URL': '/accounts/google/login/callback/',
         'OAUTH_PKCE_ENABLED': True,
     }
 }

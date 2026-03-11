@@ -16,6 +16,7 @@ import NotesIcon from '@mui/icons-material/Notes';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeviceIcon from '@mui/icons-material/Devices';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import { API_BASE } from '../utils/config';
 
 function AssignAsset({ token }) {
     // --- State Management ---
@@ -33,7 +34,6 @@ function AssignAsset({ token }) {
 
     const { user } = useContext(UserContext);
     const authConfig = { headers: { Authorization: `Token ${token}` } };
-    const API_BASE = 'http://localhost:8000/api';
 
     useEffect(() => {
         fetchData();

@@ -28,7 +28,9 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 
 export const UserContext = createContext(null);
 
-const API_BASE = 'http://localhost:8000/api';
+import { API_BASE, BACKEND_BASE } from './utils/config';
+
+export { BACKEND_BASE };
 
 const PermissionGuard = ({ permission, children }) => {
   const { user } = useContext(UserContext);

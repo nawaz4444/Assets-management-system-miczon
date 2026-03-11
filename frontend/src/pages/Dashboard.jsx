@@ -24,11 +24,12 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 
-// Components
+// Utils
 import { printAssetLabel } from '../AssetLabel';
 import SearchFilterBar from '../SearchFilterBar';
 import RepairWatchlist from '../RepairWatchlist';
 import { fetchAllPages } from '../utils/apiHelpers';
+import { API_BASE } from '../utils/config';
 
 function Dashboard({ token, handleLogout }) {
     // --- State ---
@@ -37,8 +38,6 @@ function Dashboard({ token, handleLogout }) {
     const [employees, setEmployees] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-
-    const API_BASE = 'http://localhost:8000/api';
 
     // Pagination State
     const [nextPage, setNextPage] = useState(null);

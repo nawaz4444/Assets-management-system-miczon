@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom';
 import EmailIcon from '@mui/icons-material/Email';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
+import { API_BASE } from './utils/config';
+
 function ForgotPassword() {
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
@@ -22,7 +24,7 @@ function ForgotPassword() {
         setMessage('');
 
         try {
-            const response = await axios.post('http://localhost:8000/api/password-reset/request/', {
+            const response = await axios.post(`${API_BASE}/password-reset/request/`, {
                 email: email
             });
 
