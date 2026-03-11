@@ -22,15 +22,28 @@ DEBUG = os.getenv('DEBUG', 'True') == 'True'
 _allowed = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
 
-# CSRF settings for production (helps with SSL and cross-origin requests)
 _csrf_origins = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://localhost:8000')
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()]
+
+# After successful Allauth login, send user back to the React app.
+LOGIN_REDIRECT_URL = os.getenv('LOGIN_REDIRECT_URL', 'http://localhost:5173/')
+FRONTEND_LOGIN_URL = os.getenv('FRONTEND_LOGIN_URL', 'http://localhost:5173/login')
 
 # Inform Django it's behind a secure proxy (Nginx with SSL)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# After successful Allauth login, send user back to the React app.
-LOGIN_REDIRECT_URL = os.getenv('LOGIN_REDIRECT_URL', 'http://localhost:5173/')
+# Production Security Settings
+if not DEBUG:
+    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True') == 'True'
+    CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True') == 'True'
+    
+    # Optional but recommended
+    SECURE_HSTS_SECONDS = 31536000 # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_BROWSER_XSS_FILTER = True
 
 
 # Application definition
@@ -180,10 +193,6 @@ ACCOUNT_LOGIN_METHODS = {'email'}
 # (Keeps defaults sensible without relying on deprecated settings.)
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 
-# Redirect users back to the React login page with an error code on domain block.
-# Override in production via environment variable / settings management if needed.
-FRONTEND_LOGIN_URL = os.getenv('FRONTEND_LOGIN_URL', 'http://localhost:5173/login')
-
 # allauth settings
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
@@ -208,6 +217,10 @@ SOCIALACCOUNT_PROVIDERS = {
         },
         'CALLBACK_URL': '/accounts/google/login/callback/',
         'OAUTH_PKCE_ENABLED': True,
+        'APP': {
+            'client_id': os.getenv('GOOGLE_CLIENT_ID', ''),
+            'secret': os.getenv('GOOGLE_CLIENT_SECRET', ''),
+        }
     }
 }
 
