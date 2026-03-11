@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env file
+# Load .env file (works both locally and when mounted inside Docker)
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / '.env')
 
-# Build paths inside the project
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -17,28 +17,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY / CORE
 # ──────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-fallback-key-change-me')
+DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-# Set DEBUG to False in production
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
-
-# Domains allowed to access this Django app
-_allowed = os.getenv('ALLOWED_HOSTS', 'assets.miczon.com,localhost')
+_allowed = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
 
-# CSRF & Proxy Security (Crucial for DigitalOcean/Nginx HTTPS)
-CSRF_TRUSTED_ORIGINS = [os.getenv('CSRF_TRUSTED_ORIGINS', 'https://assets.miczon.com')]
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-USE_X_FORWARDED_HOST = True
-USE_X_FORWARDED_PORT = True
-
-# Redirects: Where to send the user after login
-LOGIN_REDIRECT_URL = os.getenv('LOGIN_REDIRECT_URL', 'https://assets.miczon.com/')
-FRONTEND_LOGIN_URL = os.getenv('FRONTEND_LOGIN_URL', 'https://assets.miczon.com/login')
+# After successful Allauth login, send user back to the React app.
+LOGIN_REDIRECT_URL = os.getenv('LOGIN_REDIRECT_URL', 'http://localhost:5173/')
 
 
-# ──────────────────────────────────────────────────────────────
-# APPLICATION DEFINITION
-# ──────────────────────────────────────────────────────────────
+# Application definition
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -92,6 +81,8 @@ WSGI_APPLICATION = 'inventory_system.wsgi.application'
 
 # ──────────────────────────────────────────────────────────────
 # DATABASE
+# Uses PostgreSQL when DB_HOST env-var is set (Docker / prod),
+# otherwise falls back to SQLite for local dev without Docker.
 # ──────────────────────────────────────────────────────────────
 _db_host = os.getenv('DB_HOST', '')
 if _db_host:
@@ -114,12 +105,44 @@ else:
     }
 
 
-# ──────────────────────────────────────────────────────────────
-# STATIC & MEDIA FILES
-# ──────────────────────────────────────────────────────────────
+# Password validation
+# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/6.0/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'UTC'
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/6.0/howto/static-files/
+
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# WhiteNoise settings for production efficiency
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
@@ -129,40 +152,41 @@ STORAGES = {
     },
 }
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+CORS_ALLOW_ALL_ORIGINS = True
 
-
-# ──────────────────────────────────────────────────────────────
-# CORS SETTINGS
-# ──────────────────────────────────────────────────────────────
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOWED_ORIGINS = [
-    "https://assets.miczon.com",
-]
-
-
-# ──────────────────────────────────────────────────────────────
-# ALLAUTH / GOOGLE OAUTH
-# ──────────────────────────────────────────────────────────────
 SITE_ID = 1
 
+# Allauth / Google OAuth
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
+
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+SOCIALACCOUNT_QUERY_EMAIL = True
+
+# allauth (current settings style)
 ACCOUNT_LOGIN_METHODS = {'email'}
+# Require email + password fields if you ever enable signup views.
+# (Keeps defaults sensible without relying on deprecated settings.)
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
+
+# Redirect users back to the React login page with an error code on domain block.
+# Override in production via environment variable / settings management if needed.
+FRONTEND_LOGIN_URL = os.getenv('FRONTEND_LOGIN_URL', 'http://localhost:5173/login')
+
+# allauth settings
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_USERNAME_REQUIRED = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
-SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_QUERY_EMAIL = True
-
-# Allauth Adapter (Ensure your logic here doesn't hardcode localhost)
+SOCIALACCOUNT_LOGIN_ON_GET = True
+SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_ADAPTER = 'inventory.allauth_adapters.CustomAccountAdapter'
 
 SOCIALACCOUNT_PROVIDERS = {
@@ -175,8 +199,7 @@ SOCIALACCOUNT_PROVIDERS = {
             'access_type': 'online',
             'prompt': 'select_account',
         },
-        # Match this to your urls.py 'accounts/' path
-        'CALLBACK_URL': 'https://assets.miczon.com/accounts/google/login/callback/',
+        'CALLBACK_URL': '/api/auth/google/callback/',
         'OAUTH_PKCE_ENABLED': True,
     }
 }
@@ -190,10 +213,6 @@ REST_FRAMEWORK = {
     ],
 }
 
-# ──────────────────────────────────────────────────────────────
-# INTERNATIONALIZATION
-# ──────────────────────────────────────────────────────────────
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
-USE_I18N = True
-USE_TZ = True
+# Media files configuration
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
