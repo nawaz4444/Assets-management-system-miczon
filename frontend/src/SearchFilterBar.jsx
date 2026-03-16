@@ -121,46 +121,6 @@ const SearchFilterBar = ({
                 )}
             </Paper>
 
-            {/* 4. ACTIVE FILTER CHIPS */}
-            {(hasActiveFilters) && (
-                <Stack direction="row" spacing={1} sx={{ mt: 1, ml: 1 }}>
-                    {filterDept && (
-                        <Chip
-                            label={`Dept: ${departments.find(d => d.id === filterDept)?.name || filterDept}`}
-                            onDelete={() => setFilterDept('')}
-                            color="primary"
-                            variant="outlined"
-                            size="small"
-                        />
-                    )}
-                    {filterStatus && (
-                        <Chip
-                            label={`Status: ${filterStatus}`}
-                            onDelete={() => setFilterStatus('')}
-                            color="secondary"
-                            variant="outlined"
-                            size="small"
-                        />
-                    )}
-                    {filterCategory && (
-                        <Chip
-                            label={`Cat: ${filterCategory}`}
-                            onDelete={() => setFilterCategory('')}
-                            color="info"
-                            variant="outlined"
-                            size="small"
-                        />
-                    )}
-                    <Button
-                        size="small"
-                        onClick={clearFilters}
-                        startIcon={<FilterAltOffIcon fontSize="small" />}
-                        sx={{ textTransform: 'none', color: 'text.secondary' }}
-                    >
-                        Clear All
-                    </Button>
-                </Stack>
-            )}
         </Box>
     );
 };

@@ -23,6 +23,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import FilterAltOffIcon from '@mui/icons-material/FilterAltOff';
 
 // Utils
 import { printAssetLabel } from '../AssetLabel';
@@ -38,6 +39,7 @@ function Dashboard({ token, handleLogout }) {
     const [employees, setEmployees] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [initialLoadDone, setInitialLoadDone] = useState(false);
 
     // Pagination State
     const [nextPage, setNextPage] = useState(null);
@@ -120,6 +122,7 @@ function Dashboard({ token, handleLogout }) {
             setDepartments(deptRes.data);
             setEmployees(empRes); // empRes is already an array from fetchAllPages
             setStats(statsRes ? statsRes.data : null);
+            setInitialLoadDone(true);
         } catch (err) {
             handleError(err);
         } finally {
@@ -183,6 +186,18 @@ function Dashboard({ token, handleLogout }) {
             setLoading(false);
         }
     };
+
+    // Auto trigger fetchData when filter/search state changes
+    useEffect(() => {
+        if (!initialLoadDone) return; // Wait for initial load
+        
+        const timeoutId = setTimeout(() => {
+            const hasFilters = filterDept !== '' || filterStatus !== '' || filterCategory !== '' || searchTerm !== '';
+            fetchData(null, hasFilters);
+        }, 400); // 400ms debounce
+        
+        return () => clearTimeout(timeoutId);
+    }, [filterDept, filterStatus, filterCategory, searchTerm, initialLoadDone]);
 
     // 🚀 OPTIMIZATION 3: Lazy Load History
     const handleViewHistory = async (asset) => {
@@ -390,11 +405,11 @@ function Dashboard({ token, handleLogout }) {
                     >
                         <Button
                             variant="outlined"
-                            onClick={() => fetchData(null, true)}
-                            startIcon={<SearchIcon />}
-                            sx={{ textTransform: 'none', borderRadius: 2, px: 3, mr: 1 }}
+                            onClick={clearFilters}
+                            startIcon={<FilterAltOffIcon />}
+                            sx={{ textTransform: 'none', borderRadius: 2, px: 3, mr: 1, color: 'text.secondary', borderColor: 'divider' }}
                         >
-                            Apply Filters
+                            Clear Filters
                         </Button>
                         <Button
                             variant="contained"
