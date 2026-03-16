@@ -1,6 +1,6 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import axios from 'axios';
-import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { AppBar, Toolbar, Typography, Button, Box, Tabs, Tab, ThemeProvider, CssBaseline } from '@mui/material';
 import LogoutIcon from '@mui/icons-material/Logout';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -51,6 +51,99 @@ const ProtectedPermissionRoute = ({ permission, children }) => {
   return hasPermission ? children : <Navigate to="/" replace />;
 };
 
+const NavigationTabs = () => {
+  const location = useLocation();
+  const { user } = useContext(UserContext);
+  
+  const path = location.pathname;
+  let currentTab = '/';
+  if (path.startsWith('/reports')) currentTab = '/reports';
+  else if (path.startsWith('/add-asset')) currentTab = '/add-asset';
+  else if (path.startsWith('/assign')) currentTab = '/assign';
+  else if (path.startsWith('/return')) currentTab = '/return';
+  else if (path.startsWith('/inspection')) currentTab = '/inspection';
+  else if (path.startsWith('/approvals')) currentTab = '/approvals';
+
+  const hasPerm = (perm) => {
+    if (!user) return false;
+    if (user.is_superuser) return true;
+    return user.permissions?.includes(perm);
+  };
+
+  return (
+    <Tabs
+      value={currentTab}
+      textColor="inherit"
+      indicatorColor="primary"
+      variant="scrollable"
+      scrollButtons="auto"
+    >
+      <Tab
+        label="Dashboard"
+        icon={<DashboardIcon />}
+        iconPosition="start"
+        component={Link}
+        to="/"
+        value="/"
+      />
+      {hasPerm('inventory.view_asset') && (
+        <Tab
+          label="Reports"
+          icon={<AssessmentIcon />}
+          iconPosition="start"
+          component={Link}
+          to="/reports"
+          value="/reports"
+        />
+      )}
+      {hasPerm('inventory.add_asset') && (
+        <Tab
+          label="Add Asset"
+          icon={<AddBoxIcon />}
+          iconPosition="start"
+          component={Link}
+          to="/add-asset"
+          value="/add-asset"
+        />
+      )}
+      {hasPerm('inventory.add_assetassignment') && (
+        <Tab
+          label="Assign Asset"
+          icon={<AssignmentIcon />}
+          iconPosition="start"
+          component={Link}
+          to="/assign"
+          value="/assign"
+        />
+      )}
+      <Tab
+        label="Return Asset"
+        icon={<AssignmentReturnIcon />}
+        iconPosition="start"
+        component={Link}
+        to="/return"
+        value="/return"
+      />
+      <Tab
+        label="Inspection"
+        icon={<AssignmentTurnedInIcon />}
+        iconPosition="start"
+        component={Link}
+        to="/inspection"
+        value="/inspection"
+      />
+      <Tab
+        label="Approvals"
+        icon={<RuleIcon />}
+        iconPosition="start"
+        component={Link}
+        to="/approvals"
+        value="/approvals"
+      />
+    </Tabs>
+  );
+};
+
 function App() {
   const getInitialToken = () => {
     const params = new URLSearchParams(window.location.search);
@@ -69,7 +162,6 @@ function App() {
   const [token, setToken] = useState(getInitialToken);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(!!token);
-  const [currentTab, setCurrentTab] = useState(0);
 
   useEffect(() => {
     if (token) {
@@ -151,68 +243,7 @@ function App() {
                   </Box>
 
                   <Box sx={{ mr: 3 }}>
-                    <Tabs
-                      value={currentTab}
-                      onChange={(e, newValue) => setCurrentTab(newValue)}
-                      textColor="inherit"
-                      indicatorColor="primary"
-                    >
-                      <Tab
-                        label="Dashboard"
-                        icon={<DashboardIcon />}
-                        iconPosition="start"
-                        component={Link}
-                        to="/"
-                      />
-                      <PermissionGuard permission="inventory.view_asset">
-                        <Tab
-                          label="Reports"
-                          icon={<AssessmentIcon />}
-                          iconPosition="start"
-                          component={Link}
-                          to="/reports"
-                        />
-                      </PermissionGuard>
-                      <PermissionGuard permission="inventory.add_asset">
-                        <Tab
-                          label="Add Asset"
-                          icon={<AddBoxIcon />}
-                          iconPosition="start"
-                          component={Link}
-                          to="/add-asset"
-                        />
-                      </PermissionGuard>
-                      <PermissionGuard permission="inventory.add_assetassignment">
-                        <Tab
-                          label="Assign Asset"
-                          icon={<AssignmentIcon />}
-                          iconPosition="start"
-                          component={Link}
-                          to="/assign"
-                        />
-                      </PermissionGuard>
-                      <Tab
-                        label="Return Asset"
-                        icon={<AssignmentReturnIcon />}
-                        iconPosition="start"
-                        component={Link}
-                        to="/return"
-                      />
-                      <Tab
-                        label="Inspection"
-                        icon={<AssignmentTurnedInIcon />}
-                        iconPosition="start"
-                        component={Link}
-                        to="/inspection"
-                      />
-                      <Tab
-                        label="Approvals"
-                        icon={<RuleIcon />}
-                        iconPosition="start"
-                        component={Link}
-                        to="/approvals"
-                      />
-                    </Tabs>
+                    <NavigationTabs />
                   </Box>
 
                   <Button
