@@ -2,11 +2,15 @@ from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
-from .models import Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog, AssetActionRequest
+from .models import (
+    Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog,
+    AssetActionRequest, HealthCheckSession, HealthCheckResponse
+)
 from .serializers import (
     AssetSerializer, EmployeeSerializer, DepartmentSerializer, 
     AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer, 
-    AssetDetailSerializer, UserSerializer, AssetActionRequestSerializer
+    AssetDetailSerializer, UserSerializer, AssetActionRequestSerializer,
+    HealthCheckSessionSerializer, HealthCheckResponseSerializer
 )
 from rest_framework.decorators import action
 from django.db.models import Count, Q
@@ -227,6 +231,18 @@ class AssetViewSet(viewsets.ModelViewSet):
         
         return super().create(request, *args, **kwargs)
 
+    def perform_create(self, serializer):
+        asset = serializer.save()
+        if asset.custodian and asset.current_status != 'BROKEN':
+            asset.current_status = 'ASSIGNED'
+            asset.save(update_fields=['current_status'])
+            AssetHistory.objects.create(
+                asset=asset,
+                action='ADD_ASSIGN',
+                to_employee=asset.custodian,
+                remarks='Asset added and assigned from inventory manager.'
+            )
+
     def perform_update(self, serializer):
         # Only superusers can directly update assets
         if not self.request.user.is_superuser:
@@ -235,6 +251,13 @@ class AssetViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         old_custodian = instance.custodian
         updated_asset = serializer.save()
+
+        if updated_asset.custodian and updated_asset.current_status != 'BROKEN':
+            updated_asset.current_status = 'ASSIGNED'
+            updated_asset.save(update_fields=['current_status'])
+        elif not updated_asset.custodian and updated_asset.current_status == 'ASSIGNED':
+            updated_asset.current_status = 'AVAILABLE'
+            updated_asset.save(update_fields=['current_status'])
         
         if updated_asset.custodian != old_custodian:
             action = 'ASSIGN' if updated_asset.custodian else 'RETURN'
@@ -378,7 +401,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
 
     def get_queryset(self):
-        queryset = Employee.objects.all()
+        queryset = Employee.objects.all().annotate(
+            assigned_assets_count=Count('assets', filter=Q(assets__current_status='ASSIGNED'))
+        )
         department = self.request.query_params.get('department')
         if department:
             queryset = queryset.filter(department_id=department)
@@ -389,6 +414,49 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(emp_filter)
             
         return queryset
+
+    @action(detail=True, methods=['get'], url_path='assigned-assets')
+    def assigned_assets(self, request, pk=None):
+        employee = self.get_object()
+        assets = Asset.objects.filter(custodian=employee).select_related('custodian', 'department')
+        serializer = AssetListSerializer(assets, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='unassign-all')
+    def unassign_all(self, request, pk=None):
+        if not request.user.is_superuser:
+            return Response({"error": "Only admins can run employee offboarding."}, status=403)
+
+        employee = self.get_object()
+        active_assignments = AssetAssignment.objects.filter(employee=employee, status='ASSIGNED').select_related('asset')
+        returned_count = 0
+
+        for assignment in active_assignments:
+            assignment.mark_returned(returned_by=f"Offboarding by {request.user.username}", condition='Good')
+            AssetHistory.objects.create(
+                asset=assignment.asset,
+                action='OFFBOARDING_RETURN',
+                from_employee=employee,
+                to_employee=None,
+                remarks=f"Unassigned during offboarding by {request.user.username}."
+            )
+            returned_count += 1
+
+        remaining_assets = Asset.objects.filter(custodian=employee)
+        for asset in remaining_assets:
+            asset.custodian = None
+            asset.current_status = 'AVAILABLE'
+            asset.save()
+            AssetHistory.objects.create(
+                asset=asset,
+                action='OFFBOARDING_RETURN',
+                from_employee=employee,
+                to_employee=None,
+                remarks=f"Unassigned during offboarding by {request.user.username}."
+            )
+            returned_count += 1
+
+        return Response({"status": "Employee assets unassigned", "returned_count": returned_count})
 
 class DepartmentViewSet(viewsets.ModelViewSet):
     queryset = Department.objects.all()
@@ -408,6 +476,23 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             emp_filter = get_employee_filter(self.request.user, prefix='requester__')
             queryset = queryset.filter(emp_filter)
         return queryset
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            requester = _get_employee_requester(request.user)
+            if not requester:
+                return Response({"error": "Employee profile not found for user."}, status=400)
+
+            data = request.data.copy()
+            data['requester'] = requester.id
+            data['action_type'] = data.get('action_type') or 'ASSIGN'
+            data['status'] = 'PENDING'
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(requester=requester, status='PENDING')
+            return Response(serializer.data, status=201)
+
+        return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -478,31 +563,35 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         
             elif req.action_type == 'ASSIGN' or req.action_type == 'TRANSFER':
                 if not asset:
-                    return Response({"error": "No asset associated with this request"}, status=400)
-                if not req.target_employee:
+                    if req.requested_device_type:
+                        # Device-only requests are approvals to provision hardware; assignment happens once an asset is selected.
+                        pass
+                    else:
+                        return Response({"error": "No asset associated with this request"}, status=400)
+                elif not req.target_employee:
                     return Response({"error": "Target employee is missing in request"}, status=400)
-                
-                from_employee = asset.custodian
-                to_employee = req.target_employee
-                
-                # Return current assignment if transfer or if already assigned
-                active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
-                if active_assignment:
-                    active_assignment.mark_returned(returned_by=f"System (Prior to {req.action_type} Approval)", condition='Good')
-                
-                AssetAssignment.objects.create(
-                    asset=asset,
-                    employee=to_employee,
-                    remarks=req.remarks,
-                    status='ASSIGNED'
-                )
-                AssetHistory.objects.create(
-                    asset=asset,
-                    action=req.action_type,
-                    from_employee=from_employee,
-                    to_employee=to_employee,
-                    remarks=req.remarks or f"{req.action_type} Approved by {request.user.username}"
-                )
+                else:
+                    from_employee = asset.custodian
+                    to_employee = req.target_employee
+                    
+                    # Return current assignment if transfer or if already assigned
+                    active_assignment = AssetAssignment.objects.filter(asset=asset, status='ASSIGNED').first()
+                    if active_assignment:
+                        active_assignment.mark_returned(returned_by=f"System (Prior to {req.action_type} Approval)", condition='Good')
+                    
+                    AssetAssignment.objects.create(
+                        asset=asset,
+                        employee=to_employee,
+                        remarks=req.remarks,
+                        status='ASSIGNED'
+                    )
+                    AssetHistory.objects.create(
+                        asset=asset,
+                        action=req.action_type,
+                        from_employee=from_employee,
+                        to_employee=to_employee,
+                        remarks=req.remarks or f"{req.action_type} Approved by {request.user.username}"
+                    )
             
             elif req.action_type == 'REPAIR':
                 if not asset:
@@ -553,6 +642,117 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         
         return Response({"status": "Request rejected"})
 
+class HealthCheckSessionViewSet(viewsets.ModelViewSet):
+    queryset = HealthCheckSession.objects.all().order_by('-created_at')
+    serializer_class = HealthCheckSessionSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().annotate(response_count=Count('responses'))
+        if self.request.user.is_superuser:
+            return queryset
+
+        employee = _get_employee_requester(self.request.user)
+        if not employee:
+            return queryset.none()
+
+        submitted_sessions = HealthCheckResponse.objects.filter(employee=employee).values('session_id')
+        return queryset.filter(Q(status='OPEN') | Q(id__in=submitted_sessions)).distinct()
+
+    @action(detail=False, methods=['post'], url_path='trigger-global')
+    def trigger_global(self, request):
+        if not request.user.is_superuser:
+            return Response({"error": "Only admins can trigger global health checks."}, status=403)
+
+        title = request.data.get('title') or f"Global Health Check {timezone.now().date()}"
+        session = HealthCheckSession.objects.create(title=title, triggered_by=request.user)
+        serializer = self.get_serializer(session)
+        assigned_assets = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False).count()
+        return Response({
+            "status": "Global health check triggered",
+            "assigned_assets": assigned_assets,
+            "session": serializer.data,
+        }, status=201)
+
+    @action(detail=True, methods=['post'], url_path='close')
+    def close(self, request, pk=None):
+        if not request.user.is_superuser:
+            return Response({"error": "Only admins can close health checks."}, status=403)
+
+        session = self.get_object()
+        session.status = 'CLOSED'
+        session.closed_at = timezone.now()
+        session.save()
+        return Response({"status": "Health check closed"})
+
+    @action(detail=True, methods=['get'], url_path='responses')
+    def responses(self, request, pk=None):
+        session = self.get_object()
+        responses = HealthCheckResponse.objects.filter(session=session).select_related('employee', 'asset')
+        if not request.user.is_superuser:
+            employee = _get_employee_requester(request.user)
+            responses = responses.filter(employee=employee)
+        serializer = HealthCheckResponseSerializer(responses, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'], url_path='pending-assets')
+    def pending_assets(self, request, pk=None):
+        session = self.get_object()
+        employee = _get_employee_requester(request.user)
+
+        if request.user.is_superuser and request.query_params.get('employee'):
+            employee = Employee.objects.filter(id=request.query_params.get('employee')).first()
+
+        if not employee:
+            return Response([])
+
+        responded_assets = HealthCheckResponse.objects.filter(
+            session=session,
+            employee=employee
+        ).values_list('asset_id', flat=True)
+        assets = Asset.objects.filter(custodian=employee).exclude(id__in=responded_assets)
+        serializer = AssetListSerializer(assets, many=True, context={'request': request})
+        return Response(serializer.data)
+
+class HealthCheckResponseViewSet(viewsets.ModelViewSet):
+    queryset = HealthCheckResponse.objects.all().select_related('session', 'employee', 'asset').order_by('-submitted_at')
+    serializer_class = HealthCheckResponseSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        asset = self.request.query_params.get('asset')
+        session = self.request.query_params.get('session')
+        if asset:
+            queryset = queryset.filter(asset_id=asset)
+        if session:
+            queryset = queryset.filter(session_id=session)
+
+        if not self.request.user.is_superuser:
+            employee = _get_employee_requester(self.request.user)
+            queryset = queryset.filter(employee=employee)
+
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        employee = _get_employee_requester(request.user)
+        if not employee:
+            return Response({"error": "Employee profile not found for user."}, status=400)
+
+        data = request.data.copy()
+        data['employee'] = employee.id
+        asset_id = data.get('asset')
+        session_id = data.get('session')
+
+        if not Asset.objects.filter(id=asset_id, custodian=employee).exists() and not request.user.is_superuser:
+            return Response({"error": "You can only submit checks for hardware assigned to you."}, status=403)
+
+        if not HealthCheckSession.objects.filter(id=session_id, status='OPEN').exists():
+            return Response({"error": "This health check session is not open."}, status=400)
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(employee=employee)
+        return Response(serializer.data, status=201)
+
 class ReportsViewSet(viewsets.ViewSet):
     """
     Reporting and Analytics ViewSet
@@ -572,6 +772,40 @@ class ReportsViewSet(viewsets.ViewSet):
             total_repair=Count('id', filter=Q(current_status='BROKEN') | Q(current_status='IN_REPAIR'))
         )
         return Response(stats)
+
+    @action(detail=False, methods=['get'], url_path='summary')
+    def summary(self, request):
+        assets = Asset.objects.all()
+        if not request.user.is_superuser:
+            emp_filter = get_employee_filter(request.user, prefix='custodian__')
+            assets = assets.filter(emp_filter)
+
+        category_rows = assets.values('category').annotate(count=Count('id')).order_by('category')
+        active_requests = AssetActionRequest.objects.filter(status='PENDING')
+        pending_health_checks = HealthCheckSession.objects.filter(status='OPEN')
+
+        if not request.user.is_superuser:
+            employee = _get_employee_requester(request.user)
+            active_requests = active_requests.filter(requester=employee)
+            if employee:
+                assigned_assets = Asset.objects.filter(custodian=employee)
+                submitted = HealthCheckResponse.objects.filter(employee=employee, asset__in=assigned_assets).values('session_id')
+                pending_health_checks = pending_health_checks.exclude(id__in=submitted)
+            else:
+                pending_health_checks = pending_health_checks.none()
+
+        return Response({
+            "total_devices": assets.count(),
+            "laptops": assets.filter(category__icontains='laptop').count(),
+            "mobiles": assets.filter(Q(category__icontains='mobile') | Q(category__icontains='phone')).count(),
+            "accessories": assets.filter(category__icontains='accessor').count(),
+            "assigned": assets.filter(current_status='ASSIGNED').count(),
+            "available": assets.filter(current_status='AVAILABLE').count(),
+            "repair": assets.filter(Q(current_status='BROKEN') | Q(current_status='IN_REPAIR')).count(),
+            "active_requests": active_requests.count(),
+            "pending_health_checks": pending_health_checks.count(),
+            "category_breakdown": list(category_rows),
+        })
 
     @action(detail=False, methods=['get'], url_path='category-breakdown')
     def category_breakdown(self, request):

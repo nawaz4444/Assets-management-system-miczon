@@ -94,6 +94,53 @@ class InspectionLog(models.Model):
     inspector_name = models.CharField(max_length=100, default='Admin')
     notes = models.TextField(blank=True)
 
+class HealthCheckSession(models.Model):
+    STATUS_CHOICES = [
+        ('OPEN', 'Open'),
+        ('CLOSED', 'Closed'),
+    ]
+
+    title = models.CharField(max_length=150, default='Global Hardware Health Check')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
+    triggered_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.created_at:%Y-%m-%d})"
+
+class HealthCheckResponse(models.Model):
+    SCREEN_CHOICES = [
+        ('EXCELLENT', 'Excellent'),
+        ('GOOD', 'Good'),
+        ('SCRATCHED', 'Scratched'),
+        ('CRACKED', 'Cracked'),
+        ('NEEDS_REPAIR', 'Needs Repair'),
+    ]
+    BATTERY_CHOICES = [
+        ('EXCELLENT', 'Excellent'),
+        ('GOOD', 'Good'),
+        ('FAIR', 'Fair'),
+        ('POOR', 'Poor'),
+        ('NOT_APPLICABLE', 'Not Applicable'),
+    ]
+
+    session = models.ForeignKey(HealthCheckSession, on_delete=models.CASCADE, related_name='responses')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='health_check_responses')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='health_trail')
+    screen_condition = models.CharField(max_length=30, choices=SCREEN_CHOICES)
+    battery_life = models.CharField(max_length=30, choices=BATTERY_CHOICES)
+    performance_rating = models.PositiveSmallIntegerField()
+    comments = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('session', 'employee', 'asset')
+        ordering = ['-submitted_at']
+
+    def __str__(self):
+        return f"{self.asset.miczon_id} health check by {self.employee.name}"
+
 # --- ASSET ASSIGNMENT MODULE ---
 class AssetAssignment(models.Model):
     ASSIGNMENT_STATUS = [
@@ -170,6 +217,7 @@ class AssetActionRequest(models.Model):
     # Data for REPAIR
     vendor = models.CharField(max_length=255, blank=True)
     expected_return_date = models.DateField(null=True, blank=True)
+    requested_device_type = models.CharField(max_length=100, blank=True)
     
     remarks = models.TextField(blank=True)
     
