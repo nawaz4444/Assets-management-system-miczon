@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AssetViewSet, EmployeeViewSet, DepartmentViewSet, UploadAssetsView, 
     AssetAssignmentViewSet, InspectionLogViewSet, ReportsViewSet, CurrentUserView,
-    AssetActionRequestViewSet
+    AssetActionRequestViewSet, HealthCheckSessionViewSet, HealthCheckResponseViewSet
 )
 
 # Create a router and register our viewsets with it.
@@ -14,6 +14,8 @@ router.register(r'departments', DepartmentViewSet)
 router.register(r'assignments', AssetAssignmentViewSet)
 router.register(r'inspections', InspectionLogViewSet)
 router.register(r'requests', AssetActionRequestViewSet)
+router.register(r'health-checks', HealthCheckSessionViewSet)
+router.register(r'health-responses', HealthCheckResponseViewSet)
 router.register(r'reports', ReportsViewSet, basename='reports')
 
 # The API URLs are determined automatically by the router.

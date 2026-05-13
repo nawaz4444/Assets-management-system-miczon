@@ -16,9 +16,10 @@ class DepartmentSerializer(serializers.ModelSerializer):
 
 class EmployeeSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
+    assigned_assets_count = serializers.IntegerField(read_only=True)
     class Meta:
         model = Employee
-        fields = ['id', 'name', 'employee_id', 'email', 'department', 'department_name']
+        fields = ['id', 'name', 'employee_id', 'email', 'department', 'department_name', 'assigned_assets_count']
 
 class AssetHistorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -180,3 +181,30 @@ class AssetActionRequestSerializer(serializers.ModelSerializer):
         if obj.asset_data and 'name' in obj.asset_data:
             return obj.asset_data['name']
         return None
+
+from .models import HealthCheckSession, HealthCheckResponse
+
+class HealthCheckResponseSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    asset_name = serializers.CharField(source='asset.name', read_only=True)
+    asset_miczon_id = serializers.CharField(source='asset.miczon_id', read_only=True)
+    asset_category = serializers.CharField(source='asset.category', read_only=True)
+    session_title = serializers.CharField(source='session.title', read_only=True)
+
+    class Meta:
+        model = HealthCheckResponse
+        fields = '__all__'
+
+    def validate_performance_rating(self, value):
+        if value < 1 or value > 5:
+            raise serializers.ValidationError('Performance rating must be between 1 and 5.')
+        return value
+
+class HealthCheckSessionSerializer(serializers.ModelSerializer):
+    triggered_by_name = serializers.CharField(source='triggered_by.username', read_only=True)
+    response_count = serializers.IntegerField(read_only=True)
+    pending_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = HealthCheckSession
+        fields = '__all__'

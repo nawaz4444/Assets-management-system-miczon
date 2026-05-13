@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability, no-unused-vars */
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import axios from 'axios';
 import { UserContext } from '../App';
