@@ -13,6 +13,7 @@ from .serializers import (
     HealthCheckSessionSerializer, HealthCheckResponseSerializer
 )
 from rest_framework.decorators import action
+from django.db import transaction
 from django.db.models import Count, Q
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
@@ -757,6 +758,54 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         serializer.save(employee=employee)
         return Response(serializer.data, status=201)
 
+    @action(detail=False, methods=['post'], url_path='bulk-submit')
+    def bulk_submit(self, request):
+        employee = _get_employee_requester(request.user)
+        if not employee:
+            return Response({"error": "Employee profile not found for user."}, status=400)
+
+        session_id = request.data.get('session')
+        responses = request.data.get('responses') or []
+        if not responses:
+            return Response({"error": "No health check responses were provided."}, status=400)
+
+        session = HealthCheckSession.objects.filter(id=session_id, status='OPEN').first()
+        if not session:
+            return Response({"error": "This health check session is not open."}, status=400)
+
+        asset_ids = [response.get('asset') for response in responses if response.get('asset')]
+        if len(asset_ids) != len(responses):
+            return Response({"error": "Every health check response must include an asset."}, status=400)
+
+        assigned_asset_ids = set(Asset.objects.filter(id__in=asset_ids, custodian=employee).values_list('id', flat=True))
+        if not request.user.is_superuser and assigned_asset_ids != set(asset_ids):
+            return Response({"error": "You can only submit checks for hardware assigned to you."}, status=403)
+
+        saved_responses = []
+        with transaction.atomic():
+            for response in responses:
+                data = {
+                    'session': session.id,
+                    'employee': employee.id,
+                    'asset': response.get('asset'),
+                    'screen_condition': response.get('screen_condition') or 'GOOD',
+                    'battery_life': response.get('battery_life') or 'GOOD',
+                    'performance_rating': response.get('performance_rating') or 4,
+                    'comments': response.get('comments') or '',
+                }
+                existing_response = HealthCheckResponse.objects.filter(
+                    session=session,
+                    employee=employee,
+                    asset_id=response.get('asset')
+                ).first()
+                serializer = self.get_serializer(existing_response, data=data)
+                serializer.is_valid(raise_exception=True)
+                health_response = serializer.save(employee=employee)
+                saved_responses.append(health_response)
+
+        serializer = self.get_serializer(saved_responses, many=True)
+        return Response(serializer.data, status=201)
+
 class ReportsViewSet(viewsets.ViewSet):
     """
     Reporting and Analytics ViewSet
@@ -826,6 +875,96 @@ class ReportsViewSet(viewsets.ViewSet):
         ).order_by('category')
         
         return Response(data)
+
+    @action(detail=False, methods=['get'], url_path='health-compliance')
+    def health_compliance(self, request):
+        sessions = HealthCheckSession.objects.all().annotate(response_count=Count('responses')).order_by('-created_at')
+        session_id = request.query_params.get('session')
+        session = sessions.filter(id=session_id).first() if session_id else sessions.filter(status='OPEN').first()
+        if not session:
+            session = sessions.first()
+
+        if not session:
+            return Response({
+                "session": None,
+                "summary": {
+                    "target_assets": 0,
+                    "completed_assets": 0,
+                    "pending_assets": 0,
+                    "pending_employees": 0,
+                    "completion_rate": 0,
+                    "critical_alerts": 0,
+                },
+                "pending_by_employee": [],
+                "department_summary": [],
+                "responses": [],
+            })
+
+        target_assets = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False).select_related('custodian', 'department', 'custodian__department')
+        if not request.user.is_superuser:
+            employee = _get_employee_requester(request.user)
+            target_assets = target_assets.filter(custodian=employee) if employee else target_assets.none()
+        target_assets = list(target_assets)
+        target_asset_ids = [asset.id for asset in target_assets]
+
+        response_qs = HealthCheckResponse.objects.filter(session=session, asset_id__in=target_asset_ids).select_related('employee', 'employee__department', 'asset', 'asset__department')
+        if not request.user.is_superuser:
+            employee = _get_employee_requester(request.user)
+            response_qs = response_qs.filter(employee=employee) if employee else response_qs.none()
+
+        responded_asset_ids = set(response_qs.values_list('asset_id', flat=True))
+        pending_assets = [asset for asset in target_assets if asset.id not in responded_asset_ids]
+
+        pending_by_employee = {}
+        for asset in pending_assets:
+            employee = asset.custodian
+            if not employee:
+                continue
+            row = pending_by_employee.setdefault(employee.id, {
+                "employee_id": employee.id,
+                "employee_name": employee.name,
+                "employee_code": employee.employee_id,
+                "email": employee.email,
+                "department": employee.department.name if employee.department else (asset.department.name if asset.department else "Unassigned"),
+                "pending_count": 0,
+                "assets": [],
+            })
+            row["pending_count"] += 1
+            row["assets"].append({
+                "id": asset.id,
+                "name": asset.name,
+                "miczon_id": asset.miczon_id,
+                "category": asset.category,
+            })
+
+        department_summary = {}
+        for asset in target_assets:
+            department_name = asset.custodian.department.name if asset.custodian and asset.custodian.department else (asset.department.name if asset.department else "Unassigned")
+            row = department_summary.setdefault(department_name, {"department": department_name, "target": 0, "completed": 0, "pending": 0})
+            row["target"] += 1
+            if asset.id in responded_asset_ids:
+                row["completed"] += 1
+            else:
+                row["pending"] += 1
+
+        total_targets = len(target_assets)
+        completed_assets = len(responded_asset_ids)
+        completion_rate = round((completed_assets / total_targets) * 100) if total_targets else 0
+
+        return Response({
+            "session": HealthCheckSessionSerializer(session).data,
+            "summary": {
+                "target_assets": total_targets,
+                "completed_assets": completed_assets,
+                "pending_assets": max(total_targets - completed_assets, 0),
+                "pending_employees": len(pending_by_employee),
+                "completion_rate": completion_rate,
+                "critical_alerts": response_qs.filter(performance_rating__lt=3).count(),
+            },
+            "pending_by_employee": sorted(pending_by_employee.values(), key=lambda row: (-row["pending_count"], row["employee_name"])),
+            "department_summary": sorted(department_summary.values(), key=lambda row: row["department"]),
+            "responses": HealthCheckResponseSerializer(response_qs.order_by('-submitted_at')[:100], many=True).data,
+        })
 
     @action(detail=False, methods=['get'], url_path='custom-export')
     def custom_export(self, request):

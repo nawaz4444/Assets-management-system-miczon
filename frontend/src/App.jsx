@@ -569,13 +569,23 @@ function RequestManager({ api, isAdmin }) {
 
 function HealthChecks({ api, isAdmin }) {
   const [sessions, setSessions] = useState([]);
-  const [responses, setResponses] = useState([]);
+  const [report, setReport] = useState(null);
+  const [selectedSession, setSelectedSession] = useState('');
+  const [activeReportView, setActiveReportView] = useState('');
+  const [reportSearch, setReportSearch] = useState('');
+  const [reportDepartment, setReportDepartment] = useState('');
   const [notice, setNotice] = useState('');
 
   const load = useCallback(() => {
-    fetchAll(api, '/health-checks/').then(setSessions);
-    fetchAll(api, '/health-responses/').then(setResponses);
-  }, [api]);
+    const reportPath = selectedSession ? `/reports/health-compliance/?session=${selectedSession}` : '/reports/health-compliance/';
+    Promise.all([fetchAll(api, '/health-checks/'), api.get(reportPath)]).then(([sessionRows, reportRes]) => {
+      setSessions(sessionRows);
+      setReport(reportRes.data);
+      if (!selectedSession && reportRes.data.session?.id) {
+        setSelectedSession(String(reportRes.data.session.id));
+      }
+    });
+  }, [api, selectedSession]);
 
   useEffect(() => {
     load();
@@ -584,44 +594,245 @@ function HealthChecks({ api, isAdmin }) {
   const trigger = async () => {
     const res = await api.post('/health-checks/trigger-global/');
     setNotice(`Global health check triggered for ${res.data.assigned_assets || res.data.target_assets || 0} hardware item(s).`);
-    load();
+    setSelectedSession(String(res.data.session?.id || ''));
+  };
+
+  const summary = report?.summary || {};
+  const pendingRows = report?.pending_by_employee || [];
+  const departmentRows = report?.department_summary || [];
+  const responseRows = report?.responses || [];
+  const sessionTitle = report?.session?.title || 'No active inspection';
+  const pendingAssetRows = pendingRows.flatMap((row) => row.assets.map((asset) => ({ ...asset, employee: row })));
+  const criticalRows = responseRows.filter((response) => Number(response.performance_rating) < 3);
+  const reportDepartments = Array.from(new Set([
+    ...departmentRows.map((row) => row.department).filter(Boolean),
+    ...pendingRows.map((row) => row.department).filter(Boolean),
+  ])).sort((a, b) => a.localeCompare(b));
+
+  useEffect(() => {
+    setReportSearch('');
+    setReportDepartment('');
+  }, [activeReportView, selectedSession]);
+
+  const matchesSearch = (values) => {
+    const needle = reportSearch.trim().toLowerCase();
+    if (!needle) return true;
+    return values.some((value) => String(value || '').toLowerCase().includes(needle));
+  };
+
+  const matchesDepartment = (department) => !reportDepartment || department === reportDepartment;
+  const filteredDepartmentRows = departmentRows.filter((row) => matchesDepartment(row.department) && matchesSearch([row.department, row.target, row.completed, row.pending]));
+  const filteredPendingRows = pendingRows.filter((row) => (
+    matchesDepartment(row.department) && matchesSearch([
+      row.employee_name,
+      row.employee_code,
+      row.email,
+      row.department,
+      row.pending_count,
+      ...row.assets.flatMap((asset) => [asset.name, asset.miczon_id, asset.category]),
+    ])
+  ));
+  const filteredPendingAssetRows = pendingAssetRows.filter((asset) => (
+    matchesDepartment(asset.employee.department) && matchesSearch([
+      asset.name,
+      asset.miczon_id,
+      asset.category,
+      asset.employee.employee_name,
+      asset.employee.employee_code,
+      asset.employee.email,
+      asset.employee.department,
+    ])
+  ));
+  const filteredCriticalRows = criticalRows.filter((response) => matchesSearch([
+    response.asset_name,
+    response.asset_miczon_id,
+    response.employee_name,
+    response.screen_condition,
+    response.battery_life,
+    response.performance_rating,
+  ]));
+
+  const openReportView = (view) => {
+    setActiveReportView(view);
+  };
+
+  const closeReportView = () => {
+    setActiveReportView('');
   };
 
   return (
     <>
-      <PageHeader eyebrow="Health Check Responses" title="Hardware health trail">
+      <PageHeader eyebrow="Inspection Compliance" title="Hardware health report">
         {isAdmin && <Button type="button" variant="primary" onClick={trigger}>Trigger Global Health Check</Button>}
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
-      <div className="two-column">
-        <section className="panel">
-          <h2>Sessions</h2>
+
+      <section className="panel report-hero">
+        <div>
+          <p className="panel-subtitle">Current report period</p>
+          <h2>{sessionTitle}</h2>
+        </div>
+        <div className="report-period-control">
+          <span>Inspection period</span>
+          <Select value={selectedSession} onChange={(event) => setSelectedSession(event.target.value)} disabled={sessions.length === 0}>
+            {sessions.length === 0 ? (
+              <option value="">No sessions</option>
+            ) : sessions.map((session) => (
+              <option key={session.id} value={session.id}>{session.title}</option>
+            ))}
+          </Select>
+        </div>
+      </section>
+
+      <section className="report-metrics">
+        <button type="button" className={`report-metric-card ${activeReportView === 'completion' ? 'active' : ''}`} onClick={() => openReportView('completion')} aria-pressed={activeReportView === 'completion'}>
+          <span>Completion</span>
+          <strong>{summary.completion_rate ?? 0}%</strong>
+          <small>{summary.completed_assets || 0} of {summary.target_assets || 0} assets checked</small>
+        </button>
+        <button type="button" className={`report-metric-card warning ${activeReportView === 'pending-assets' ? 'active' : ''}`} onClick={() => openReportView('pending-assets')} aria-pressed={activeReportView === 'pending-assets'}>
+          <span>Pending Assets</span>
+          <strong>{summary.pending_assets || 0}</strong>
+          <small>Still waiting for inspection</small>
+        </button>
+        <button type="button" className={`report-metric-card amber ${activeReportView === 'pending-employees' ? 'active' : ''}`} onClick={() => openReportView('pending-employees')} aria-pressed={activeReportView === 'pending-employees'}>
+          <span>Pending Employees</span>
+          <strong>{summary.pending_employees || 0}</strong>
+          <small>People who still need to respond</small>
+        </button>
+        <button type="button" className={`report-metric-card danger ${activeReportView === 'critical' ? 'active' : ''}`} onClick={() => openReportView('critical')} aria-pressed={activeReportView === 'critical'}>
+          <span>Critical Alerts</span>
+          <strong>{summary.critical_alerts || 0}</strong>
+          <small>Ratings below 3</small>
+        </button>
+      </section>
+
+      {!activeReportView && (
+        <section className="panel report-empty-panel">
+          <h2>Select a report card</h2>
+          <p>Click a metric above to open the exact inspection detail you need.</p>
+        </section>
+      )}
+
+      {activeReportView && (
+        <section className="panel report-filter-panel">
+          <input
+            className="search"
+            type="search"
+            placeholder="Search employee, asset, ID, department..."
+            value={reportSearch}
+            onChange={(event) => setReportSearch(event.target.value)}
+          />
+          {activeReportView !== 'critical' && (
+            <Select value={reportDepartment} onChange={(event) => setReportDepartment(event.target.value)}>
+              <option value="">All departments</option>
+              {reportDepartments.map((department) => <option key={department} value={department}>{department}</option>)}
+            </Select>
+          )}
+          <Button type="button" variant="ghost" onClick={() => { setReportSearch(''); setReportDepartment(''); }}>Reset Filters</Button>
+        </section>
+      )}
+
+      {activeReportView === 'completion' && (
+        <section className="panel report-main-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Department Completion</h2>
+              <p className="panel-subtitle">Coverage by department for the selected inspection period.</p>
+            </div>
+            <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
+          </div>
           <DataTable
-            columns={['Title', 'Status', 'Responses', 'Created']}
-            rows={sessions.map((session) => [
-              session.title,
-              <StatusBadge status={session.status} />,
-              session.response_count || 0,
-              new Date(session.created_at).toLocaleDateString(),
+            columns={['Department', 'Target', 'Done', 'Pending', 'Completion']}
+            rows={filteredDepartmentRows.map((row) => [
+              row.department,
+              row.target,
+              row.completed,
+              <strong className={row.pending > 0 ? 'text-danger' : 'text-success'}>{row.pending}</strong>,
+              `${row.target ? Math.round((row.completed / row.target) * 100) : 0}%`,
             ])}
-            empty="No health checks triggered."
+            empty="No department data for this session."
           />
         </section>
-        <section className="panel">
-          <h2>Health Trail</h2>
+      )}
+
+      {activeReportView === 'pending-assets' && (
+        <section className="panel report-main-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Pending Assets</h2>
+              <p className="panel-subtitle">Every assigned asset still waiting for an inspection response.</p>
+            </div>
+            <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
+          </div>
+          <DataTable
+            columns={['Asset', 'Employee', 'Department', 'Category']}
+            rows={filteredPendingAssetRows.map((asset) => [
+              <strong>{asset.name} ({asset.miczon_id})</strong>,
+              <div className="employee-cell">
+                <strong>{asset.employee.employee_name}</strong>
+                <small>{asset.employee.employee_code || 'No employee ID'}</small>
+              </div>,
+              asset.employee.department,
+              asset.category || 'Uncategorized',
+            ])}
+            empty="No pending assets for this inspection."
+          />
+        </section>
+      )}
+
+      {activeReportView === 'pending-employees' && (
+        <section className="panel report-main-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Pending Employees</h2>
+              <p className="panel-subtitle">Employees who still need to complete one or more asset inspections.</p>
+            </div>
+            <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
+          </div>
+          <DataTable
+            columns={['Employee', 'Department', 'Pending', 'Assets']}
+            rows={filteredPendingRows.map((row) => [
+              <div className="employee-cell">
+                <strong>{row.employee_name}</strong>
+                <small>{row.employee_code || 'No employee ID'}{row.email ? ` - ${row.email}` : ''}</small>
+              </div>,
+              row.department,
+              <strong>{row.pending_count}</strong>,
+              <div className="asset-chip-list">
+                {row.assets.slice(0, 4).map((asset) => (
+                  <span className="asset-chip" key={asset.id}>{asset.name} ({asset.miczon_id})</span>
+                ))}
+                {row.assets.length > 4 && <span className="asset-chip muted">+{row.assets.length - 4} more</span>}
+              </div>,
+            ])}
+            empty="Everyone has completed this inspection."
+          />
+        </section>
+      )}
+
+      {activeReportView === 'critical' && (
+        <section className="panel report-main-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Critical Alerts</h2>
+              <p className="panel-subtitle">Submitted inspections with a performance rating below 3.</p>
+            </div>
+            <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
+          </div>
           <DataTable
             columns={['Asset', 'Employee', 'Screen', 'Battery', 'Rating']}
-            rows={responses.map((response) => [
+            rows={filteredCriticalRows.map((response) => [
               `${response.asset_name} (${response.asset_miczon_id})`,
               response.employee_name,
               response.screen_condition,
               response.battery_life,
-              `${response.performance_rating}/5`,
+              <strong className="text-danger">{response.performance_rating}/5</strong>,
             ])}
-            empty="No responses yet."
+            empty="No critical alerts for this inspection."
           />
         </section>
-      </div>
+      )}
     </>
   );
 }
@@ -633,6 +844,7 @@ function EmployeePortal({ api, user }) {
   const [pendingAssets, setPendingAssets] = useState([]);
   const [activeSession, setActiveSession] = useState('');
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
   const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', remarks: '' });
   const [healthForm, setHealthForm] = useState({});
   const [notice, setNotice] = useState('');
@@ -679,33 +891,53 @@ function EmployeePortal({ api, user }) {
     }
   };
 
-  const submitHealth = async (event, assetId) => {
+  const updateHealthField = (assetId, field, value) => {
+    setHealthForm((current) => ({
+      ...current,
+      [assetId]: {
+        ...(current[assetId] || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const submitHealthBatch = async (event) => {
     event.preventDefault();
-    const values = healthForm[assetId] || {};
-    try {
-      await api.post('/health-responses/', {
-        session: activeSession,
-        asset: assetId,
+    if (!activeSession || pendingAssets.length === 0) return;
+
+    const responses = pendingAssets.map((asset) => {
+      const values = healthForm[asset.id] || {};
+      return {
+        asset: asset.id,
         screen_condition: values.screen_condition || 'GOOD',
         battery_life: values.battery_life || 'GOOD',
-        performance_rating: values.performance_rating || 4,
+        performance_rating: Number(values.performance_rating || 4),
         comments: values.comments || '',
+      };
+    });
+
+    try {
+      await api.post('/health-responses/bulk-submit/', {
+        session: activeSession,
+        responses,
       });
-      setNotice('Health check response saved.');
-      setHealthForm((current) => {
-        const next = { ...current };
-        delete next[assetId];
-        return next;
-      });
+      setNotice(`${responses.length} health check response${responses.length === 1 ? '' : 's'} saved.`);
+      setHealthForm({});
+      setInspectionDialogOpen(false);
       loadPortal();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save health check response.');
+      setNotice(err.response?.data?.error || 'Unable to save health check responses.');
     }
   };
+
+  const activeSessionTitle = sessions.find((session) => String(session.id) === String(activeSession))?.title || 'Monthly hardware inspection';
 
   return (
     <>
       <PageHeader eyebrow="Employee Portal" title="My gear and requests">
+        <Button type="button" variant="ghost" disabled={!employee || !activeSession} onClick={() => setInspectionDialogOpen(true)}>
+          Start Inspection
+        </Button>
         <Button type="button" variant="primary" disabled={!employee} onClick={() => setRequestDialogOpen(true)}>Request Asset</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
@@ -743,49 +975,71 @@ function EmployeePortal({ api, user }) {
         )}
       </section>
 
-      <section className="panel">
-        <div className="panel-heading">
-          <h2>Health Check Responses</h2>
-          {sessions.length > 0 && (
-            <Select className="compact-select" value={activeSession} onChange={(e) => setActiveSession(e.target.value)}>
-              {sessions.map((session) => <option key={session.id} value={session.id}>{session.title}</option>)}
-            </Select>
+      <Dialog open={inspectionDialogOpen}>
+        <DialogContent className="inspection-dialog">
+          <DialogHeader title="Gear Inspection" description={activeSessionTitle} />
+          {pendingAssets.length === 0 ? (
+            <>
+              <p className="empty-state">No pending health check forms.</p>
+              <div className="dialog-footer">
+                <Button type="button" variant="ghost" onClick={() => setInspectionDialogOpen(false)}>Close</Button>
+              </div>
+            </>
+          ) : (
+            <form className="health-list-form" onSubmit={submitHealthBatch}>
+              <div className="health-response-list">
+                {pendingAssets.map((asset, index) => {
+                  const values = healthForm[asset.id] || {};
+                  return (
+                    <article className="health-list-item" key={asset.id}>
+                      <div className="health-asset-summary">
+                        <span className="health-index">{index + 1}</span>
+                        <div>
+                          <h3>{asset.name}</h3>
+                          <p>{asset.miczon_id} - {asset.category || 'Uncategorized'}</p>
+                        </div>
+                      </div>
+                      <div className="health-control-grid">
+                        <Field label="Screen condition">
+                          <Select value={values.screen_condition || 'GOOD'} onChange={(e) => updateHealthField(asset.id, 'screen_condition', e.target.value)}>
+                            <option value="EXCELLENT">Excellent</option>
+                            <option value="GOOD">Good</option>
+                            <option value="SCRATCHED">Scratched</option>
+                            <option value="CRACKED">Cracked</option>
+                            <option value="NEEDS_REPAIR">Needs Repair</option>
+                          </Select>
+                        </Field>
+                        <Field label="Battery life">
+                          <Select value={values.battery_life || 'GOOD'} onChange={(e) => updateHealthField(asset.id, 'battery_life', e.target.value)}>
+                            <option value="EXCELLENT">Excellent</option>
+                            <option value="GOOD">Good</option>
+                            <option value="FAIR">Fair</option>
+                            <option value="POOR">Poor</option>
+                            <option value="NOT_APPLICABLE">Not Applicable</option>
+                          </Select>
+                        </Field>
+                        <Field label="Rating">
+                          <input min="1" max="5" type="number" value={values.performance_rating || 4} onChange={(e) => updateHealthField(asset.id, 'performance_rating', e.target.value)} />
+                        </Field>
+                        <Field label="Comments">
+                          <textarea rows="2" value={values.comments || ''} onChange={(e) => updateHealthField(asset.id, 'comments', e.target.value)} />
+                        </Field>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="health-submit-bar">
+                <span>{pendingAssets.length} item{pendingAssets.length === 1 ? '' : 's'} ready for this inspection.</span>
+                <div className="dialog-footer inline-footer">
+                  <Button type="button" variant="ghost" onClick={() => setInspectionDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" variant="primary">Submit Inspection</Button>
+                </div>
+              </div>
+            </form>
           )}
-        </div>
-        <div className="health-grid">
-          {pendingAssets.length === 0 && <p className="empty-state">No pending health check forms.</p>}
-          {pendingAssets.map((asset) => {
-            const values = healthForm[asset.id] || {};
-            return (
-              <form className="health-card" key={asset.id} onSubmit={(event) => submitHealth(event, asset.id)}>
-                <h3>{asset.name}</h3>
-                <p>{asset.miczon_id} - {asset.category}</p>
-                <Field label="Screen condition">
-                  <Select value={values.screen_condition || 'GOOD'} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, screen_condition: e.target.value } })}>
-                    <option value="EXCELLENT">Excellent</option>
-                    <option value="GOOD">Good</option>
-                    <option value="SCRATCHED">Scratched</option>
-                    <option value="CRACKED">Cracked</option>
-                    <option value="NEEDS_REPAIR">Needs Repair</option>
-                  </Select>
-                </Field>
-                <Field label="Battery life">
-                  <Select value={values.battery_life || 'GOOD'} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, battery_life: e.target.value } })}>
-                    <option value="EXCELLENT">Excellent</option>
-                    <option value="GOOD">Good</option>
-                    <option value="FAIR">Fair</option>
-                    <option value="POOR">Poor</option>
-                    <option value="NOT_APPLICABLE">Not Applicable</option>
-                  </Select>
-                </Field>
-                <Field label="Overall performance rating"><input min="1" max="5" type="number" value={values.performance_rating || 4} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, performance_rating: e.target.value } })} /></Field>
-                <Field label="Comments"><textarea rows="3" value={values.comments || ''} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, comments: e.target.value } })} /></Field>
-                <Button type="submit" variant="primary">Save Response</Button>
-              </form>
-            );
-          })}
-        </div>
-      </section>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={requestDialogOpen}>
         <DialogContent>
