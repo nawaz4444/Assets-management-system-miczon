@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components, react-hooks/set-state-in-effect */
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Login from './Login';
@@ -23,11 +23,29 @@ const navItems = [
 const emptyAsset = {
   miczon_id: '',
   name: '',
-  category: 'Laptop',
+  category: '',
+  department: '',
   current_status: 'AVAILABLE',
   custodian: '',
   specifications: '',
+  remarks: '',
 };
+
+const emptyEmployee = {
+  name: '',
+  employee_id: '',
+  email: '',
+  department: '',
+};
+
+const assetStatuses = [
+  { value: 'ASSIGNED', label: 'Assigned' },
+  { value: 'AVAILABLE', label: 'Available' },
+  { value: 'BROKEN', label: 'Repair' },
+  { value: 'RETIRED', label: 'Retired' },
+];
+
+const inventoryPageSize = 25;
 
 function Icon({ name }) {
   return <span className={`app-icon app-icon-${name}`} aria-hidden="true" />;
@@ -62,13 +80,11 @@ function toApiPath(url) {
 async function fetchAll(api, initialPath) {
   const rows = [];
   let path = initialPath;
-
   while (path) {
     const response = await api.get(toApiPath(path));
     rows.push(...normalizeList(response.data));
     path = response.data?.next || '';
   }
-
   return rows;
 }
 
@@ -90,11 +106,7 @@ function AppShell({ token, handleLogout }) {
 
         <nav className="nav-list" aria-label="Primary navigation">
           {navItems.map((item) => (
-            <Link
-              key={item.path}
-              className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-              to={item.path}
-            >
+            <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
               <Icon name={item.icon} />
               <span>{item.label}</span>
             </Link>
@@ -109,9 +121,7 @@ function AppShell({ token, handleLogout }) {
               <small>{user?.is_superuser ? 'Administrator' : 'Employee'}</small>
             </span>
           </div>
-          <button className="button ghost full" type="button" onClick={handleLogout}>
-            Sign out
-          </button>
+          <Button type="button" variant="ghost" className="full" onClick={handleLogout}>Sign out</Button>
         </div>
       </aside>
 
@@ -130,6 +140,29 @@ function AppShell({ token, handleLogout }) {
   );
 }
 
+function Button({ variant = 'default', size = 'default', className = '', ...props }) {
+  return <button className={`button button-${variant} button-${size} ${className}`.trim()} {...props} />;
+}
+
+function Select({ className = '', ...props }) {
+  return <select className={`select ${className}`.trim()} {...props} />;
+}
+
+function Dialog({ open, children }) {
+  if (!open) return null;
+  return <div className="dialog-root">{children}</div>;
+}
+
+function DialogContent({ className = '', children }) {
+  return (
+    <div className="dialog-overlay">
+      <div className={`dialog-content ${className}`.trim()} role="dialog" aria-modal="true">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function PageHeader({ eyebrow, title, children }) {
   return (
     <header className="page-header">
@@ -142,12 +175,14 @@ function PageHeader({ eyebrow, title, children }) {
   );
 }
 
-function StatCard({ label, value, tone = 'neutral' }) {
+function MetricCard({ label, value, to, tone = 'slate' }) {
   return (
-    <section className={`stat-card ${tone}`}>
-      <span>{label}</span>
-      <strong>{value ?? 0}</strong>
-    </section>
+    <Link className="metric-card-link" to={to} aria-label={`Open ${label}`}>
+      <section className={`metric-card ${tone}`}>
+        <span>{label}</span>
+        <strong>{value ?? 0}</strong>
+      </section>
+    </Link>
   );
 }
 
@@ -161,71 +196,78 @@ function Dashboard({ api, isAdmin }) {
       .catch(() => setError('Unable to load dashboard summary.'));
   }, [api]);
 
+  const metrics = [
+    { label: 'Total Devices', value: summary?.total_devices, to: '/inventory', tone: 'blue' },
+    { label: 'Assigned Devices', value: summary?.assigned, to: '/inventory?status=ASSIGNED', tone: 'green' },
+    { label: 'Unassigned Devices', value: summary?.available, to: '/inventory?status=AVAILABLE', tone: 'slate' },
+    { label: 'Repair Devices', value: summary?.repair, to: '/inventory?status=BROKEN', tone: 'red' },
+    { label: 'Active Requests', value: summary?.active_requests, to: '/requests', tone: 'amber' },
+    { label: 'Pending Health Checks', value: summary?.pending_health_checks, to: '/health-checks', tone: 'violet' },
+  ];
+
   return (
     <>
       <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Employee Dashboard'} title="Birds-eye inventory view" />
       {error && <Notice tone="error">{error}</Notice>}
-      <div className="stat-grid">
-        <StatCard label="Total Devices" value={summary?.total_devices} tone="blue" />
-        <StatCard label="Laptops" value={summary?.laptops} />
-        <StatCard label="Mobiles" value={summary?.mobiles} />
-        <StatCard label="Accessories" value={summary?.accessories} />
-        <StatCard label="Active Requests" value={summary?.active_requests} tone="amber" />
-        <StatCard label="Pending Health Checks" value={summary?.pending_health_checks} tone="red" />
-      </div>
-
-      <div className="two-column">
-        <section className="panel">
-          <h2>Inventory Status</h2>
-          <div className="status-row"><span>Assigned</span><strong>{summary?.assigned || 0}</strong></div>
-          <div className="status-row"><span>Available</span><strong>{summary?.available || 0}</strong></div>
-          <div className="status-row"><span>Repair</span><strong>{summary?.repair || 0}</strong></div>
-        </section>
-        <section className="panel">
-          <h2>Device Mix</h2>
-          <div className="mini-list">
-            {(summary?.category_breakdown || []).map((row) => (
-              <div className="status-row" key={row.category || 'Uncategorized'}>
-                <span>{row.category || 'Uncategorized'}</span>
-                <strong>{row.count}</strong>
-              </div>
-            ))}
-          </div>
-        </section>
+      <div className="metric-grid">
+        {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
       </div>
     </>
   );
 }
 
 function InventoryPage({ api, isAdmin }) {
+  const location = useLocation();
   const [assets, setAssets] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [search, setSearch] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || '');
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyAsset);
   const [editingId, setEditingId] = useState(null);
   const [notice, setNotice] = useState('');
 
-  const loadAssets = () => {
-    fetchAll(api, `/assets/?page_size=100${search ? `&search=${encodeURIComponent(search)}` : ''}`)
-      .then(setAssets)
+  useEffect(() => {
+    setStatusFilter(new URLSearchParams(location.search).get('status') || '');
+  }, [location.search]);
+
+  const loadAssets = useCallback(() => {
+    const params = new URLSearchParams({ page_size: String(inventoryPageSize) });
+    if (search) params.set('search', search);
+    if (statusFilter) params.set('status', statusFilter);
+    if (departmentFilter) params.set('department', departmentFilter);
+
+    return api.get(`/assets/?${params.toString()}`)
+      .then((res) => setAssets(normalizeList(res.data)))
       .catch(() => setNotice('Unable to load hardware inventory.'));
-  };
+  }, [api, search, statusFilter, departmentFilter]);
 
   useEffect(() => {
     loadAssets();
-  }, [api, search]);
+  }, [loadAssets]);
 
   useEffect(() => {
     fetchAll(api, '/employees/').then(setEmployees);
+    fetchAll(api, '/departments/').then(setDepartments);
   }, [api]);
+
+  const closeAssetDialog = () => {
+    setDialogOpen(false);
+    setEditingId(null);
+    setForm(emptyAsset);
+  };
 
   const submitAsset = async (event) => {
     event.preventDefault();
     const payload = {
       ...form,
       custodian: form.custodian || null,
+      department: form.department || null,
       current_status: form.custodian ? 'ASSIGNED' : form.current_status,
     };
+
     try {
       if (editingId) {
         await api.patch(`/assets/${editingId}/`, payload);
@@ -234,8 +276,7 @@ function InventoryPage({ api, isAdmin }) {
         await api.post('/assets/', payload);
         setNotice(isAdmin ? 'Hardware added.' : 'Add hardware request submitted.');
       }
-      setForm(emptyAsset);
-      setEditingId(null);
+      closeAssetDialog();
       loadAssets();
     } catch (err) {
       setNotice(err.response?.data?.error || 'Unable to save hardware.');
@@ -247,11 +288,14 @@ function InventoryPage({ api, isAdmin }) {
     setForm({
       miczon_id: asset.miczon_id || '',
       name: asset.name || '',
-      category: asset.category || 'Laptop',
+      category: asset.category || '',
+      department: asset.department || '',
       current_status: asset.current_status || 'AVAILABLE',
       custodian: asset.custodian || '',
       specifications: asset.specifications || '',
+      remarks: asset.remarks || '',
     });
+    setDialogOpen(true);
   };
 
   const removeAsset = async (asset) => {
@@ -263,125 +307,220 @@ function InventoryPage({ api, isAdmin }) {
   return (
     <>
       <PageHeader eyebrow="Inventory Management" title="Hardware register">
-        <input className="search" placeholder="Search serial, device, user..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Button type="button" variant="primary" onClick={() => setDialogOpen(true)}>Add Asset</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
-      <section className="panel">
-        <h2>{editingId ? 'Edit Hardware' : 'Add Hardware'}</h2>
-        <form className="form-grid" onSubmit={submitAsset}>
-          <Field label="Serial Number">
-            <input required value={form.miczon_id} onChange={(e) => setForm({ ...form, miczon_id: e.target.value })} />
-          </Field>
-          <Field label="Device Name">
-            <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          </Field>
-          <Field label="Device Type">
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option>Laptop</option>
-              <option>Mobile</option>
-              <option>Accessory</option>
-              <option>Monitor</option>
-              <option>Printer</option>
-            </select>
-          </Field>
-          <Field label="Status">
-            <select value={form.current_status} onChange={(e) => setForm({ ...form, current_status: e.target.value })}>
-              <option value="AVAILABLE">Available</option>
-              <option value="ASSIGNED">Assigned</option>
-              <option value="BROKEN">Repair</option>
-            </select>
-          </Field>
-          <Field label="Assigned User">
-            <select value={form.custodian || ''} onChange={(e) => setForm({ ...form, custodian: e.target.value })}>
-              <option value="">Unassigned</option>
-              {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Specifications">
-            <input value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} />
-          </Field>
-          <button className="button primary" type="submit">{editingId ? 'Save Changes' : 'Add Hardware'}</button>
-          {editingId && <button className="button ghost" type="button" onClick={() => { setEditingId(null); setForm(emptyAsset); }}>Cancel</button>}
-        </form>
-      </section>
 
       <section className="panel">
-        <h2>All Hardware</h2>
+        <div className="panel-heading inventory-heading">
+          <div>
+            <h2>All Hardware</h2>
+            <p className="panel-subtitle">{assets.length} item{assets.length === 1 ? '' : 's'} loaded</p>
+          </div>
+        </div>
+        <div className="filter-bar">
+          <input className="search" placeholder="Search Miczon ID, device, custodian..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+            <option value="">All Departments</option>
+            {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+          </Select>
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All Statuses</option>
+            {assetStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+          </Select>
+          <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); setStatusFilter(''); }}>Reset</Button>
+        </div>
         <DataTable
-          columns={['Device Type', 'Serial Number', 'Status', 'Assigned User', 'Actions']}
+          columns={['Miczon ID', 'Device', 'Category', 'Department', 'Status', 'Assigned User', 'Actions']}
           rows={assets.map((asset) => [
-            asset.category || 'Hardware',
             asset.miczon_id,
+            asset.name,
+            asset.category || 'Uncategorized',
+            asset.department_name || 'No department',
             <StatusBadge status={asset.current_status} />,
-            asset.custodian_name || 'Available',
+            asset.custodian_name || 'Unassigned',
             <div className="row-actions">
-              <button className="button small" type="button" onClick={() => editAsset(asset)}>Edit</button>
-              {isAdmin && <button className="button small danger" type="button" onClick={() => removeAsset(asset)}>Remove</button>}
+              <Button type="button" variant="outline" size="sm" onClick={() => editAsset(asset)}>Edit</Button>
+              {isAdmin && <Button type="button" variant="danger" size="sm" onClick={() => removeAsset(asset)}>Remove</Button>}
             </div>,
           ])}
+          empty="No assets match the current filters."
         />
       </section>
+
+      <Dialog open={dialogOpen}>
+        <DialogContent>
+          <DialogHeader title={editingId ? 'Edit Asset' : 'Add Asset'} description="Register hardware with the fields used by the asset workflow." />
+          <form className="dialog-form" onSubmit={submitAsset}>
+            <Field label="Miczon ID"><input required value={form.miczon_id} onChange={(e) => setForm({ ...form, miczon_id: e.target.value })} /></Field>
+            <Field label="Device Name"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label="Category"><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
+            <Field label="Department">
+              <Select value={form.department || ''} onChange={(e) => setForm({ ...form, department: e.target.value })}>
+                <option value="">No department</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select value={form.current_status} onChange={(e) => setForm({ ...form, current_status: e.target.value })}>
+                {assetStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Assigned User">
+              <Select value={form.custodian || ''} onChange={(e) => setForm({ ...form, custodian: e.target.value })}>
+                <option value="">Unassigned</option>
+                {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Specifications"><textarea rows="3" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} /></Field>
+            <Field label="Remarks"><textarea rows="3" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field>
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={closeAssetDialog}>Cancel</Button>
+              <Button type="submit" variant="primary">{editingId ? 'Save Changes' : 'Add Asset'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
 
 function EmployeeDirectory({ api, isAdmin }) {
   const [employees, setEmployees] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [departments, setDepartments] = useState([]);
+  const [search, setSearch] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
+  const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [assets, setAssets] = useState([]);
+  const [selectedAssetIds, setSelectedAssetIds] = useState([]);
   const [notice, setNotice] = useState('');
 
-  const loadEmployees = () => fetchAll(api, '/employees/').then(setEmployees);
+  const loadEmployees = useCallback(() => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (departmentFilter) params.set('department', departmentFilter);
+    return fetchAll(api, `/employees/?${params.toString()}`).then(setEmployees);
+  }, [api, search, departmentFilter]);
 
   useEffect(() => {
     loadEmployees();
+  }, [loadEmployees]);
+
+  useEffect(() => {
+    fetchAll(api, '/departments/').then(setDepartments);
   }, [api]);
 
-  const openEmployee = async (employee) => {
-    setSelected(employee);
+  const loadEmployeeAssets = async (employee) => {
     const res = await api.get(`/employees/${employee.id}/assigned-assets/`);
     setAssets(res.data);
+    setSelectedAssetIds(res.data.map((asset) => asset.id));
   };
 
-  const unassignAll = async () => {
-    if (!selected || !window.confirm(`Unassign all hardware from ${selected.name}?`)) return;
-    const res = await api.post(`/employees/${selected.id}/unassign-all/`);
+  const openEmployee = async (employee) => {
+    setSelectedEmployee(employee);
+    await loadEmployeeAssets(employee);
+  };
+
+  const submitEmployee = async (event) => {
+    event.preventDefault();
+    try {
+      await api.post('/employees/', { ...employeeForm, department: employeeForm.department || null });
+      setNotice('Employee added.');
+      setEmployeeForm(emptyEmployee);
+      setEmployeeDialogOpen(false);
+      loadEmployees();
+    } catch (err) {
+      setNotice(err.response?.data?.employee_id?.[0] || err.response?.data?.error || 'Unable to add employee.');
+    }
+  };
+
+  const unassignSelected = async () => {
+    if (!selectedEmployee || selectedAssetIds.length === 0) return;
+    const res = await api.post(`/employees/${selectedEmployee.id}/unassign-all/`, { asset_ids: selectedAssetIds });
     setNotice(`${res.data.returned_count} hardware item(s) moved back to available.`);
-    openEmployee(selected);
+    await loadEmployeeAssets(selectedEmployee);
     loadEmployees();
   };
 
+  const allSelected = assets.length > 0 && selectedAssetIds.length === assets.length;
+
   return (
     <>
-      <PageHeader eyebrow="Employee Directory" title="People and assigned gear" />
+      <PageHeader eyebrow="Employee Directory" title="People and assigned gear">
+        {isAdmin && <Button type="button" variant="primary" onClick={() => setEmployeeDialogOpen(true)}>Add Employee</Button>}
+      </PageHeader>
       {notice && <Notice>{notice}</Notice>}
-      <div className="two-column wide-left">
-        <section className="panel">
-          <h2>Employees</h2>
-          <div className="employee-list">
-            {employees.map((employee) => (
-              <button className={`employee-row ${selected?.id === employee.id ? 'active' : ''}`} key={employee.id} type="button" onClick={() => openEmployee(employee)}>
-                <span>
-                  <strong>{employee.name}</strong>
-                  <small>{employee.employee_id} · {employee.department_name || 'No department'}</small>
-                </span>
-                <b>{employee.assigned_assets_count || 0}</b>
-              </button>
-            ))}
-          </div>
-        </section>
-        <section className="panel">
-          <div className="panel-heading">
-            <h2>{selected ? selected.name : 'Select an employee'}</h2>
-            {isAdmin && selected && <button className="button danger" type="button" onClick={unassignAll}>Unassign All</button>}
+      <section className="panel">
+        <div className="employee-filter-bar">
+          <input className="search" placeholder="Search name or employee ID..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+            <option value="">All Departments</option>
+            {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+          </Select>
+          <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); }}>Reset</Button>
+        </div>
+        <DataTable
+          columns={['Name', 'Employee ID', 'Department', 'Email', 'Assigned Assets']}
+          rows={employees.map((employee) => [
+            <button className="link-button" type="button" onClick={() => openEmployee(employee)}>{employee.name}</button>,
+            employee.employee_id,
+            employee.department_name || 'No department',
+            employee.email || 'No email',
+            <strong>{employee.assigned_assets_count || 0}</strong>,
+          ])}
+          empty="No employees match the current filters."
+        />
+      </section>
+
+      <Dialog open={!!selectedEmployee}>
+        <DialogContent className="employee-assets-dialog">
+          <DialogHeader title="Assets Detail" description={`${selectedEmployee?.name || ''} - ${selectedEmployee?.employee_id || ''}`} />
+          <div className="modal-toolbar">
+            <label className="checkbox-row">
+              <input type="checkbox" checked={allSelected} disabled={assets.length === 0} onChange={() => setSelectedAssetIds(allSelected ? [] : assets.map((asset) => asset.id))} />
+              <span>Select All</span>
+            </label>
+            {isAdmin && <Button type="button" variant="danger" disabled={selectedAssetIds.length === 0} onClick={unassignSelected}>Unassign Selected</Button>}
           </div>
           <DataTable
-            columns={['Device', 'Serial', 'Type', 'Status']}
-            rows={assets.map((asset) => [asset.name, asset.miczon_id, asset.category, <StatusBadge status={asset.current_status} />])}
+            columns={['Select', 'Device', 'Serial', 'Type', 'Status']}
+            rows={assets.map((asset) => [
+              <input type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => setSelectedAssetIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id])} />,
+              asset.name,
+              asset.miczon_id,
+              asset.category || 'Uncategorized',
+              <StatusBadge status={asset.current_status} />,
+            ])}
             empty="No hardware assigned."
           />
-        </section>
-      </div>
+          <div className="dialog-footer">
+            <Button type="button" variant="ghost" onClick={() => { setSelectedEmployee(null); setAssets([]); setSelectedAssetIds([]); }}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={employeeDialogOpen}>
+        <DialogContent>
+          <DialogHeader title="Add Employee" description="Create an employee record so hardware can be assigned and tracked." />
+          <form className="dialog-form" onSubmit={submitEmployee}>
+            <Field label="Employee Name"><input required value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} /></Field>
+            <Field label="Employee ID"><input required value={employeeForm.employee_id} onChange={(e) => setEmployeeForm({ ...employeeForm, employee_id: e.target.value })} /></Field>
+            <Field label="Email"><input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></Field>
+            <Field label="Department">
+              <Select value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}>
+                <option value="">No department</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </Select>
+            </Field>
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={() => setEmployeeDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" variant="primary">Add Employee</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -389,11 +528,11 @@ function EmployeeDirectory({ api, isAdmin }) {
 function RequestManager({ api, isAdmin }) {
   const [requests, setRequests] = useState([]);
   const [notice, setNotice] = useState('');
-  const loadRequests = () => fetchAll(api, '/requests/').then(setRequests);
+  const loadRequests = useCallback(() => fetchAll(api, '/requests/').then(setRequests), [api]);
 
   useEffect(() => {
     loadRequests();
-  }, [api]);
+  }, [loadRequests]);
 
   const processRequest = async (id, action) => {
     await api.post(`/requests/${id}/${action}/`, { admin_remarks: action === 'approve' ? 'Approved from request manager.' : 'Denied from request manager.' });
@@ -411,13 +550,13 @@ function RequestManager({ api, isAdmin }) {
           rows={requests.map((request) => [
             request.requester_name,
             request.asset_name || request.requested_device_type || request.asset_miczon_id || 'New hardware',
-            request.remarks || 'No reason provided',
+            request.reason_for_request || request.remarks || 'No reason provided',
             <StatusBadge status={request.status} />,
             new Date(request.created_at).toLocaleDateString(),
             isAdmin && request.status === 'PENDING' ? (
               <div className="row-actions">
-                <button className="button small primary" type="button" onClick={() => processRequest(request.id, 'approve')}>Approve</button>
-                <button className="button small danger" type="button" onClick={() => processRequest(request.id, 'reject')}>Deny</button>
+                <Button type="button" variant="primary" size="sm" onClick={() => processRequest(request.id, 'approve')}>Approve</Button>
+                <Button type="button" variant="danger" size="sm" onClick={() => processRequest(request.id, 'reject')}>Deny</Button>
               </div>
             ) : 'Reviewed',
           ])}
@@ -433,25 +572,25 @@ function HealthChecks({ api, isAdmin }) {
   const [responses, setResponses] = useState([]);
   const [notice, setNotice] = useState('');
 
-  const load = () => {
+  const load = useCallback(() => {
     fetchAll(api, '/health-checks/').then(setSessions);
     fetchAll(api, '/health-responses/').then(setResponses);
-  };
+  }, [api]);
 
   useEffect(() => {
     load();
-  }, [api]);
+  }, [load]);
 
   const trigger = async () => {
     const res = await api.post('/health-checks/trigger-global/');
-    setNotice(`Global health check triggered for ${res.data.assigned_assets} assigned hardware item(s).`);
+    setNotice(`Global health check triggered for ${res.data.assigned_assets || res.data.target_assets || 0} hardware item(s).`);
     load();
   };
 
   return (
     <>
       <PageHeader eyebrow="Health Check Responses" title="Hardware health trail">
-        {isAdmin && <button className="button primary" type="button" onClick={trigger}>Trigger Global Health Check</button>}
+        {isAdmin && <Button type="button" variant="primary" onClick={trigger}>Trigger Global Health Check</Button>}
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
       <div className="two-column">
@@ -493,17 +632,18 @@ function EmployeePortal({ api, user }) {
   const [sessions, setSessions] = useState([]);
   const [pendingAssets, setPendingAssets] = useState([]);
   const [activeSession, setActiveSession] = useState('');
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', remarks: '' });
   const [healthForm, setHealthForm] = useState({});
   const [notice, setNotice] = useState('');
 
-  const loadPortal = async () => {
+  const loadPortal = useCallback(async () => {
     if (!employee?.id) return;
     const gearRes = await api.get(`/employees/${employee.id}/assigned-assets/`);
     const openSessions = (await fetchAll(api, '/health-checks/')).filter((session) => session.status === 'OPEN');
     setGear(gearRes.data);
     setSessions(openSessions);
-    const firstSession = activeSession || openSessions[0]?.id || '';
+    const firstSession = openSessions.some((session) => String(session.id) === String(activeSession)) ? activeSession : openSessions[0]?.id || '';
     setActiveSession(firstSession);
     if (firstSession) {
       const pendingRes = await api.get(`/health-checks/${firstSession}/pending-assets/`);
@@ -511,11 +651,11 @@ function EmployeePortal({ api, user }) {
     } else {
       setPendingAssets([]);
     }
-  };
+  }, [api, employee, activeSession]);
 
   useEffect(() => {
     loadPortal();
-  }, [api, employee?.id]);
+  }, [loadPortal]);
 
   useEffect(() => {
     if (!activeSession) return;
@@ -524,75 +664,92 @@ function EmployeePortal({ api, user }) {
 
   const submitRequest = async (event) => {
     event.preventDefault();
-    await api.post('/requests/', {
-      action_type: 'ASSIGN',
-      requested_device_type: requestForm.requested_device_type,
-      remarks: requestForm.remarks,
-    });
-    setNotice('Hardware request submitted.');
-    setRequestForm({ requested_device_type: 'Laptop', remarks: '' });
+    try {
+      await api.post('/requests/', {
+        action_type: 'ASSIGN',
+        requested_device_type: requestForm.requested_device_type,
+        reason_for_request: requestForm.remarks,
+        remarks: requestForm.remarks,
+      });
+      setNotice('Hardware request submitted.');
+      setRequestForm({ requested_device_type: 'Laptop', remarks: '' });
+      setRequestDialogOpen(false);
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to submit hardware request.');
+    }
   };
 
   const submitHealth = async (event, assetId) => {
     event.preventDefault();
     const values = healthForm[assetId] || {};
-    await api.post('/health-responses/', {
-      session: activeSession,
-      asset: assetId,
-      screen_condition: values.screen_condition || 'GOOD',
-      battery_life: values.battery_life || 'GOOD',
-      performance_rating: values.performance_rating || 4,
-      comments: values.comments || '',
-    });
-    setNotice('Health check response saved.');
-    loadPortal();
+    try {
+      await api.post('/health-responses/', {
+        session: activeSession,
+        asset: assetId,
+        screen_condition: values.screen_condition || 'GOOD',
+        battery_life: values.battery_life || 'GOOD',
+        performance_rating: values.performance_rating || 4,
+        comments: values.comments || '',
+      });
+      setNotice('Health check response saved.');
+      setHealthForm((current) => {
+        const next = { ...current };
+        delete next[assetId];
+        return next;
+      });
+      loadPortal();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to save health check response.');
+    }
   };
 
   return (
     <>
-      <PageHeader eyebrow="Employee Portal" title="My gear and requests" />
-      {!employee && (
-        <Notice tone="error">
-          Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.
-        </Notice>
-      )}
+      <PageHeader eyebrow="Employee Portal" title="My gear and requests">
+        <Button type="button" variant="primary" disabled={!employee} onClick={() => setRequestDialogOpen(true)}>Request Asset</Button>
+      </PageHeader>
+      {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
+      {employee && activeSession && pendingAssets.length > 0 && <Notice tone="error">Monthly inspection required: {pendingAssets.length} assigned item{pendingAssets.length === 1 ? '' : 's'} still need a health check.</Notice>}
       {notice && <Notice>{notice}</Notice>}
-      <div className="two-column">
-        <section className="panel">
-          <h2>My Gear</h2>
-          <DataTable
-            columns={['Device', 'Serial', 'Type', 'Status']}
-            rows={gear.map((asset) => [asset.name, asset.miczon_id, asset.category, <StatusBadge status={asset.current_status} />])}
-            empty="No hardware assigned."
-          />
-        </section>
-        <section className="panel">
-          <h2>New Request</h2>
-          <form className="stack-form" onSubmit={submitRequest}>
-            <Field label="Hardware Type">
-              <select value={requestForm.requested_device_type} onChange={(e) => setRequestForm({ ...requestForm, requested_device_type: e.target.value })}>
-                <option>Laptop</option>
-                <option>Mobile</option>
-                <option>Accessory</option>
-                <option>Monitor</option>
-                <option>Other</option>
-              </select>
-            </Field>
-            <Field label="Reason for Request">
-              <textarea required rows="4" value={requestForm.remarks} onChange={(e) => setRequestForm({ ...requestForm, remarks: e.target.value })} />
-            </Field>
-            <button className="button primary" type="submit" disabled={!employee}>Submit Request</button>
-          </form>
-        </section>
-      </div>
+
+      <section className="panel portal-gear-panel">
+        <div className="panel-heading inventory-heading">
+          <div>
+            <h2>My Gear</h2>
+            <p className="panel-subtitle">{gear.length} assigned item{gear.length === 1 ? '' : 's'}</p>
+          </div>
+          {activeSession && <StatusBadge status="Inspection Open" />}
+        </div>
+        {gear.length === 0 ? (
+          <p className="empty-state">No hardware assigned.</p>
+        ) : (
+          <div className="gear-list">
+            {gear.map((asset) => {
+              const needsInspection = pendingAssets.some((pendingAsset) => pendingAsset.id === asset.id);
+              return (
+                <article className={`gear-row ${needsInspection ? 'needs-inspection' : ''}`} key={asset.id}>
+                  <div className="gear-main">
+                    <strong>{asset.name}</strong>
+                    <small>{asset.miczon_id} - {asset.category || 'Uncategorized'}</small>
+                  </div>
+                  <div className="gear-meta">
+                    <span>{asset.department_name || 'No department'}</span>
+                    <StatusBadge status={needsInspection ? 'Inspection Due' : asset.current_status} />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <section className="panel">
         <div className="panel-heading">
           <h2>Health Check Responses</h2>
           {sessions.length > 0 && (
-            <select className="compact-select" value={activeSession} onChange={(e) => setActiveSession(e.target.value)}>
+            <Select className="compact-select" value={activeSession} onChange={(e) => setActiveSession(e.target.value)}>
               {sessions.map((session) => <option key={session.id} value={session.id}>{session.title}</option>)}
-            </select>
+            </Select>
           )}
         </div>
         <div className="health-grid">
@@ -602,38 +759,65 @@ function EmployeePortal({ api, user }) {
             return (
               <form className="health-card" key={asset.id} onSubmit={(event) => submitHealth(event, asset.id)}>
                 <h3>{asset.name}</h3>
-                <p>{asset.miczon_id} · {asset.category}</p>
+                <p>{asset.miczon_id} - {asset.category}</p>
                 <Field label="Screen condition">
-                  <select value={values.screen_condition || 'GOOD'} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, screen_condition: e.target.value } })}>
+                  <Select value={values.screen_condition || 'GOOD'} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, screen_condition: e.target.value } })}>
                     <option value="EXCELLENT">Excellent</option>
                     <option value="GOOD">Good</option>
                     <option value="SCRATCHED">Scratched</option>
                     <option value="CRACKED">Cracked</option>
                     <option value="NEEDS_REPAIR">Needs Repair</option>
-                  </select>
+                  </Select>
                 </Field>
                 <Field label="Battery life">
-                  <select value={values.battery_life || 'GOOD'} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, battery_life: e.target.value } })}>
+                  <Select value={values.battery_life || 'GOOD'} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, battery_life: e.target.value } })}>
                     <option value="EXCELLENT">Excellent</option>
                     <option value="GOOD">Good</option>
                     <option value="FAIR">Fair</option>
                     <option value="POOR">Poor</option>
                     <option value="NOT_APPLICABLE">Not Applicable</option>
-                  </select>
+                  </Select>
                 </Field>
-                <Field label="Overall performance rating">
-                  <input min="1" max="5" type="number" value={values.performance_rating || 4} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, performance_rating: e.target.value } })} />
-                </Field>
-                <Field label="Comments">
-                  <textarea rows="3" value={values.comments || ''} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, comments: e.target.value } })} />
-                </Field>
-                <button className="button primary" type="submit">Save Response</button>
+                <Field label="Overall performance rating"><input min="1" max="5" type="number" value={values.performance_rating || 4} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, performance_rating: e.target.value } })} /></Field>
+                <Field label="Comments"><textarea rows="3" value={values.comments || ''} onChange={(e) => setHealthForm({ ...healthForm, [asset.id]: { ...values, comments: e.target.value } })} /></Field>
+                <Button type="submit" variant="primary">Save Response</Button>
               </form>
             );
           })}
         </div>
       </section>
+
+      <Dialog open={requestDialogOpen}>
+        <DialogContent>
+          <DialogHeader title="Request Asset" description="Submit a hardware request for IT review." />
+          <form className="dialog-form single-column" onSubmit={submitRequest}>
+            <Field label="Hardware Type">
+              <Select value={requestForm.requested_device_type} onChange={(e) => setRequestForm({ ...requestForm, requested_device_type: e.target.value })}>
+                <option>Laptop</option>
+                <option>Mobile</option>
+                <option>Accessory</option>
+                <option>Monitor</option>
+                <option>Other</option>
+              </Select>
+            </Field>
+            <Field label="Reason for Request"><textarea required rows="5" value={requestForm.remarks} onChange={(e) => setRequestForm({ ...requestForm, remarks: e.target.value })} /></Field>
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={() => setRequestDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" variant="primary" disabled={!employee}>Submit Request</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function DialogHeader({ title, description }) {
+  return (
+    <div className="dialog-header">
+      <h2 className="dialog-title">{title}</h2>
+      {description && <p className="dialog-description">{description}</p>}
+    </div>
   );
 }
 
@@ -659,9 +843,7 @@ function DataTable({ columns, rows, empty = 'No records found.' }) {
   return (
     <div className="table-wrap">
       <table>
-        <thead>
-          <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
-        </thead>
+        <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
         <tbody>
           {rows.length === 0 ? (
             <tr><td colSpan={columns.length} className="empty-state">{empty}</td></tr>
@@ -692,11 +874,11 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(!!token);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('userToken');
     setToken(null);
     setUser(null);
-  };
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -714,7 +896,7 @@ function App() {
     }).finally(() => {
       setLoading(false);
     });
-  }, [token]);
+  }, [token, handleLogout]);
 
   if (loading) return <div className="loading-screen">Loading workspace...</div>;
 

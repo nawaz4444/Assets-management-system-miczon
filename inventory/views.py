@@ -478,7 +478,7 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create(self, request, *args, **kwargs):
-        if not request.user.is_superuser:
+        if not request.data.get('requester'):
             requester = _get_employee_requester(request.user)
             if not requester:
                 return Response({"error": "Employee profile not found for user."}, status=400)
@@ -486,11 +486,15 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             data = request.data.copy()
             data['requester'] = requester.id
             data['action_type'] = data.get('action_type') or 'ASSIGN'
+            data['reason_for_request'] = data.get('reason_for_request') or data.get('remarks') or ''
             data['status'] = 'PENDING'
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             serializer.save(requester=requester, status='PENDING')
             return Response(serializer.data, status=201)
+
+        if not request.user.is_superuser:
+            return Response({"error": "Employees cannot create requests for another requester."}, status=403)
 
         return super().create(request, *args, **kwargs)
 

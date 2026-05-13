@@ -219,6 +219,7 @@ class AssetActionRequest(models.Model):
     expected_return_date = models.DateField(null=True, blank=True)
     requested_device_type = models.CharField(max_length=100, blank=True)
     
+    reason_for_request = models.TextField(blank=True)
     remarks = models.TextField(blank=True)
     
     # Data for ADD
