@@ -83,7 +83,7 @@ function AppShell({ token, handleLogout }) {
         <Link className="brand" to="/">
           <span className="brand-mark">IT</span>
           <span>
-            <strong>Asset Manager</strong>
+            <strong>AssetZone</strong>
             <small>Hardware Inventory</small>
           </span>
         </Link>
