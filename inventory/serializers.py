@@ -43,7 +43,6 @@ class AssetListSerializer(serializers.ModelSerializer):
     """
     custodian_name = serializers.CharField(source='custodian.name', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
-    qr_code_url = serializers.SerializerMethodField()
     active_assignment_id = serializers.SerializerMethodField()
 
     class Meta:
@@ -51,7 +50,7 @@ class AssetListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'miczon_id', 'name', 'category', 'specifications',
             'current_status', 'custodian', 'custodian_name', 
-            'department', 'department_name', 'qr_code_url',
+            'department', 'department_name',
             'maintenance_vendor', 'sent_to_repair_date', 'expected_return_date', 'is_overdue_repair',
             'active_assignment_id'
         ]
@@ -62,13 +61,6 @@ class AssetListSerializer(serializers.ModelSerializer):
             if assignment.status == 'ASSIGNED':
                 return assignment.id
         return None
-
-    def get_qr_code_url(self, obj):
-        request = self.context.get('request')
-        if obj.qr_code and request:
-            return request.build_absolute_uri(obj.qr_code.url)
-        return None
-
 
 class AssetDetailSerializer(AssetListSerializer):
     """

@@ -1,7 +1,8 @@
 /* eslint-disable react-refresh/only-export-components, react-hooks/set-state-in-effect */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { QRCodeCanvas } from 'qrcode.react';
 import Login from './Login';
 import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
@@ -160,6 +161,27 @@ function toApiPath(url) {
   return url;
 }
 
+function getQrPayload(miczonId) {
+  return `${window.location.origin}/scan/${encodeURIComponent(miczonId || '')}`;
+}
+
+function extractMiczonIdFromScan(value) {
+  const rawValue = String(value || '').trim();
+  if (!rawValue) return '';
+
+  try {
+    const parsed = new URL(rawValue);
+    const scanIndex = parsed.pathname.split('/').filter(Boolean).findIndex((part) => part.toLowerCase() === 'scan');
+    if (scanIndex >= 0) {
+      return decodeURIComponent(parsed.pathname.split('/').filter(Boolean)[scanIndex + 1] || '');
+    }
+  } catch {
+    // Plain Miczon IDs are also accepted for manual testing and fallback scanners.
+  }
+
+  return rawValue.replace(/^.*\/scan\//i, '').trim();
+}
+
 async function fetchAll(api, initialPath) {
   const rows = [];
   let path = initialPath;
@@ -212,6 +234,9 @@ function AppShell({ token, handleLogout }) {
         <Routes>
           <Route path="/" element={<Dashboard api={api} isAdmin={user?.is_superuser} />} />
           <Route path="/inventory" element={<InventoryPage api={api} isAdmin={user?.is_superuser} />} />
+          <Route path="/inventory/add" element={<InventoryPage api={api} isAdmin={user?.is_superuser} />} />
+          <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={user?.is_superuser} />} />
+          <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
           <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={user?.is_superuser} />} />
           <Route path="/requests" element={<RequestManager api={api} isAdmin={user?.is_superuser} />} />
           <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={user?.is_superuser} />} />
@@ -301,6 +326,7 @@ function Dashboard({ api, isAdmin }) {
 
 function InventoryPage({ api, isAdmin }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [assets, setAssets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -315,7 +341,10 @@ function InventoryPage({ api, isAdmin }) {
   const [importStatus, setImportStatus] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
   const [isDraggingImport, setIsDraggingImport] = useState(false);
+  const [qrAsset, setQrAsset] = useState(null);
   const [notice, setNotice] = useState('');
+  const [qrLabelsDialogOpen, setQrLabelsDialogOpen] = useState(false);
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
 
   useEffect(() => {
     setStatusFilter(new URLSearchParams(location.search).get('status') || '');
@@ -341,10 +370,21 @@ function InventoryPage({ api, isAdmin }) {
     fetchAll(api, '/departments/').then(setDepartments);
   }, [api]);
 
+  useEffect(() => {
+    if (location.pathname !== '/inventory/add') return;
+    const scannedMiczonId = new URLSearchParams(location.search).get('miczon_id') || '';
+    setEditingId(null);
+    setForm({ ...emptyAsset, miczon_id: scannedMiczonId });
+    setDialogOpen(true);
+  }, [location.pathname, location.search]);
+
   const closeAssetDialog = () => {
     setDialogOpen(false);
     setEditingId(null);
     setForm(emptyAsset);
+    if (location.pathname === '/inventory/add') {
+      navigate('/inventory', { replace: true });
+    }
   };
 
   const closeImportDialog = () => {
@@ -467,6 +507,7 @@ function InventoryPage({ api, isAdmin }) {
     <>
       <PageHeader eyebrow="Inventory Management" title="Hardware register">
         {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Assets</Button>}
+        <Button type="button" variant="outline" onClick={() => setQrLabelsDialogOpen(true)}>QR Labels</Button>
         <Button type="button" variant="primary" onClick={() => setDialogOpen(true)}>Add Asset</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
@@ -500,8 +541,7 @@ function InventoryPage({ api, isAdmin }) {
             <StatusBadge status={asset.current_status} />,
             asset.custodian_name || 'Unassigned',
             <div className="row-actions">
-              <Button type="button" variant="outline" size="sm" onClick={() => editAsset(asset)}>Edit</Button>
-              {isAdmin && <Button type="button" variant="danger" size="sm" onClick={() => removeAsset(asset)}>Remove</Button>}
+              <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/inventory/asset/${asset.id}`)}>View</Button>
             </div>,
           ])}
           empty="No assets match the current filters."
@@ -600,7 +640,367 @@ function InventoryPage({ api, isAdmin }) {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!qrAsset}>
+        <DialogContent className="qr-dialog">
+          <DialogHeader title="Asset QR Code" description={qrAsset ? `${qrAsset.name} - ${qrAsset.miczon_id}` : ''} />
+          {qrAsset && (
+            <div className="qr-preview">
+              <QRCodeCanvas value={getQrPayload(qrAsset.miczon_id)} size={180} includeMargin />
+              <strong>Miczon ID: {qrAsset.miczon_id}</strong>
+              <small>{getQrPayload(qrAsset.miczon_id)}</small>
+            </div>
+          )}
+          <div className="dialog-footer">
+            <Button type="button" variant="ghost" onClick={() => setQrAsset(null)}>Close</Button>
+            <Button type="button" variant="primary" onClick={() => navigate(`/inventory/asset/${qrAsset?.id}`)}>Open Asset</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <QrLabelsDialog open={qrLabelsDialogOpen} onClose={() => setQrLabelsDialogOpen(false)} onOpenScanner={() => { setQrLabelsDialogOpen(false); setScanDialogOpen(true); }} api={api} />
+      <ScanAssetDialog open={scanDialogOpen} onClose={() => setScanDialogOpen(false)} api={api} />
     </>
+  );
+}
+
+function AssetDetailPage({ api, isAdmin }) {
+  const { assetId } = useParams();
+  const navigate = useNavigate();
+  const [asset, setAsset] = useState(null);
+  const [notice, setNotice] = useState('');
+
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState(emptyAsset);
+
+  useEffect(() => {
+    api.get(`/assets/${assetId}/`)
+      .then((res) => setAsset(res.data))
+      .catch(() => setNotice('Unable to load asset details.'));
+  }, [api, assetId]);
+
+  useEffect(() => {
+    fetchAll(api, '/employees/').then(setEmployees);
+    fetchAll(api, '/departments/').then(setDepartments);
+  }, [api]);
+
+  const editAsset = () => {
+    setForm({
+      miczon_id: asset.miczon_id || '',
+      name: asset.name || '',
+      category: asset.category || '',
+      department: asset.department || '',
+      current_status: asset.current_status || 'AVAILABLE',
+      custodian: asset.custodian || '',
+      specifications: asset.specifications || '',
+      remarks: asset.remarks || '',
+    });
+    setDialogOpen(true);
+  };
+
+  const removeAsset = async () => {
+    if (!window.confirm(`Remove ${asset.name}?`)) return;
+    await api.delete(`/assets/${asset.id}/`);
+    navigate('/inventory');
+  };
+
+  const submitAsset = async (event) => {
+    event.preventDefault();
+    const payload = {
+      ...form,
+      custodian: form.custodian || null,
+      department: form.department || null,
+      current_status: form.custodian ? 'ASSIGNED' : form.current_status,
+    };
+
+    try {
+      await api.patch(`/assets/${asset.id}/`, payload);
+      setNotice('Hardware updated.');
+      setDialogOpen(false);
+      api.get(`/assets/${assetId}/`).then((res) => setAsset(res.data));
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to save hardware.');
+    }
+  };
+
+  if (notice && !asset) return <Notice tone="error">{notice}</Notice>;
+  if (!asset) return <div className="loading-screen">Loading asset...</div>;
+
+  return (
+    <>
+      <PageHeader eyebrow="Asset Detail" title={asset.name}>
+        <Button type="button" variant="ghost" onClick={() => navigate('/inventory')}>Back</Button>
+        <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>
+        {isAdmin && <Button type="button" variant="danger" onClick={removeAsset}>Remove</Button>}
+        <Button type="button" variant="primary" onClick={() => window.print()}>Print Asset Tag</Button>
+      </PageHeader>
+      {notice && <Notice>{notice}</Notice>}
+
+      <section className="panel asset-detail-panel">
+        <div className="asset-detail-grid">
+          <div>
+            <span>Miczon ID</span>
+            <strong>{asset.miczon_id}</strong>
+          </div>
+          <div>
+            <span>Category</span>
+            <strong>{asset.category || 'Uncategorized'}</strong>
+          </div>
+          <div>
+            <span>Status</span>
+            <StatusBadge status={asset.current_status} />
+          </div>
+          <div>
+            <span>Department</span>
+            <strong>{asset.department_name || 'No department'}</strong>
+          </div>
+          <div>
+            <span>Custodian</span>
+            <strong>{asset.custodian_name || 'Unassigned'}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel qr-detail-panel">
+        <div className="qr-preview">
+          <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={180} includeMargin />
+          <strong>Miczon ID: {asset.miczon_id}</strong>
+          <small>{getQrPayload(asset.miczon_id)}</small>
+        </div>
+      </section>
+
+      <div className="asset-tag-print-only">
+        <div className="asset-print-label">
+          <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={170} includeMargin />
+          <strong>Miczon ID: {asset.miczon_id}</strong>
+          <span>Device: {asset.name}</span>
+          <span>Custodian: {asset.custodian_name || 'Unassigned'}</span>
+        </div>
+      </div>
+
+      <Dialog open={dialogOpen}>
+        <DialogContent>
+          <DialogHeader title="Edit Asset" description="Register hardware with the fields used by the asset workflow." />
+          <form className="dialog-form" onSubmit={submitAsset}>
+            <Field label="Miczon ID"><input required value={form.miczon_id} onChange={(e) => setForm({ ...form, miczon_id: e.target.value })} /></Field>
+            <Field label="Device Name"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label="Category"><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
+            <Field label="Department">
+              <Select value={form.department || ''} onChange={(e) => setForm({ ...form, department: e.target.value })}>
+                <option value="">No department</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select value={form.current_status} onChange={(e) => setForm({ ...form, current_status: e.target.value })}>
+                {assetStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Assigned User">
+              <Select value={form.custodian || ''} onChange={(e) => setForm({ ...form, custodian: e.target.value })}>
+                <option value="">Unassigned</option>
+                {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Specifications"><textarea rows="3" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} /></Field>
+            <Field label="Remarks"><textarea rows="3" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field>
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" variant="primary">Save Changes</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
+  const [quantity, setQuantity] = useState(12);
+  const [miczonIds, setMiczonIds] = useState([]);
+  const [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const generateAndPrint = async (event) => {
+    event.preventDefault();
+    const safeQuantity = Math.max(1, Math.min(Number(quantity) || 1, 500));
+    setLoading(true);
+    setNotice('');
+
+    try {
+      const response = await api.get(`/assets/next-miczon-ids/?quantity=${safeQuantity}`);
+      setMiczonIds(response.data?.ids || []);
+      window.setTimeout(() => window.print(), 100);
+    } catch {
+      setNotice('Unable to generate Miczon IDs.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open}>
+      <DialogContent className="qr-labels-dialog">
+        <DialogHeader title="QR Labels" description="Generate bulk QR labels." />
+        <div className="modal-toolbar" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+          <Button type="button" variant="outline" onClick={onOpenScanner}>Scan QR Asset</Button>
+        </div>
+        {notice && <Notice tone="error">{notice}</Notice>}
+        <section className="panel qr-generator-controls">
+          <form className="form-grid" onSubmit={generateAndPrint}>
+            <Field label="Quantity">
+              <input min="1" max="500" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+            </Field>
+            <div className="form-action-cell">
+              <Button type="submit" variant="primary" disabled={loading}>{loading ? 'Generating...' : 'Generate & Print'}</Button>
+            </div>
+          </form>
+        </section>
+
+        <section className="panel qr-print-surface">
+          {miczonIds.length === 0 ? (
+            <p className="empty-state">Generate labels to preview the printable QR grid.</p>
+          ) : (
+            <div className="qr-label-grid">
+              {miczonIds.map((miczonId) => (
+                <div className="qr-label" key={miczonId}>
+                  <QRCodeCanvas value={getQrPayload(miczonId)} size={132} includeMargin />
+                  <strong>Miczon ID: {miczonId}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+        <div className="dialog-footer">
+          <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ScanRedirect({ api }) {
+  const { miczonId } = useParams();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const resolveScan = async () => {
+      const cleanMiczonId = extractMiczonIdFromScan(miczonId);
+      try {
+        const response = await api.get(`/scan/${encodeURIComponent(cleanMiczonId)}/`);
+        if (response.data?.status === 'found') {
+          navigate(`/inventory/asset/${response.data.asset_id}`, { replace: true });
+        } else {
+          navigate(`/inventory/add?miczon_id=${encodeURIComponent(response.data?.miczon_id || cleanMiczonId)}`, { replace: true });
+        }
+      } catch {
+        navigate('/inventory', { replace: true });
+      }
+    };
+
+    resolveScan();
+  }, [api, miczonId, navigate]);
+
+  return <div className="loading-screen">Resolving QR code...</div>;
+}
+
+function ScanAssetDialog({ open, onClose, api }) {
+  const navigate = useNavigate();
+  const scannerRef = useRef(null);
+  const [manualCode, setManualCode] = useState('');
+  const [notice, setNotice] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+
+  const stopScanner = useCallback(async () => {
+    if (!scannerRef.current) return;
+    const scanner = scannerRef.current;
+    try {
+      await scanner.stop();
+    } catch {
+      // Camera cleanup can throw if the stream has already been stopped by the browser.
+    }
+    try {
+      await scanner.clear();
+    } catch {
+      // The reader element may already be cleared during route changes.
+    }
+    scannerRef.current = null;
+    setIsScanning(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) stopScanner();
+  }, [open, stopScanner]);
+
+  useEffect(() => () => {
+    stopScanner();
+  }, [stopScanner]);
+
+  const resolveMiczonId = useCallback(async (value) => {
+    const miczonId = extractMiczonIdFromScan(value);
+    if (!miczonId) return;
+    await stopScanner();
+
+    try {
+      const response = await api.get(`/scan/${encodeURIComponent(miczonId)}/`);
+      if (response.data?.status === 'found') {
+        navigate(`/inventory/asset/${response.data.asset_id}`);
+      } else {
+        navigate(`/inventory/add?miczon_id=${encodeURIComponent(response.data?.miczon_id || miczonId)}`);
+      }
+      onClose();
+    } catch {
+      setNotice('Unable to resolve scanned asset.');
+    }
+  }, [api, navigate, stopScanner, onClose]);
+
+  const startScanner = async () => {
+    setNotice('');
+    await stopScanner();
+
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const scanner = new Html5Qrcode('asset-scanner-reader');
+      scannerRef.current = scanner;
+      setIsScanning(true);
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => resolveMiczonId(decodedText),
+      );
+    } catch (error) {
+      setIsScanning(false);
+      scannerRef.current = null;
+      setNotice(error?.message || 'Unable to start camera scanner.');
+    }
+  };
+
+  return (
+    <Dialog open={open}>
+      <DialogContent className="scanner-dialog">
+        <DialogHeader title="Scan Asset" description="Use your camera to scan an asset QR code or enter an ID manually." />
+        {notice && <Notice tone="error">{notice}</Notice>}
+        <section className="panel scanner-panel">
+          <div id="asset-scanner-reader" className="scanner-reader" />
+          <div className="scanner-actions">
+            <Button type="button" variant="primary" onClick={startScanner} disabled={isScanning}>Start Camera</Button>
+            <Button type="button" variant="ghost" onClick={stopScanner} disabled={!isScanning}>Stop</Button>
+          </div>
+          <form className="manual-scan-form" onSubmit={(event) => { event.preventDefault(); resolveMiczonId(manualCode); }}>
+            <Field label="Manual Miczon ID or QR URL">
+              <input value={manualCode} onChange={(event) => setManualCode(event.target.value)} placeholder="MZ-1001 or https://.../scan/MZ-1001" />
+            </Field>
+            <Button type="submit" variant="outline">Resolve</Button>
+          </form>
+        </section>
+        <div className="dialog-footer">
+          <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

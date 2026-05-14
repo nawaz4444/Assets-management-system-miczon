@@ -24,6 +24,7 @@ from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
+import re
 
 # --- PAGINATION ---
 class StandardResultsSetPagination(PageNumberPagination):
@@ -114,6 +115,17 @@ def build_asset_import_template():
     output.seek(0)
     return output
 
+def build_next_miczon_ids(quantity):
+    existing_ids = Asset.objects.values_list('miczon_id', flat=True)
+    highest_number = 1000
+
+    for miczon_id in existing_ids:
+        match = re.search(r'(\d+)(?!.*\d)', str(miczon_id or ''))
+        if match:
+            highest_number = max(highest_number, int(match.group(1)))
+
+    return [f"MZ-{number}" for number in range(highest_number + 1, highest_number + quantity + 1)]
+
 # --- AUTH VIEWS ---
 class CurrentUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -121,6 +133,15 @@ class CurrentUserView(APIView):
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+
+class ScanAssetView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, miczon_id):
+        asset = Asset.objects.filter(miczon_id=miczon_id).only('id').first()
+        if asset:
+            return Response({"status": "found", "asset_id": asset.id})
+        return Response({"status": "not_found", "miczon_id": miczon_id})
 
 # --- VIEWSETS ---
 class AssetAssignmentViewSet(viewsets.ModelViewSet):
@@ -343,6 +364,16 @@ class AssetViewSet(viewsets.ModelViewSet):
             filename='asset_import_template.xlsx',
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
+
+    @action(detail=False, methods=['get'], url_path='next-miczon-ids')
+    def next_miczon_ids(self, request):
+        try:
+            quantity = int(request.query_params.get('quantity', 1))
+        except (TypeError, ValueError):
+            quantity = 1
+
+        quantity = max(1, min(quantity, 500))
+        return Response({"ids": build_next_miczon_ids(quantity)})
 
     @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser, FormParser])
     def import_assets(self, request):

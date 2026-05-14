@@ -15,18 +15,9 @@ class EmployeeAdmin(admin.ModelAdmin):
 
 @admin.register(Asset)
 class AssetAdmin(admin.ModelAdmin):
-    # We replaced 'serial_number' with 'miczon_id' here:
-    list_display = ('name', 'miczon_id', 'category', 'current_status', 'custodian', 'qr_code_preview')
+    list_display = ('name', 'miczon_id', 'category', 'current_status', 'custodian')
     search_fields = ('name', 'miczon_id', 'category')
     list_filter = ('current_status', 'department', 'category')
-    readonly_fields = ('qr_code_preview',)
-
-    def qr_code_preview(self, obj):
-        if obj.qr_code:
-            from django.utils.html import mark_safe
-            return mark_safe(f'<img src="{obj.qr_code.url}" width="50" height="50" style="object-fit:contain;" />')
-        return "No QR Code"
-    qr_code_preview.short_description = "QR Code"
 
 @admin.register(AssetHistory)
 class AssetHistoryAdmin(admin.ModelAdmin):

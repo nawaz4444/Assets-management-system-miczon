@@ -1,9 +1,6 @@
 from django.db import models
 from django.utils import timezone
-import io
-import segno
 from datetime import date
-from django.core.files.base import ContentFile
 
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -52,28 +49,6 @@ class Asset(models.Model):
         if self.current_status == 'BROKEN' and self.expected_return_date:
             return date.today() > self.expected_return_date
         return False
-
-    # QR Code Field
-    qr_code = models.ImageField(upload_to='qrcodes/', blank=True, null=True)
-
-    def save(self, *args, **kwargs):
-        # Auto-generate QR code if it doesn't exist
-        if not self.qr_code:
-            # QR Content: Direct link to asset details
-            payload = f"https://assets.miczon.com/a/{self.miczon_id}"
-            
-            # Generate QR (Micro=False for standard size, M for error correction)
-            qr = segno.make(payload, micro=False, error='M')
-            
-            # Save to memory buffer
-            buffer = io.BytesIO()
-            qr.save(buffer, kind='png', scale=10, border=1)
-            
-            # Save to model field
-            filename = f"qr_{self.miczon_id}.png"
-            self.qr_code.save(filename, ContentFile(buffer.getvalue()), save=False)
-            
-        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.miczon_id})"
