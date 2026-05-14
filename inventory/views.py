@@ -2,6 +2,7 @@ from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.http import FileResponse
 from .models import (
     Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog,
     AssetActionRequest, HealthCheckSession, HealthCheckResponse
@@ -17,9 +18,12 @@ from django.db import transaction
 from django.db.models import Count, Q
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
+from io import BytesIO
 from datetime import date
 from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 # --- PAGINATION ---
 class StandardResultsSetPagination(PageNumberPagination):
@@ -62,6 +66,53 @@ def _get_employee_requester(user):
     if full_name: q |= Q(name__iexact=full_name)
     elif user.username: q |= Q(name__iexact=user.username)
     return Employee.objects.filter(q).first()
+
+def clean_import_value(value, default=''):
+    if pd.isna(value):
+        return default
+    text = str(value).strip()
+    return default if text.lower() == 'nan' else text
+
+def get_import_value(row, *column_names, default=''):
+    for column_name in column_names:
+        if column_name in row:
+            value = clean_import_value(row.get(column_name), default='')
+            if value:
+                return value
+    return default
+
+def build_asset_import_template():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Assets'
+
+    headers = [
+        'Miczon ID',
+        'Device Name',
+        'Category',
+        'Department',
+        'Custodian',
+        'Employee ID',
+        'Email',
+        'Specifications',
+        'Remarks',
+        'Status',
+    ]
+    sheet.append(headers)
+
+    header_fill = PatternFill(fill_type='solid', fgColor='D9EAF7')
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+
+    for column_cells in sheet.columns:
+        max_length = max(len(str(cell.value or '')) for cell in column_cells)
+        sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 3, 14), 34)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
 
 # --- AUTH VIEWS ---
 class CurrentUserView(APIView):
@@ -282,6 +333,117 @@ class AssetViewSet(viewsets.ModelViewSet):
         if not request.user.is_superuser:
             return Response({"error": "Deletions restricted to administrators."}, status=403)
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path='import-template')
+    def import_template(self, request):
+        template = build_asset_import_template()
+        return FileResponse(
+            template,
+            as_attachment=True,
+            filename='asset_import_template.xlsx',
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser, FormParser])
+    def import_assets(self, request):
+        if not request.user.is_superuser:
+            return Response({"success": False, "message": "Only admins can import assets."}, status=403)
+
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({"success": False, "message": "Please upload an Excel file."}, status=400)
+
+        if not file_obj.name.lower().endswith(('.xls', '.xlsx')):
+            return Response({"success": False, "message": "Only .xls and .xlsx files are supported."}, status=400)
+
+        try:
+            df = pd.read_excel(file_obj)
+        except Exception as exc:
+            return Response({"success": False, "message": f"Unable to read Excel file: {exc}"}, status=400)
+
+        if df.empty:
+            return Response({"success": False, "message": "The uploaded Excel file has no asset rows."}, status=400)
+
+        df.columns = [str(column).strip().lower() for column in df.columns]
+        created_count = 0
+        updated_count = 0
+        skipped_rows = []
+
+        for index, row in df.iterrows():
+            excel_row_number = index + 2
+            miczon_id = get_import_value(row, 'miczon id', 'mic id', 'serial number', 'serial no', 'asset tag')
+            if not miczon_id:
+                skipped_rows.append(f"Row {excel_row_number}: Missing Miczon ID / Serial Number")
+                continue
+
+            device_name = get_import_value(row, 'device name', 'device', 'name')
+            if not device_name:
+                skipped_rows.append(f"Row {excel_row_number}: Missing Device Name")
+                continue
+
+            department = None
+            department_name = get_import_value(row, 'department')
+            if department_name:
+                department, _ = Department.objects.get_or_create(name=department_name)
+
+            custodian = None
+            custodian_name = get_import_value(row, 'custodian', 'assigned user', 'user', 'employee name')
+            employee_id = get_import_value(row, 'employee id', 'employee code')
+            employee_email = get_import_value(row, 'email', 'employee email')
+
+            if employee_id:
+                custodian = Employee.objects.filter(employee_id__iexact=employee_id).first()
+            if not custodian and employee_email:
+                custodian = Employee.objects.filter(email__iexact=employee_email).first()
+            if not custodian and custodian_name:
+                custodian = Employee.objects.filter(name__iexact=custodian_name).first()
+            if not custodian and custodian_name:
+                custodian = Employee.objects.create(
+                    name=custodian_name,
+                    employee_id=employee_id or f"EMP-{uuid.uuid4().hex[:6].upper()}",
+                    email=employee_email,
+                    department=department,
+                )
+
+            status = get_import_value(row, 'status', default='').upper().replace(' ', '_')
+            valid_statuses = {choice[0] for choice in Asset.STATUS_CHOICES}
+            if status and status not in valid_statuses:
+                skipped_rows.append(f"Row {excel_row_number}: Invalid status '{status}'")
+                continue
+
+            status = status or ('ASSIGNED' if custodian else 'AVAILABLE')
+
+            _, created = Asset.objects.update_or_create(
+                miczon_id=miczon_id,
+                defaults={
+                    'name': device_name,
+                    'category': get_import_value(row, 'category', 'categary'),
+                    'department': department,
+                    'custodian': custodian,
+                    'current_status': 'ASSIGNED' if custodian and status != 'BROKEN' else status,
+                    'specifications': get_import_value(row, 'specifications', 'specs', 'details', 'hardware info', 'technical specs'),
+                    'remarks': get_import_value(row, 'remarks', 'remarks / notes', 'notes'),
+                },
+            )
+
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        imported_count = created_count + updated_count
+        message = f"Successfully imported {imported_count} asset{'' if imported_count == 1 else 's'}."
+        if skipped_rows:
+            message += f" Skipped {len(skipped_rows)} row{'' if len(skipped_rows) == 1 else 's'}."
+
+        return Response({
+            "success": True,
+            "message": message,
+            "created": created_count,
+            "updated": updated_count,
+            "skipped": len(skipped_rows),
+            "errors": skipped_rows,
+        })
 
     @action(detail=True, methods=['post'])
     def transfer(self, request, pk=None):
@@ -666,14 +828,14 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='trigger-global')
     def trigger_global(self, request):
         if not request.user.is_superuser:
-            return Response({"error": "Only admins can trigger global health checks."}, status=403)
+            return Response({"error": "Only admins can start monthly inspections."}, status=403)
 
-        title = request.data.get('title') or f"Global Health Check {timezone.now().date()}"
+        title = request.data.get('title') or f"Monthly Hardware Inspection {timezone.now().date()}"
         session = HealthCheckSession.objects.create(title=title, triggered_by=request.user)
         serializer = self.get_serializer(session)
         assigned_assets = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False).count()
         return Response({
-            "status": "Global health check triggered",
+            "status": "Monthly inspection started",
             "assigned_assets": assigned_assets,
             "session": serializer.data,
         }, status=201)
@@ -790,6 +952,11 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
                     'asset': response.get('asset'),
                     'screen_condition': response.get('screen_condition') or 'GOOD',
                     'battery_life': response.get('battery_life') or 'GOOD',
+                    'physical_condition': response.get('physical_condition') or 'GOOD_MINOR_WEAR',
+                    'power_boot_status': response.get('power_boot_status') or 'BOOTS_NORMALLY',
+                    'ports_connectors': response.get('ports_connectors') or 'ALL_FUNCTIONAL',
+                    'network_functionality': response.get('network_functionality') or 'CONNECTS_NORMALLY',
+                    'asset_tag_status': response.get('asset_tag_status') or 'INTACT_SCANNABLE',
                     'performance_rating': response.get('performance_rating') or 4,
                     'comments': response.get('comments') or '',
                 }

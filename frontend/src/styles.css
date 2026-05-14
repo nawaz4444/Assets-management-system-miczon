@@ -895,7 +895,7 @@ th {
 }
 
 .dialog-content.inspection-dialog {
-  width: min(1040px, 100%);
+  width: min(1120px, 100%);
 }
 
 .dialog-header {
@@ -1055,9 +1055,13 @@ input[type="checkbox"] {
 
 .health-control-grid {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 0.8fr) minmax(100px, 0.45fr) minmax(220px, 1.2fr);
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 12px;
   align-items: start;
+}
+
+.health-comments-field {
+  grid-column: 1 / -1;
 }
 
 .health-submit-bar {
@@ -1094,6 +1098,75 @@ input[type="checkbox"] {
   border-color: #fecaca;
   background: #fff7f7;
   color: #b91c1c;
+}
+
+.notice.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.import-template-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.import-template-row strong,
+.import-template-row small {
+  display: block;
+}
+
+.import-template-row small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.file-drop-zone {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.file-drop-zone.dragging,
+.file-drop-zone:hover {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.file-drop-zone input {
+  display: none;
+}
+
+.file-drop-zone span {
+  color: #172033;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.file-drop-zone small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.import-error-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
 }
 
 .empty-state {
@@ -1173,10 +1246,15 @@ input[type="checkbox"] {
   .gear-row,
   .gear-meta,
   .modal-toolbar,
+  .import-template-row,
   .health-submit-bar {
     align-items: flex-start;
     flex-direction: column;
     text-align: left;
+  }
+
+  .import-template-row .button {
+    width: 100%;
   }
 
   .health-submit-bar .btn {

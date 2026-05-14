@@ -100,7 +100,7 @@ class HealthCheckSession(models.Model):
         ('CLOSED', 'Closed'),
     ]
 
-    title = models.CharField(max_length=150, default='Global Hardware Health Check')
+    title = models.CharField(max_length=150, default='Monthly Hardware Inspection')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
     triggered_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -116,13 +116,42 @@ class HealthCheckResponse(models.Model):
         ('SCRATCHED', 'Scratched'),
         ('CRACKED', 'Cracked'),
         ('NEEDS_REPAIR', 'Needs Repair'),
+        ('NOT_APPLICABLE', 'Not Applicable (N/A)'),
     ]
     BATTERY_CHOICES = [
         ('EXCELLENT', 'Excellent'),
         ('GOOD', 'Good'),
         ('FAIR', 'Fair'),
         ('POOR', 'Poor'),
-        ('NOT_APPLICABLE', 'Not Applicable'),
+        ('NOT_APPLICABLE', 'Not Applicable (N/A)'),
+    ]
+    PHYSICAL_CONDITION_CHOICES = [
+        ('EXCELLENT', 'Excellent'),
+        ('GOOD_MINOR_WEAR', 'Good (Minor wear)'),
+        ('FAIR_SCRATCHES_DENTS', 'Fair (Noticeable scratches/dents)'),
+        ('POOR_CRACKED_BROKEN', 'Poor (Cracked/Broken)'),
+    ]
+    POWER_BOOT_STATUS_CHOICES = [
+        ('BOOTS_NORMALLY', 'Boots normally'),
+        ('SLOW_TO_BOOT', 'Slow to boot'),
+        ('POWERS_NO_DISPLAY_OS', 'Powers on but no display/OS'),
+        ('DOES_NOT_POWER_ON', 'Does not power on'),
+    ]
+    PORTS_CONNECTORS_CHOICES = [
+        ('ALL_FUNCTIONAL', 'All functional'),
+        ('LOOSE_CONNECTIONS', 'Loose connections'),
+        ('VISIBLY_DAMAGED', 'Visibly damaged'),
+        ('UNRESPONSIVE', 'Unresponsive'),
+    ]
+    NETWORK_FUNCTIONALITY_CHOICES = [
+        ('CONNECTS_NORMALLY', 'Connects normally'),
+        ('INTERMITTENT_CONNECTION', 'Intermittent connection'),
+        ('FAILS_TO_CONNECT', 'Fails to connect'),
+    ]
+    ASSET_TAG_STATUS_CHOICES = [
+        ('INTACT_SCANNABLE', 'Intact & Scannable'),
+        ('FADED_PEELING', 'Faded/Peeling'),
+        ('MISSING', 'Missing'),
     ]
 
     session = models.ForeignKey(HealthCheckSession, on_delete=models.CASCADE, related_name='responses')
@@ -130,6 +159,11 @@ class HealthCheckResponse(models.Model):
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='health_trail')
     screen_condition = models.CharField(max_length=30, choices=SCREEN_CHOICES)
     battery_life = models.CharField(max_length=30, choices=BATTERY_CHOICES)
+    physical_condition = models.CharField(max_length=40, choices=PHYSICAL_CONDITION_CHOICES, default='GOOD_MINOR_WEAR')
+    power_boot_status = models.CharField(max_length=40, choices=POWER_BOOT_STATUS_CHOICES, default='BOOTS_NORMALLY')
+    ports_connectors = models.CharField(max_length=40, choices=PORTS_CONNECTORS_CHOICES, default='ALL_FUNCTIONAL')
+    network_functionality = models.CharField(max_length=40, choices=NETWORK_FUNCTIONALITY_CHOICES, default='CONNECTS_NORMALLY')
+    asset_tag_status = models.CharField(max_length=40, choices=ASSET_TAG_STATUS_CHOICES, default='INTACT_SCANNABLE')
     performance_rating = models.PositiveSmallIntegerField()
     comments = models.TextField(blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)

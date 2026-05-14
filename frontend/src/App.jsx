@@ -45,6 +45,89 @@ const assetStatuses = [
   { value: 'RETIRED', label: 'Retired' },
 ];
 
+const healthInspectionFields = [
+  {
+    name: 'screen_condition',
+    label: 'Screen condition',
+    defaultValue: 'GOOD',
+    options: [
+      { value: 'EXCELLENT', label: 'Excellent' },
+      { value: 'GOOD', label: 'Good' },
+      { value: 'SCRATCHED', label: 'Scratched' },
+      { value: 'CRACKED', label: 'Cracked' },
+      { value: 'NEEDS_REPAIR', label: 'Needs Repair' },
+      { value: 'NOT_APPLICABLE', label: 'Not Applicable (N/A)' },
+    ],
+  },
+  {
+    name: 'battery_life',
+    label: 'Battery life',
+    defaultValue: 'GOOD',
+    options: [
+      { value: 'EXCELLENT', label: 'Excellent' },
+      { value: 'GOOD', label: 'Good' },
+      { value: 'FAIR', label: 'Fair' },
+      { value: 'POOR', label: 'Poor' },
+      { value: 'NOT_APPLICABLE', label: 'Not Applicable (N/A)' },
+    ],
+  },
+  {
+    name: 'physical_condition',
+    label: 'Physical Condition',
+    defaultValue: 'GOOD_MINOR_WEAR',
+    options: [
+      { value: 'EXCELLENT', label: 'Excellent' },
+      { value: 'GOOD_MINOR_WEAR', label: 'Good (Minor wear)' },
+      { value: 'FAIR_SCRATCHES_DENTS', label: 'Fair (Noticeable scratches/dents)' },
+      { value: 'POOR_CRACKED_BROKEN', label: 'Poor (Cracked/Broken)' },
+    ],
+  },
+  {
+    name: 'power_boot_status',
+    label: 'Power & Boot Status',
+    defaultValue: 'BOOTS_NORMALLY',
+    options: [
+      { value: 'BOOTS_NORMALLY', label: 'Boots normally' },
+      { value: 'SLOW_TO_BOOT', label: 'Slow to boot' },
+      { value: 'POWERS_NO_DISPLAY_OS', label: 'Powers on but no display/OS' },
+      { value: 'DOES_NOT_POWER_ON', label: 'Does not power on' },
+    ],
+  },
+  {
+    name: 'ports_connectors',
+    label: 'Ports & Connectors',
+    defaultValue: 'ALL_FUNCTIONAL',
+    options: [
+      { value: 'ALL_FUNCTIONAL', label: 'All functional' },
+      { value: 'LOOSE_CONNECTIONS', label: 'Loose connections' },
+      { value: 'VISIBLY_DAMAGED', label: 'Visibly damaged' },
+      { value: 'UNRESPONSIVE', label: 'Unresponsive' },
+    ],
+  },
+  {
+    name: 'network_functionality',
+    label: 'Network Functionality',
+    defaultValue: 'CONNECTS_NORMALLY',
+    options: [
+      { value: 'CONNECTS_NORMALLY', label: 'Connects normally' },
+      { value: 'INTERMITTENT_CONNECTION', label: 'Intermittent connection' },
+      { value: 'FAILS_TO_CONNECT', label: 'Fails to connect' },
+    ],
+  },
+  {
+    name: 'asset_tag_status',
+    label: 'Asset Tag Status',
+    defaultValue: 'INTACT_SCANNABLE',
+    options: [
+      { value: 'INTACT_SCANNABLE', label: 'Intact & Scannable' },
+      { value: 'FADED_PEELING', label: 'Faded/Peeling' },
+      { value: 'MISSING', label: 'Missing' },
+    ],
+  },
+];
+
+const ratingOptions = [1, 2, 3, 4, 5];
+
 const inventoryPageSize = 25;
 
 function Icon({ name }) {
@@ -225,8 +308,13 @@ function InventoryPage({ api, isAdmin }) {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || '');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyAsset);
   const [editingId, setEditingId] = useState(null);
+  const [importFile, setImportFile] = useState(null);
+  const [importStatus, setImportStatus] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [isDraggingImport, setIsDraggingImport] = useState(false);
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
@@ -257,6 +345,14 @@ function InventoryPage({ api, isAdmin }) {
     setDialogOpen(false);
     setEditingId(null);
     setForm(emptyAsset);
+  };
+
+  const closeImportDialog = () => {
+    if (importLoading) return;
+    setImportDialogOpen(false);
+    setImportFile(null);
+    setImportStatus(null);
+    setIsDraggingImport(false);
   };
 
   const submitAsset = async (event) => {
@@ -304,9 +400,73 @@ function InventoryPage({ api, isAdmin }) {
     loadAssets();
   };
 
+  const selectImportFile = (file) => {
+    if (!file) return;
+    const isExcelFile = /\.(xls|xlsx)$/i.test(file.name);
+    if (!isExcelFile) {
+      setImportFile(null);
+      setImportStatus({ tone: 'error', message: 'Please choose a .xls or .xlsx file.' });
+      return;
+    }
+    setImportFile(file);
+    setImportStatus(null);
+  };
+
+  const downloadImportTemplate = async () => {
+    try {
+      const response = await api.get('/assets/import-template/', { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'asset_import_template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setImportStatus({ tone: 'error', message: 'Unable to download the template right now.' });
+    }
+  };
+
+  const submitImport = async (event) => {
+    event.preventDefault();
+    if (!importFile) {
+      setImportStatus({ tone: 'error', message: 'Choose an Excel file before submitting.' });
+      return;
+    }
+
+    const payload = new FormData();
+    payload.append('file', importFile);
+    setImportLoading(true);
+    setImportStatus(null);
+
+    try {
+      const response = await api.post('/assets/import/', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const errors = response.data?.errors || [];
+      setImportStatus({
+        tone: errors.length ? 'warning' : 'success',
+        message: response.data?.message || 'Assets imported successfully.',
+        errors,
+      });
+      setImportFile(null);
+      await loadAssets();
+    } catch (err) {
+      setImportStatus({
+        tone: 'error',
+        message: err.response?.data?.message || err.response?.data?.error || 'Unable to import assets.',
+        errors: err.response?.data?.errors || [],
+      });
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   return (
     <>
       <PageHeader eyebrow="Inventory Management" title="Hardware register">
+        {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Assets</Button>}
         <Button type="button" variant="primary" onClick={() => setDialogOpen(true)}>Add Asset</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
@@ -377,6 +537,65 @@ function InventoryPage({ api, isAdmin }) {
             <div className="dialog-footer">
               <Button type="button" variant="ghost" onClick={closeAssetDialog}>Cancel</Button>
               <Button type="submit" variant="primary">{editingId ? 'Save Changes' : 'Add Asset'}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importDialogOpen}>
+        <DialogContent className="import-dialog">
+          <DialogHeader title="Import Assets" description="Upload an Excel file using the inventory template columns." />
+          <form className="stack-form" onSubmit={submitImport}>
+            <div className="import-template-row">
+              <div>
+                <strong>Example template</strong>
+                <small>Use this file to match the expected columns.</small>
+              </div>
+              <Button type="button" variant="outline" onClick={downloadImportTemplate} disabled={importLoading}>
+                Download Example Template
+              </Button>
+            </div>
+
+            <label
+              className={`file-drop-zone ${isDraggingImport ? 'dragging' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setIsDraggingImport(true);
+              }}
+              onDragLeave={() => setIsDraggingImport(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setIsDraggingImport(false);
+                selectImportFile(event.dataTransfer.files?.[0]);
+              }}
+            >
+              <input
+                type="file"
+                accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(event) => selectImportFile(event.target.files?.[0])}
+                disabled={importLoading}
+              />
+              <span>{importFile ? importFile.name : 'Drop Excel file here or click to browse'}</span>
+              <small>.xls and .xlsx files only</small>
+            </label>
+
+            {importStatus && (
+              <Notice tone={importStatus.tone}>
+                {importStatus.message}
+                {importStatus.errors?.length > 0 && (
+                  <ul className="import-error-list">
+                    {importStatus.errors.slice(0, 8).map((error) => <li key={error}>{error}</li>)}
+                    {importStatus.errors.length > 8 && <li>+{importStatus.errors.length - 8} more row issues</li>}
+                  </ul>
+                )}
+              </Notice>
+            )}
+
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={closeImportDialog} disabled={importLoading}>Cancel</Button>
+              <Button type="submit" variant="primary" disabled={importLoading || !importFile}>
+                {importLoading ? 'Importing...' : 'Submit'}
+              </Button>
             </div>
           </form>
         </DialogContent>
@@ -593,7 +812,7 @@ function HealthChecks({ api, isAdmin }) {
 
   const trigger = async () => {
     const res = await api.post('/health-checks/trigger-global/');
-    setNotice(`Global health check triggered for ${res.data.assigned_assets || res.data.target_assets || 0} hardware item(s).`);
+    setNotice(`Monthly inspection started for ${res.data.assigned_assets || res.data.target_assets || 0} hardware item(s).`);
     setSelectedSession(String(res.data.session?.id || ''));
   };
 
@@ -662,8 +881,8 @@ function HealthChecks({ api, isAdmin }) {
 
   return (
     <>
-      <PageHeader eyebrow="Inspection Compliance" title="Hardware health report">
-        {isAdmin && <Button type="button" variant="primary" onClick={trigger}>Trigger Global Health Check</Button>}
+      <PageHeader eyebrow="Monthly Inspection" title="Monthly inspection report">
+        {isAdmin && <Button type="button" variant="primary" onClick={trigger}>Start Monthly Inspection</Button>}
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
@@ -907,10 +1126,12 @@ function EmployeePortal({ api, user }) {
 
     const responses = pendingAssets.map((asset) => {
       const values = healthForm[asset.id] || {};
+      const inspectionValues = Object.fromEntries(
+        healthInspectionFields.map((field) => [field.name, values[field.name] || field.defaultValue])
+      );
       return {
         asset: asset.id,
-        screen_condition: values.screen_condition || 'GOOD',
-        battery_life: values.battery_life || 'GOOD',
+        ...inspectionValues,
         performance_rating: Number(values.performance_rating || 4),
         comments: values.comments || '',
       };
@@ -1000,28 +1221,21 @@ function EmployeePortal({ api, user }) {
                         </div>
                       </div>
                       <div className="health-control-grid">
-                        <Field label="Screen condition">
-                          <Select value={values.screen_condition || 'GOOD'} onChange={(e) => updateHealthField(asset.id, 'screen_condition', e.target.value)}>
-                            <option value="EXCELLENT">Excellent</option>
-                            <option value="GOOD">Good</option>
-                            <option value="SCRATCHED">Scratched</option>
-                            <option value="CRACKED">Cracked</option>
-                            <option value="NEEDS_REPAIR">Needs Repair</option>
-                          </Select>
-                        </Field>
-                        <Field label="Battery life">
-                          <Select value={values.battery_life || 'GOOD'} onChange={(e) => updateHealthField(asset.id, 'battery_life', e.target.value)}>
-                            <option value="EXCELLENT">Excellent</option>
-                            <option value="GOOD">Good</option>
-                            <option value="FAIR">Fair</option>
-                            <option value="POOR">Poor</option>
-                            <option value="NOT_APPLICABLE">Not Applicable</option>
-                          </Select>
-                        </Field>
+                        {healthInspectionFields.map((field) => (
+                          <Field key={field.name} label={field.label}>
+                            <Select value={values[field.name] || field.defaultValue} onChange={(e) => updateHealthField(asset.id, field.name, e.target.value)}>
+                              {field.options.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </Select>
+                          </Field>
+                        ))}
                         <Field label="Rating">
-                          <input min="1" max="5" type="number" value={values.performance_rating || 4} onChange={(e) => updateHealthField(asset.id, 'performance_rating', e.target.value)} />
+                          <Select value={values.performance_rating || 4} onChange={(e) => updateHealthField(asset.id, 'performance_rating', e.target.value)}>
+                            {ratingOptions.map((rating) => <option key={rating} value={rating}>{rating}</option>)}
+                          </Select>
                         </Field>
-                        <Field label="Comments">
+                        <Field label="Comments" className="health-comments-field">
                           <textarea rows="2" value={values.comments || ''} onChange={(e) => updateHealthField(asset.id, 'comments', e.target.value)} />
                         </Field>
                       </div>
@@ -1075,9 +1289,9 @@ function DialogHeader({ title, description }) {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, className = '', children }) {
   return (
-    <label className="field">
+    <label className={`field ${className}`.trim()}>
       <span>{label}</span>
       {children}
     </label>
