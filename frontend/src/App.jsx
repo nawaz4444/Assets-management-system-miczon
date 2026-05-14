@@ -201,7 +201,7 @@ function AppShell({ token, handleLogout }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link className="brand" to="/">
+        <Link className="brand" to={user?.is_superuser ? '/' : '/portal'}>
           <span className="brand-mark">IT</span>
           <span>
             <strong>AssetZone</strong>
@@ -210,7 +210,7 @@ function AppShell({ token, handleLogout }) {
         </Link>
 
         <nav className="nav-list" aria-label="Primary navigation">
-          {navItems.map((item) => (
+          {navItems.filter(item => user?.is_superuser || item.path === '/portal').map((item) => (
             <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
               <Icon name={item.icon} />
               <span>{item.label}</span>
@@ -231,18 +231,25 @@ function AppShell({ token, handleLogout }) {
       </aside>
 
       <main className="workspace">
-        <Routes>
-          <Route path="/" element={<Dashboard api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/inventory" element={<InventoryPage api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/inventory/add" element={<InventoryPage api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
-          <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/requests" element={<RequestManager api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={user?.is_superuser} />} />
-          <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        {user?.is_superuser ? (
+          <Routes>
+            <Route path="/" element={<Dashboard api={api} isAdmin={true} />} />
+            <Route path="/inventory" element={<InventoryPage api={api} isAdmin={true} />} />
+            <Route path="/inventory/add" element={<InventoryPage api={api} isAdmin={true} />} />
+            <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={true} />} />
+            <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
+            <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
+            <Route path="/requests" element={<RequestManager api={api} isAdmin={true} />} />
+            <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} />} />
+            <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        ) : (
+          <Routes>
+            <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+            <Route path="*" element={<Navigate to="/portal" replace />} />
+          </Routes>
+        )}
       </main>
     </div>
   );
