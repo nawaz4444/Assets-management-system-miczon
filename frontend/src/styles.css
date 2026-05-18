@@ -213,6 +213,32 @@ a {
   background: currentColor;
 }
 
+.app-icon-edit::before {
+  width: 10px;
+  height: 10px;
+  left: 4px;
+  top: 3px;
+  border: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.app-icon-trash::before {
+  width: 12px;
+  height: 2px;
+  left: 3px;
+  top: 3px;
+  background: currentColor;
+}
+
+.app-icon-trash::after {
+  width: 8px;
+  height: 9px;
+  left: 5px;
+  top: 6px;
+  border: 2px solid currentColor;
+  border-top: 0;
+}
+
 .sidebar-footer {
   display: grid;
   gap: 14px;
@@ -545,6 +571,43 @@ h3 {
 .asset-chip.muted {
   background: #e2e8f0;
   color: #475569;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  backdrop-filter: blur(1px);
+}
+
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid #edf2f7;
+}
+
+.pagination-info {
+  font-size: 14px;
+  color: #475569;
+  font-weight: 600;
 }
 
 .text-danger {

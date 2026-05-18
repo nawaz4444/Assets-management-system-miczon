@@ -337,36 +337,67 @@ function InventoryPage({ api, isAdmin }) {
   const [assets, setAssets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
+  
+  // Search and Filter State
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || '');
+  
+  // Pagination State
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [qrLabelsDialogOpen, setQrLabelsDialogOpen] = useState(false);
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [qrAsset, setQrAsset] = useState(null);
   const [form, setForm] = useState(emptyAsset);
   const [editingId, setEditingId] = useState(null);
   const [importFile, setImportFile] = useState(null);
   const [importStatus, setImportStatus] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
   const [isDraggingImport, setIsDraggingImport] = useState(false);
-  const [qrAsset, setQrAsset] = useState(null);
+  const [stagingData, setStagingData] = useState(null); // Valid rows
+  const [stagingErrors, setStagingErrors] = useState([]); // Rows with reconciliation issues
+  const [stagingSummary, setStagingSummary] = useState(null);
   const [notice, setNotice] = useState('');
-  const [qrLabelsDialogOpen, setQrLabelsDialogOpen] = useState(false);
-  const [scanDialogOpen, setScanDialogOpen] = useState(false);
+
+  // 1. Debounce Search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1); // Reset to page 1 on new search
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     setStatusFilter(new URLSearchParams(location.search).get('status') || '');
+    setPage(1); // Reset to page 1 on external status filter change
   }, [location.search]);
 
+  // 2. Load Assets with Pagination
   const loadAssets = useCallback(() => {
-    const params = new URLSearchParams({ page_size: String(inventoryPageSize) });
-    if (search) params.set('search', search);
+    setLoading(true);
+    const params = new URLSearchParams({ 
+      page: String(page),
+      page_size: String(inventoryPageSize) 
+    });
+    if (debouncedSearch) params.set('search', debouncedSearch);
     if (statusFilter) params.set('status', statusFilter);
     if (departmentFilter) params.set('department', departmentFilter);
 
     return api.get(`/assets/?${params.toString()}`)
-      .then((res) => setAssets(normalizeList(res.data)))
-      .catch(() => setNotice('Unable to load hardware inventory.'));
-  }, [api, search, statusFilter, departmentFilter]);
+      .then((res) => {
+        setAssets(normalizeList(res.data));
+        setTotalCount(res.data.count || 0);
+      })
+      .catch(() => setNotice('Unable to load hardware inventory.'))
+      .finally(() => setLoading(false));
+  }, [api, debouncedSearch, statusFilter, departmentFilter, page]);
 
   useEffect(() => {
     loadAssets();
@@ -400,6 +431,9 @@ function InventoryPage({ api, isAdmin }) {
     setImportFile(null);
     setImportStatus(null);
     setIsDraggingImport(false);
+    setStagingData(null);
+    setStagingErrors([]);
+    setStagingSummary(null);
   };
 
   const submitAsset = async (event) => {
@@ -491,24 +525,41 @@ function InventoryPage({ api, isAdmin }) {
       const response = await api.post('/assets/import/', payload, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      const errors = response.data?.errors || [];
-      setImportStatus({
-        tone: errors.length ? 'warning' : 'success',
-        message: response.data?.message || 'Assets imported successfully.',
-        errors,
-      });
+      
+      setStagingData(response.data.valid_rows || []);
+      setStagingErrors(response.data.errors || []);
+      setStagingSummary(response.data.summary || {});
       setImportFile(null);
-      await loadAssets();
     } catch (err) {
       setImportStatus({
         tone: 'error',
-        message: err.response?.data?.message || err.response?.data?.error || 'Unable to import assets.',
-        errors: err.response?.data?.errors || [],
+        message: err.response?.data?.message || err.response?.data?.error || 'Unable to analyze Excel file.',
       });
     } finally {
       setImportLoading(false);
     }
   };
+
+  const confirmBulkImport = async () => {
+    if (!stagingData || stagingData.length === 0) return;
+    
+    setImportLoading(true);
+    try {
+      const response = await api.post('/assets/bulk-commit/', { rows: stagingData });
+      setNotice(response.data.message);
+      closeImportDialog();
+      await loadAssets();
+    } catch (err) {
+      setImportStatus({
+        tone: 'error',
+        message: err.response?.data?.message || 'Bulk commit failed.',
+      });
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const totalPages = Math.ceil(totalCount / inventoryPageSize);
 
   return (
     <>
@@ -519,24 +570,33 @@ function InventoryPage({ api, isAdmin }) {
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
-      <section className="panel">
+      <section className="panel" style={{ position: 'relative' }}>
+        {loading && (
+          <div className="loading-overlay">
+            <div className="loading-spinner">
+              <span>Updating...</span>
+            </div>
+          </div>
+        )}
         <div className="panel-heading inventory-heading">
           <div>
             <h2>All Hardware</h2>
-            <p className="panel-subtitle">{assets.length} item{assets.length === 1 ? '' : 's'} loaded</p>
+            <p className="panel-subtitle">
+              {totalCount} item{totalCount === 1 ? '' : 's'} total
+            </p>
           </div>
         </div>
         <div className="filter-bar">
           <input className="search" placeholder="Search Miczon ID, device, custodian..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <Select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+          <Select value={departmentFilter} onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}>
             <option value="">All Departments</option>
             {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
           </Select>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
             <option value="">All Statuses</option>
             {assetStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
           </Select>
-          <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); setStatusFilter(''); }}>Reset</Button>
+          <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); setStatusFilter(''); setPage(1); }}>Reset</Button>
         </div>
         <DataTable
           columns={['Miczon ID', 'Device', 'Category', 'Department', 'Status', 'Assigned User', 'Actions']}
@@ -548,11 +608,35 @@ function InventoryPage({ api, isAdmin }) {
             <StatusBadge status={asset.current_status} />,
             asset.custodian_name || 'Unassigned',
             <div className="row-actions">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setQrAsset(asset)}>QR</Button>
               <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/inventory/asset/${asset.id}`)}>View</Button>
             </div>,
           ])}
-          empty="No assets match the current filters."
+          empty={loading ? "Loading inventory..." : "No assets match the current filters."}
         />
+        
+        {/* Pagination UI */}
+        {totalPages > 1 && (
+          <div className="pagination-bar">
+            <Button 
+              type="button" variant="ghost" size="sm" 
+              disabled={page <= 1 || loading} 
+              onClick={() => setPage(p => p - 1)}
+            >
+              Previous
+            </Button>
+            <span className="pagination-info">
+              Page {page} of {totalPages}
+            </span>
+            <Button 
+              type="button" variant="ghost" size="sm" 
+              disabled={page >= totalPages || loading} 
+              onClick={() => setPage(p => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        )}
       </section>
 
       <Dialog open={dialogOpen}>
@@ -590,61 +674,92 @@ function InventoryPage({ api, isAdmin }) {
       </Dialog>
 
       <Dialog open={importDialogOpen}>
-        <DialogContent className="import-dialog">
-          <DialogHeader title="Import Assets" description="Upload an Excel file using the inventory template columns." />
-          <form className="stack-form" onSubmit={submitImport}>
-            <div className="import-template-row">
-              <div>
-                <strong>Example template</strong>
-                <small>Use this file to match the expected columns.</small>
+        <DialogContent className="import-dialog" style={{ width: stagingData || stagingErrors.length > 0 ? 'min(1100px, 100%)' : 'min(760px, 100%)' }}>
+          <DialogHeader title="Import Assets" description={stagingSummary ? `Reconciliation Preview: ${stagingSummary.valid} valid rows, ${stagingSummary.errors} errors identified.` : "Upload an Excel file to analyze hardware before committing to the database."} />
+          
+          {!stagingSummary ? (
+            <form className="stack-form" onSubmit={submitImport}>
+              <div className="import-template-row">
+                <div>
+                  <strong>Asset Import Staging</strong>
+                  <small>Upload your hardware list. Every custodian will be reconciled against existing employee records.</small>
+                </div>
+                <Button type="button" variant="outline" onClick={downloadImportTemplate} disabled={importLoading}>
+                  Download Template
+                </Button>
               </div>
-              <Button type="button" variant="outline" onClick={downloadImportTemplate} disabled={importLoading}>
-                Download Example Template
-              </Button>
+
+              <label
+                className={`file-drop-zone ${isDraggingImport ? 'dragging' : ''}`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setIsDraggingImport(true);
+                }}
+                onDragLeave={() => setIsDraggingImport(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setIsDraggingImport(false);
+                  selectImportFile(event.dataTransfer.files?.[0]);
+                }}
+              >
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  onChange={(event) => selectImportFile(event.target.files?.[0])}
+                  disabled={importLoading}
+                />
+                <span>{importFile ? importFile.name : 'Drop Excel file here or click to browse'}</span>
+                <small>.xls and .xlsx files only</small>
+              </label>
+
+              {importStatus && <Notice tone={importStatus.tone}>{importStatus.message}</Notice>}
+
+              <div className="dialog-footer">
+                <Button type="button" variant="ghost" onClick={closeImportDialog} disabled={importLoading}>Cancel</Button>
+                <Button type="submit" variant="primary" disabled={importLoading || !importFile}>
+                  {importLoading ? 'Analyzing...' : 'Scan File'}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="import-staging-view">
+              <div style={{ maxHeight: '450px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '1rem' }}>
+                <DataTable
+                  columns={['#', 'Miczon ID', 'Device', 'Reconciled Custodian', 'Status', 'Messages']}
+                  rows={[
+                    ...stagingData.map(row => [
+                      row.excel_row,
+                      <strong>{row.miczon_id}</strong>,
+                      row.name,
+                      <span className="text-success">{row.custodian_name || 'No custodian'}</span>,
+                      <StatusBadge status="Ready" />,
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>Validated</span>
+                    ]),
+                    ...stagingErrors.map(row => [
+                      row.row,
+                      <strong className="text-danger">{row.miczon_id || 'N/A'}</strong>,
+                      '-',
+                      '-',
+                      <StatusBadge status="Error" />,
+                      <div className="text-danger" style={{ fontSize: '11px', maxWidth: '240px' }}>
+                        {row.messages.map((m, i) => <div key={i}>• {m}</div>)}
+                      </div>
+                    ])
+                  ].sort((a, b) => Number(a[0]) - Number(b[0]))}
+                  empty="No preview data available."
+                />
+              </div>
+
+              {importStatus && <Notice tone={importStatus.tone}>{importStatus.message}</Notice>}
+
+              <div className="dialog-footer">
+                <Button type="button" variant="ghost" onClick={() => { setStagingSummary(null); setStagingData(null); setStagingErrors([]); }} disabled={importLoading}>Back to Upload</Button>
+                <Button type="button" variant="primary" onClick={confirmBulkImport} disabled={importLoading || stagingData.length === 0}>
+                  {importLoading ? 'Committing...' : `Confirm Import (${stagingData.length} rows)`}
+                </Button>
+              </div>
             </div>
-
-            <label
-              className={`file-drop-zone ${isDraggingImport ? 'dragging' : ''}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setIsDraggingImport(true);
-              }}
-              onDragLeave={() => setIsDraggingImport(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setIsDraggingImport(false);
-                selectImportFile(event.dataTransfer.files?.[0]);
-              }}
-            >
-              <input
-                type="file"
-                accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(event) => selectImportFile(event.target.files?.[0])}
-                disabled={importLoading}
-              />
-              <span>{importFile ? importFile.name : 'Drop Excel file here or click to browse'}</span>
-              <small>.xls and .xlsx files only</small>
-            </label>
-
-            {importStatus && (
-              <Notice tone={importStatus.tone}>
-                {importStatus.message}
-                {importStatus.errors?.length > 0 && (
-                  <ul className="import-error-list">
-                    {importStatus.errors.slice(0, 8).map((error) => <li key={error}>{error}</li>)}
-                    {importStatus.errors.length > 8 && <li>+{importStatus.errors.length - 8} more row issues</li>}
-                  </ul>
-                )}
-              </Notice>
-            )}
-
-            <div className="dialog-footer">
-              <Button type="button" variant="ghost" onClick={closeImportDialog} disabled={importLoading}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={importLoading || !importFile}>
-                {importLoading ? 'Importing...' : 'Submit'}
-              </Button>
-            </div>
-          </form>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1023,6 +1138,13 @@ function EmployeeDirectory({ api, isAdmin }) {
   const [selectedAssetIds, setSelectedAssetIds] = useState([]);
   const [notice, setNotice] = useState('');
 
+  // Bulk Import States
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importStatus, setImportStatus] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [isDraggingImport, setIsDraggingImport] = useState(false);
+
   const loadEmployees = useCallback(() => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
@@ -1070,12 +1192,87 @@ function EmployeeDirectory({ api, isAdmin }) {
     loadEmployees();
   };
 
+  // Import Logic
+  const selectImportFile = (file) => {
+    if (!file) return;
+    const isExcelFile = /\.(xls|xlsx)$/i.test(file.name);
+    if (!isExcelFile) {
+      setImportFile(null);
+      setImportStatus({ tone: 'error', message: 'Please choose a .xls or .xlsx file.' });
+      return;
+    }
+    setImportFile(file);
+    setImportStatus(null);
+  };
+
+  const closeImportDialog = () => {
+    if (importLoading) return;
+    setImportDialogOpen(false);
+    setImportFile(null);
+    setImportStatus(null);
+    setIsDraggingImport(false);
+  };
+
+  const downloadImportTemplate = async () => {
+    try {
+      const response = await api.get('/employees/import-template/', { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'employee_import_template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setImportStatus({ tone: 'error', message: 'Unable to download the template right now.' });
+    }
+  };
+
+  const submitImport = async (event) => {
+    event.preventDefault();
+    if (!importFile) {
+      setImportStatus({ tone: 'error', message: 'Choose an Excel file before submitting.' });
+      return;
+    }
+
+    const payload = new FormData();
+    payload.append('file', importFile);
+    setImportLoading(true);
+    setImportStatus(null);
+
+    try {
+      const response = await api.post('/employees/import/', payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const errors = response.data?.errors || [];
+      setImportStatus({
+        tone: errors.length ? 'warning' : 'success',
+        message: response.data?.message || 'Employees imported successfully.',
+        errors,
+      });
+      setImportFile(null);
+      await loadEmployees();
+    } catch (err) {
+      setImportStatus({
+        tone: 'error',
+        message: err.response?.data?.message || err.response?.data?.error || 'Unable to import employees.',
+        errors: err.response?.data?.errors || [],
+      });
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   const allSelected = assets.length > 0 && selectedAssetIds.length === assets.length;
 
   return (
     <>
       <PageHeader eyebrow="Employee Directory" title="People and assigned gear">
-        {isAdmin && <Button type="button" variant="primary" onClick={() => setEmployeeDialogOpen(true)}>Add Employee</Button>}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Employees</Button>}
+          {isAdmin && <Button type="button" variant="primary" onClick={() => setEmployeeDialogOpen(true)}>Add Employee</Button>}
+        </div>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
       <section className="panel">
@@ -1147,6 +1344,65 @@ function EmployeeDirectory({ api, isAdmin }) {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={importDialogOpen}>
+        <DialogContent className="import-dialog">
+          <DialogHeader title="Import Employees" description="Upload an Excel file to bulk register employees." />
+          <form className="stack-form" onSubmit={submitImport}>
+            <div className="import-template-row">
+              <div>
+                <strong>Employee template</strong>
+                <small>Match these columns: Name, Employee ID, Email, Department.</small>
+              </div>
+              <Button type="button" variant="outline" onClick={downloadImportTemplate} disabled={importLoading}>
+                Download Template
+              </Button>
+            </div>
+
+            <label
+              className={`file-drop-zone ${isDraggingImport ? 'dragging' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setIsDraggingImport(true);
+              }}
+              onDragLeave={() => setIsDraggingImport(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setIsDraggingImport(false);
+                selectImportFile(event.dataTransfer.files?.[0]);
+              }}
+            >
+              <input
+                type="file"
+                accept=".xls,.xlsx"
+                onChange={(event) => selectImportFile(event.target.files?.[0])}
+                disabled={importLoading}
+              />
+              <span>{importFile ? importFile.name : 'Drop Excel file here or click to browse'}</span>
+              <small>.xls and .xlsx files only</small>
+            </label>
+
+            {importStatus && (
+              <Notice tone={importStatus.tone}>
+                {importStatus.message}
+                {importStatus.errors?.length > 0 && (
+                  <ul className="import-error-list">
+                    {importStatus.errors.slice(0, 8).map((error) => <li key={error}>{error}</li>)}
+                    {importStatus.errors.length > 8 && <li>+{importStatus.errors.length - 8} more row issues</li>}
+                  </ul>
+                )}
+              </Notice>
+            )}
+
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={closeImportDialog} disabled={importLoading}>Cancel</Button>
+              <Button type="submit" variant="primary" disabled={importLoading || !importFile}>
+                {importLoading ? 'Importing...' : 'Submit'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -1161,9 +1417,16 @@ function RequestManager({ api, isAdmin }) {
   }, [loadRequests]);
 
   const processRequest = async (id, action) => {
-    await api.post(`/requests/${id}/${action}/`, { admin_remarks: action === 'approve' ? 'Approved from request manager.' : 'Denied from request manager.' });
-    setNotice(`Request ${action === 'approve' ? 'approved' : 'denied'}.`);
-    loadRequests();
+    const admin_remarks = window.prompt(`Optional remarks for ${action}:`);
+    if (admin_remarks === null) return; // Cancelled
+    
+    try {
+      await api.post(`/requests/${id}/${action}/`, { admin_remarks: admin_remarks || `Processed via Request Manager.` });
+      setNotice(`Request ${action === 'approve' ? 'approved' : 'denied'}.`);
+      loadRequests();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to process request.');
+    }
   };
 
   return (
@@ -1172,19 +1435,27 @@ function RequestManager({ api, isAdmin }) {
       {notice && <Notice>{notice}</Notice>}
       <section className="panel">
         <DataTable
-          columns={['Requester', 'Device', 'Reason', 'Status', 'Created', 'Actions']}
+          columns={['Requester', 'Device', 'Reason', 'Status', 'Processed At', 'Actions']}
           rows={requests.map((request) => [
             request.requester_name,
-            request.asset_name || request.requested_device_type || request.asset_miczon_id || 'New hardware',
+            <div>
+              <strong>{request.asset_name || request.requested_device_type || request.asset_miczon_id || 'New hardware'}</strong>
+              {request.specifications && <><br/><small>Specs: {request.specifications}</small></>}
+              <br/><small>Created: {new Date(request.created_at).toLocaleDateString()}</small>
+            </div>,
             request.reason_for_request || request.remarks || 'No reason provided',
             <StatusBadge status={request.status} />,
-            new Date(request.created_at).toLocaleDateString(),
+            request.processed_at ? new Date(request.processed_at).toLocaleDateString() : '-',
             isAdmin && request.status === 'PENDING' ? (
               <div className="row-actions">
                 <Button type="button" variant="primary" size="sm" onClick={() => processRequest(request.id, 'approve')}>Approve</Button>
                 <Button type="button" variant="danger" size="sm" onClick={() => processRequest(request.id, 'reject')}>Deny</Button>
               </div>
-            ) : 'Reviewed',
+            ) : (
+              <div style={{ maxWidth: '200px', fontSize: '0.875rem', color: '#64748b' }}>
+                {request.admin_remarks || 'No remarks'}
+              </div>
+            ),
           ])}
           empty="No requests yet."
         />
@@ -1469,9 +1740,14 @@ function EmployeePortal({ api, user }) {
   const [sessions, setSessions] = useState([]);
   const [pendingAssets, setPendingAssets] = useState([]);
   const [activeSession, setActiveSession] = useState('');
-  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  
+  const [requestsListDialogOpen, setRequestsListDialogOpen] = useState(false);
+  const [myRequests, setMyRequests] = useState([]);
+  const [editingRequestId, setEditingRequestId] = useState(null);
+  const [showRequestForm, setShowRequestForm] = useState(false);
   const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
-  const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', remarks: '' });
+  
+  const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
   const [healthForm, setHealthForm] = useState({});
   const [notice, setNotice] = useState('');
 
@@ -1481,6 +1757,14 @@ function EmployeePortal({ api, user }) {
     const openSessions = (await fetchAll(api, '/health-checks/')).filter((session) => session.status === 'OPEN');
     setGear(gearRes.data);
     setSessions(openSessions);
+    
+    try {
+      const requestsData = await fetchAll(api, '/requests/');
+      setMyRequests(requestsData);
+    } catch (e) {
+      console.error('Unable to fetch requests:', e);
+    }
+
     const firstSession = openSessions.some((session) => String(session.id) === String(activeSession)) ? activeSession : openSessions[0]?.id || '';
     setActiveSession(firstSession);
     if (firstSession) {
@@ -1495,35 +1779,52 @@ function EmployeePortal({ api, user }) {
     loadPortal();
   }, [loadPortal]);
 
-  useEffect(() => {
-    if (!activeSession) return;
-    api.get(`/health-checks/${activeSession}/pending-assets/`).then((res) => setPendingAssets(res.data));
-  }, [api, activeSession]);
-
   const submitRequest = async (event) => {
     event.preventDefault();
     try {
-      await api.post('/requests/', {
+      const payload = {
         action_type: 'ASSIGN',
         requested_device_type: requestForm.requested_device_type,
+        specifications: requestForm.specifications,
         reason_for_request: requestForm.remarks,
         remarks: requestForm.remarks,
-      });
-      setNotice('Hardware request submitted.');
-      setRequestForm({ requested_device_type: 'Laptop', remarks: '' });
-      setRequestDialogOpen(false);
+      };
+
+      if (editingRequestId) {
+        await api.patch(`/requests/${editingRequestId}/`, payload);
+        setNotice('Hardware request updated.');
+      } else {
+        await api.post('/requests/', payload);
+        setNotice('Hardware request submitted.');
+      }
+      
+      setRequestForm({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
+      setEditingRequestId(null);
+      setShowRequestForm(false);
+      
+      const requestsData = await fetchAll(api, '/requests/');
+      setMyRequests(requestsData);
     } catch (err) {
       setNotice(err.response?.data?.error || 'Unable to submit hardware request.');
+    }
+  };
+
+  const deleteRequest = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this pending request?")) return;
+    try {
+      await api.delete(`/requests/${id}/`);
+      setNotice('Hardware request deleted.');
+      const requestsData = await fetchAll(api, '/requests/');
+      setMyRequests(requestsData);
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to delete hardware request.');
     }
   };
 
   const updateHealthField = (assetId, field, value) => {
     setHealthForm((current) => ({
       ...current,
-      [assetId]: {
-        ...(current[assetId] || {}),
-        [field]: value,
-      },
+      [assetId]: { ...(current[assetId] || {}), [field]: value },
     }));
   };
 
@@ -1545,11 +1846,8 @@ function EmployeePortal({ api, user }) {
     });
 
     try {
-      await api.post('/health-responses/bulk-submit/', {
-        session: activeSession,
-        responses,
-      });
-      setNotice(`${responses.length} health check response${responses.length === 1 ? '' : 's'} saved.`);
+      await api.post('/health-responses/bulk-submit/', { session: activeSession, responses });
+      setNotice(`${responses.length} health check response(s) saved.`);
       setHealthForm({});
       setInspectionDialogOpen(false);
       loadPortal();
@@ -1566,17 +1864,17 @@ function EmployeePortal({ api, user }) {
         <Button type="button" variant="ghost" disabled={!employee || !activeSession} onClick={() => setInspectionDialogOpen(true)}>
           Start Inspection
         </Button>
-        <Button type="button" variant="primary" disabled={!employee} onClick={() => setRequestDialogOpen(true)}>Request Asset</Button>
+        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setRequestsListDialogOpen(true); setShowRequestForm(false); }}>My Requests</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
-      {employee && activeSession && pendingAssets.length > 0 && <Notice tone="error">Monthly inspection required: {pendingAssets.length} assigned item{pendingAssets.length === 1 ? '' : 's'} still need a health check.</Notice>}
+      {employee && activeSession && pendingAssets.length > 0 && <Notice tone="error">Monthly inspection required: {pendingAssets.length} assigned item(s) still need a health check.</Notice>}
       {notice && <Notice>{notice}</Notice>}
 
       <section className="panel portal-gear-panel">
         <div className="panel-heading inventory-heading">
           <div>
             <h2>My Gear</h2>
-            <p className="panel-subtitle">{gear.length} assigned item{gear.length === 1 ? '' : 's'}</p>
+            <p className="panel-subtitle">{gear.length} assigned item(s)</p>
           </div>
           {activeSession && <StatusBadge status="Inspection Open" />}
         </div>
@@ -1607,12 +1905,9 @@ function EmployeePortal({ api, user }) {
         <DialogContent className="inspection-dialog">
           <DialogHeader title="Gear Inspection" description={activeSessionTitle} />
           {pendingAssets.length === 0 ? (
-            <>
-              <p className="empty-state">No pending health check forms.</p>
-              <div className="dialog-footer">
-                <Button type="button" variant="ghost" onClick={() => setInspectionDialogOpen(false)}>Close</Button>
-              </div>
-            </>
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={() => setInspectionDialogOpen(false)}>Close</Button>
+            </div>
           ) : (
             <form className="health-list-form" onSubmit={submitHealthBatch}>
               <div className="health-response-list">
@@ -1622,24 +1917,19 @@ function EmployeePortal({ api, user }) {
                     <article className="health-list-item" key={asset.id}>
                       <div className="health-asset-summary">
                         <span className="health-index">{index + 1}</span>
-                        <div>
-                          <h3>{asset.name}</h3>
-                          <p>{asset.miczon_id} - {asset.category || 'Uncategorized'}</p>
-                        </div>
+                        <div><h3>{asset.name}</h3><p>{asset.miczon_id}</p></div>
                       </div>
                       <div className="health-control-grid">
                         {healthInspectionFields.map((field) => (
                           <Field key={field.name} label={field.label}>
                             <Select value={values[field.name] || field.defaultValue} onChange={(e) => updateHealthField(asset.id, field.name, e.target.value)}>
-                              {field.options.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
+                              {field.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </Select>
                           </Field>
                         ))}
                         <Field label="Rating">
                           <Select value={values.performance_rating || 4} onChange={(e) => updateHealthField(asset.id, 'performance_rating', e.target.value)}>
-                            {ratingOptions.map((rating) => <option key={rating} value={rating}>{rating}</option>)}
+                            {ratingOptions.map((r) => <option key={r} value={r}>{r}</option>)}
                           </Select>
                         </Field>
                         <Field label="Comments" className="health-comments-field">
@@ -1650,37 +1940,120 @@ function EmployeePortal({ api, user }) {
                   );
                 })}
               </div>
-              <div className="health-submit-bar">
-                <span>{pendingAssets.length} item{pendingAssets.length === 1 ? '' : 's'} ready for this inspection.</span>
-                <div className="dialog-footer inline-footer">
-                  <Button type="button" variant="ghost" onClick={() => setInspectionDialogOpen(false)}>Cancel</Button>
-                  <Button type="submit" variant="primary">Submit Inspection</Button>
-                </div>
+              <div className="dialog-footer">
+                <Button type="button" variant="ghost" onClick={() => setInspectionDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" variant="primary">Submit Inspection</Button>
               </div>
             </form>
           )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={requestDialogOpen}>
-        <DialogContent>
-          <DialogHeader title="Request Asset" description="Submit a hardware request for IT review." />
-          <form className="dialog-form single-column" onSubmit={submitRequest}>
-            <Field label="Hardware Type">
-              <Select value={requestForm.requested_device_type} onChange={(e) => setRequestForm({ ...requestForm, requested_device_type: e.target.value })}>
-                <option>Laptop</option>
-                <option>Mobile</option>
-                <option>Accessory</option>
-                <option>Monitor</option>
-                <option>Other</option>
-              </Select>
-            </Field>
-            <Field label="Reason for Request"><textarea required rows="5" value={requestForm.remarks} onChange={(e) => setRequestForm({ ...requestForm, remarks: e.target.value })} /></Field>
-            <div className="dialog-footer">
-              <Button type="button" variant="ghost" onClick={() => setRequestDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" variant="primary" disabled={!employee}>Submit Request</Button>
-            </div>
-          </form>
+      <Dialog open={requestsListDialogOpen}>
+        <DialogContent className="requests-list-dialog" style={{ maxWidth: '900px' }}>
+          <DialogHeader 
+            title={editingRequestId ? "Edit Request" : "My Requests"} 
+            description={editingRequestId ? "Update your pending hardware request." : "Manage your hardware requests and view history."} 
+          />
+          
+          <div className="requests-dialog-body" style={{ maxHeight: '70vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
+            {/* Request Form - Toggleable */}
+            {showRequestForm ? (
+              <section style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <h3 style={{ marginBottom: '1rem' }}>{editingRequestId ? 'Edit Pending Request' : 'Submit New Request'}</h3>
+                <form className="dialog-form" onSubmit={submitRequest}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <Field label="Hardware Type">
+                      <Select value={requestForm.requested_device_type} onChange={(e) => setRequestForm({ ...requestForm, requested_device_type: e.target.value })}>
+                        <option>Laptop</option><option>Mobile</option><option>Accessory</option><option>Monitor</option><option>Other</option>
+                      </Select>
+                    </Field>
+                    <Field label="Specifications">
+                      <input value={requestForm.specifications} onChange={(e) => setRequestForm({ ...requestForm, specifications: e.target.value })} placeholder="e.g. 16GB RAM, 512GB SSD..." />
+                    </Field>
+                  </div>
+                  <Field label="Reason for Request">
+                    <textarea required rows="3" value={requestForm.remarks} onChange={(e) => setRequestForm({ ...requestForm, remarks: e.target.value })} />
+                  </Field>
+                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                    <Button type="button" variant="ghost" onClick={() => {
+                      setShowRequestForm(false);
+                      setEditingRequestId(null);
+                      setRequestForm({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
+                    }}>Cancel</Button>
+                    <Button type="submit" variant="primary" disabled={!employee}>
+                      {editingRequestId ? "Save Changes" : "Submit Request"}
+                    </Button>
+                  </div>
+                </form>
+              </section>
+            ) : (
+              <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <Button type="button" variant="primary" onClick={() => setShowRequestForm(true)}>+ New Request</Button>
+              </div>
+            )}
+
+            {/* Pending Requests */}
+            <section style={{ marginBottom: '2rem' }}>
+              <h3 style={{ marginBottom: '1rem' }}>Pending Requests</h3>
+              <DataTable
+                columns={['Device', 'Reason', 'Status', 'Created', 'Actions']}
+                rows={myRequests.filter(r => r.status === 'PENDING').map(r => [
+                  <div>
+                    <strong>{r.asset_name || r.requested_device_type || r.asset_miczon_id || 'New hardware'}</strong>
+                    {r.specifications && <><br/><small>Specs: {r.specifications}</small></>}
+                  </div>,
+                  r.reason_for_request || r.remarks || 'No reason provided',
+                  <StatusBadge status={r.status} />,
+                  new Date(r.created_at).toLocaleDateString(),
+                  <div className="row-actions">
+                    <Button type="button" variant="ghost" size="sm" title="Edit Request" onClick={() => {
+                      setEditingRequestId(r.id);
+                      setRequestForm({
+                        requested_device_type: r.requested_device_type || 'Laptop',
+                        specifications: r.specifications || '',
+                        remarks: r.reason_for_request || r.remarks || ''
+                      });
+                      setShowRequestForm(true);
+                    }}>
+                      <Icon name="edit" />
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="text-danger" title="Delete Request" onClick={() => deleteRequest(r.id)}>
+                      <Icon name="trash" />
+                    </Button>
+                  </div>
+                ])}
+                empty="No pending requests."
+              />
+            </section>
+
+            {/* Request History */}
+            <section>
+              <h3 style={{ marginBottom: '1rem' }}>Request History</h3>
+              <DataTable
+                columns={['Device', 'Status', 'Processed At', 'Admin Remarks']}
+                rows={myRequests.filter(r => r.status !== 'PENDING').map(r => [
+                  <div>
+                    <strong>{r.asset_name || r.requested_device_type || r.asset_miczon_id || 'New hardware'}</strong>
+                    <br/><small>{r.reason_for_request || r.remarks || 'No reason provided'}</small>
+                  </div>,
+                  <StatusBadge status={r.status} />,
+                  r.processed_at ? new Date(r.processed_at).toLocaleDateString() : '-',
+                  r.admin_remarks || '-'
+                ])}
+                empty="No historical requests."
+              />
+            </section>
+          </div>
+          
+          <div className="dialog-footer" style={{ marginTop: '1rem' }}>
+            <Button type="button" variant="ghost" onClick={() => {
+              setRequestsListDialogOpen(false);
+              setEditingRequestId(null);
+              setShowRequestForm(false);
+              setRequestForm({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
+            }}>Close</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </>

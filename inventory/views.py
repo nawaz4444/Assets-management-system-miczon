@@ -115,6 +115,33 @@ def build_asset_import_template():
     output.seek(0)
     return output
 
+def build_employee_import_template():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Employees'
+
+    headers = [
+        'Employee Name',
+        'Employee ID',
+        'Email',
+        'Department',
+    ]
+    sheet.append(headers)
+
+    header_fill = PatternFill(fill_type='solid', fgColor='D9EAF7')
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+
+    for column_cells in sheet.columns:
+        max_length = max(len(str(cell.value or '')) for cell in column_cells)
+        sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 3, 18), 40)
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
+
 def build_next_miczon_ids(quantity):
     existing_ids = Asset.objects.values_list('miczon_id', flat=True)
     highest_number = 1000
@@ -377,15 +404,17 @@ class AssetViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser, FormParser])
     def import_assets(self, request):
+        """
+        STAGE 1: PRE-FLIGHT CHECK
+        Parses Excel and reconciles data against the DB without saving.
+        Returns a preview of valid rows and flagged errors.
+        """
         if not request.user.is_superuser:
             return Response({"success": False, "message": "Only admins can import assets."}, status=403)
 
         file_obj = request.FILES.get('file')
         if not file_obj:
             return Response({"success": False, "message": "Please upload an Excel file."}, status=400)
-
-        if not file_obj.name.lower().endswith(('.xls', '.xlsx')):
-            return Response({"success": False, "message": "Only .xls and .xlsx files are supported."}, status=400)
 
         try:
             df = pd.read_excel(file_obj)
@@ -396,86 +425,134 @@ class AssetViewSet(viewsets.ModelViewSet):
             return Response({"success": False, "message": "The uploaded Excel file has no asset rows."}, status=400)
 
         df.columns = [str(column).strip().lower() for column in df.columns]
-        created_count = 0
-        updated_count = 0
-        skipped_rows = []
+
+        valid_rows = []
+        errors = []
+        seen_miczon_ids = set()
 
         for index, row in df.iterrows():
             excel_row_number = index + 2
+            row_errors = []
+
+            # 1. Reconciliation: Miczon ID (Hardware Key)
             miczon_id = get_import_value(row, 'miczon id', 'mic id', 'serial number', 'serial no', 'asset tag')
             if not miczon_id:
-                skipped_rows.append(f"Row {excel_row_number}: Missing Miczon ID / Serial Number")
-                continue
+                row_errors.append("Missing Miczon ID")
+            elif miczon_id in seen_miczon_ids:
+                row_errors.append(f"Duplicate Miczon ID in file: {miczon_id}")
+            seen_miczon_ids.add(miczon_id)
 
+            # 2. Reconciliation: Device Name
             device_name = get_import_value(row, 'device name', 'device', 'name')
             if not device_name:
-                skipped_rows.append(f"Row {excel_row_number}: Missing Device Name")
-                continue
+                row_errors.append("Missing Device Name")
 
-            department = None
-            department_name = get_import_value(row, 'department')
-            if department_name:
-                department, _ = Department.objects.get_or_create(name=department_name)
+            # 3. Reconciliation: Custodian (Employee Reconciliation Engine)
+            # Support variations: Custodian, Custody, Assigned User, User, Employee
+            custodian_name = get_import_value(row, 'custodian', 'custody', 'assigned user', 'user', 'employee name', 'employee')
+            employee_id = get_import_value(row, 'employee id', 'employee code', 'emp id', 'id')
 
-            custodian = None
-            custodian_name = get_import_value(row, 'custodian', 'assigned user', 'user', 'employee name')
-            employee_id = get_import_value(row, 'employee id', 'employee code')
-            employee_email = get_import_value(row, 'email', 'employee email')
-
+            resolved_employee = None
             if employee_id:
-                custodian = Employee.objects.filter(employee_id__iexact=employee_id).first()
-            if not custodian and employee_email:
-                custodian = Employee.objects.filter(email__iexact=employee_email).first()
-            if not custodian and custodian_name:
-                custodian = Employee.objects.filter(name__iexact=custodian_name).first()
-            if not custodian and custodian_name:
-                custodian = Employee.objects.create(
-                    name=custodian_name,
-                    employee_id=employee_id or f"EMP-{uuid.uuid4().hex[:6].upper()}",
-                    email=employee_email,
-                    department=department,
-                )
+                resolved_employee = Employee.objects.filter(employee_id__iexact=employee_id).first()
+                if not resolved_employee:
+                    row_errors.append(f"Employee ID '{employee_id}' not found in system")
+            elif custodian_name:
+                # Fallback to name search if ID is missing, but fuzzy matches are dangerous
+                resolved_employee = Employee.objects.filter(name__iexact=custodian_name).first()
+                if not resolved_employee:
+                    row_errors.append(f"Custodian '{custodian_name}' not found by name. (Try providing Employee ID)")
 
-            status = get_import_value(row, 'status', default='').upper().replace(' ', '_')
-            valid_statuses = {choice[0] for choice in Asset.STATUS_CHOICES}
-            if status and status not in valid_statuses:
-                skipped_rows.append(f"Row {excel_row_number}: Invalid status '{status}'")
-                continue
+            # 4. Department logic
+            dept_name = get_import_value(row, 'department')
+            resolved_dept_id = None
+            if resolved_employee and resolved_employee.department:
+                resolved_dept_id = resolved_employee.department.id
+            elif dept_name:
+                dept = Department.objects.filter(name__iexact=dept_name).first()
+                if dept:
+                    resolved_dept_id = dept.id
 
-            status = status or ('ASSIGNED' if custodian else 'AVAILABLE')
+            # Prepare staging data
+            row_data = {
+                "excel_row": excel_row_number,
+                "miczon_id": miczon_id,
+                "name": device_name,
+                "category": get_import_value(row, 'category', 'categary'),
+                "custodian_id": resolved_employee.id if resolved_employee else None,
+                "custodian_name": resolved_employee.name if resolved_employee else custodian_name,
+                "department_id": resolved_dept_id,
+                "specifications": get_import_value(row, 'specifications', 'specs', 'details'),
+                "remarks": get_import_value(row, 'remarks', 'notes'),
+                "status": get_import_value(row, 'status', default='AVAILABLE').upper().replace(' ', '_')
+            }
 
-            _, created = Asset.objects.update_or_create(
-                miczon_id=miczon_id,
-                defaults={
-                    'name': device_name,
-                    'category': get_import_value(row, 'category', 'categary'),
-                    'department': department,
-                    'custodian': custodian,
-                    'current_status': 'ASSIGNED' if custodian and status != 'BROKEN' else status,
-                    'specifications': get_import_value(row, 'specifications', 'specs', 'details', 'hardware info', 'technical specs'),
-                    'remarks': get_import_value(row, 'remarks', 'remarks / notes', 'notes'),
-                },
-            )
-
-            if created:
-                created_count += 1
+            if row_errors:
+                errors.append({"row": excel_row_number, "miczon_id": miczon_id, "messages": row_errors})
             else:
-                updated_count += 1
-
-        imported_count = created_count + updated_count
-        message = f"Successfully imported {imported_count} asset{'' if imported_count == 1 else 's'}."
-        if skipped_rows:
-            message += f" Skipped {len(skipped_rows)} row{'' if len(skipped_rows) == 1 else 's'}."
+                valid_rows.append(row_data)
 
         return Response({
             "success": True,
-            "message": message,
-            "created": created_count,
-            "updated": updated_count,
-            "skipped": len(skipped_rows),
-            "errors": skipped_rows,
+            "summary": {
+                "total": len(df),
+                "valid": len(valid_rows),
+                "errors": len(errors)
+            },
+            "valid_rows": valid_rows,
+            "errors": errors
         })
 
+    @action(detail=False, methods=['post'], url_path='bulk-commit')
+    def bulk_commit(self, request):
+        """
+        STAGE 2: ATOMIC EXECUTION
+        Saves the validated staging data to the database.
+        """
+        if not request.user.is_superuser:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        rows = request.data.get('rows', [])
+        if not rows:
+            return Response({"error": "No data to commit"}, status=400)
+
+        created_count = 0
+        updated_count = 0
+
+        try:
+            with transaction.atomic():
+                for row in rows:
+                    asset, created = Asset.objects.update_or_create(
+                        miczon_id=row['miczon_id'],
+                        defaults={
+                            'name': row['name'],
+                            'category': row.get('category'),
+                            'department_id': row.get('department_id'),
+                            'custodian_id': row.get('custodian_id'),
+                            'current_status': 'ASSIGNED' if row.get('custodian_id') and row.get('status') != 'BROKEN' else row.get('status', 'AVAILABLE'),
+                            'specifications': row.get('specifications', ''),
+                            'remarks': row.get('remarks', ''),
+                        }
+                    )
+
+                    if created:
+                        created_count += 1
+                        AssetHistory.objects.create(
+                            asset=asset,
+                            action='IMPORT',
+                            remarks="Added via bulk excel import staging."
+                        )
+                    else:
+                        updated_count += 1
+
+            return Response({
+                "success": True,
+                "message": f"Bulk import complete. Created: {created_count}, Updated: {updated_count}",
+                "created": created_count,
+                "updated": updated_count
+            })
+        except Exception as e:
+            return Response({"success": False, "message": f"Critical Commit Error: {str(e)}"}, status=500)
     @action(detail=True, methods=['post'])
     def transfer(self, request, pk=None):
         asset = self.get_object()
@@ -608,6 +685,97 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(emp_filter)
             
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='import-template')
+    def import_template(self, request):
+        template = build_employee_import_template()
+        return FileResponse(
+            template,
+            as_attachment=True,
+            filename='employee_import_template.xlsx',
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser, FormParser])
+    def import_employees(self, request):
+        if not request.user.is_superuser:
+            return Response({"success": False, "message": "Only admins can import employees."}, status=403)
+
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({"success": False, "message": "Please upload an Excel file."}, status=400)
+
+        try:
+            df = pd.read_excel(file_obj)
+        except Exception as exc:
+            return Response({"success": False, "message": f"Unable to read Excel file: {exc}"}, status=400)
+
+        if df.empty:
+            return Response({"success": False, "message": "The uploaded Excel file has no employee rows."}, status=400)
+
+        df.columns = [str(column).strip().lower() for column in df.columns]
+        created_count = 0
+        updated_count = 0
+        skipped_rows = []
+
+        for index, row in df.iterrows():
+            excel_row_number = index + 2
+            name = get_import_value(row, 'employee name', 'name', 'full name')
+            emp_id = get_import_value(row, 'employee id', 'emp id', 'id', 'employee code')
+            
+            if not name:
+                skipped_rows.append(f"Row {excel_row_number}: Missing Employee Name")
+                continue
+                
+            if not emp_id:
+                # If no ID provided, try to find by name or email, or skip
+                email = get_import_value(row, 'email', 'employee email')
+                existing = None
+                if email:
+                    existing = Employee.objects.filter(email__iexact=email).first()
+                if not existing:
+                    existing = Employee.objects.filter(name__iexact=name).first()
+                
+                if existing:
+                    emp_id = existing.employee_id
+                else:
+                    skipped_rows.append(f"Row {excel_row_number}: Missing Employee ID")
+                    continue
+
+            department = None
+            department_name = get_import_value(row, 'department')
+            if department_name:
+                department, _ = Department.objects.get_or_create(name=department_name)
+
+            employee_email = get_import_value(row, 'email', 'employee email')
+
+            _, created = Employee.objects.update_or_create(
+                employee_id=emp_id,
+                defaults={
+                    'name': name,
+                    'email': employee_email,
+                    'department': department,
+                },
+            )
+
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        imported_count = created_count + updated_count
+        message = f"Successfully imported {imported_count} employee{'' if imported_count == 1 else 's'}."
+        if skipped_rows:
+            message += f" Skipped {len(skipped_rows)} row{'' if len(skipped_rows) == 1 else 's'}."
+
+        return Response({
+            "success": True,
+            "message": message,
+            "created": created_count,
+            "updated": updated_count,
+            "skipped": len(skipped_rows),
+            "errors": skipped_rows,
+        })
 
     @action(detail=True, methods=['get'], url_path='assigned-assets')
     def assigned_assets(self, request, pk=None):

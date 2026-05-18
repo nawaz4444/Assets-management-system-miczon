@@ -227,7 +227,8 @@ class AssetActionRequest(models.Model):
     vendor = models.CharField(max_length=255, blank=True)
     expected_return_date = models.DateField(null=True, blank=True)
     requested_device_type = models.CharField(max_length=100, blank=True)
-    
+    specifications = models.TextField(blank=True)
+
     reason_for_request = models.TextField(blank=True)
     remarks = models.TextField(blank=True)
     
