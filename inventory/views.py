@@ -553,6 +553,64 @@ class AssetViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             return Response({"success": False, "message": f"Critical Commit Error: {str(e)}"}, status=500)
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request):
+        queryset = self.get_queryset()
+        
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'Inventory'
+
+        headers = [
+            'Miczon ID', 'Device Name', 'Category', 'Status', 
+            'Department', 'Custodian', 'Employee ID',
+            'Maintenance Vendor', 'Sent to Repair', 'Expected Return',
+            'Specifications', 'Remarks'
+        ]
+        sheet.append(headers)
+
+        header_fill = PatternFill(fill_type='solid', fgColor='D9EAF7')
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+
+        for asset in queryset:
+            sheet.append([
+                asset.miczon_id,
+                asset.name,
+                asset.category,
+                asset.current_status,
+                asset.department.name if asset.department else 'N/A',
+                asset.custodian.name if asset.custodian else 'N/A',
+                asset.custodian.employee_id if asset.custodian else 'N/A',
+                asset.maintenance_vendor or '',
+                asset.sent_to_repair_date.strftime('%Y-%m-%d') if asset.sent_to_repair_date else '',
+                asset.expected_return_date.strftime('%Y-%m-%d') if asset.expected_return_date else '',
+                asset.specifications,
+                asset.remarks
+            ])
+
+        for column_cells in sheet.columns:
+            max_length = 0
+            for cell in column_cells:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 40)
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="inventory_export.xlsx"'
+        return response
     @action(detail=True, methods=['post'])
     def transfer(self, request, pk=None):
         asset = self.get_object()
@@ -678,6 +736,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         department = self.request.query_params.get('department')
         if department:
             queryset = queryset.filter(department_id=department)
+
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) |
+                Q(employee_id__icontains=search) |
+                Q(email__icontains=search)
+            )
             
         # Security: Employees only see their own profile
         if not self.request.user.is_superuser:

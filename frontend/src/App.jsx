@@ -559,11 +559,33 @@ function InventoryPage({ api, isAdmin }) {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (statusFilter) params.set('status', statusFilter);
+      if (departmentFilter) params.set('department', departmentFilter);
+
+      const response = await api.get(`/assets/export/?${params.toString()}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `inventory_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setNotice('Unable to export inventory.');
+    }
+  };
+
   const totalPages = Math.ceil(totalCount / inventoryPageSize);
 
   return (
     <>
       <PageHeader eyebrow="Inventory Management" title="Hardware register">
+        <Button type="button" variant="outline" onClick={handleExport}>Download Excel</Button>
         {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Assets</Button>}
         <Button type="button" variant="outline" onClick={() => setQrLabelsDialogOpen(true)}>QR Labels</Button>
         <Button type="button" variant="primary" onClick={() => setDialogOpen(true)}>Add Asset</Button>
@@ -608,10 +630,7 @@ function InventoryPage({ api, isAdmin }) {
             <StatusBadge status={asset.current_status} />,
             asset.custodian_name || 'Unassigned',
             <div className="row-actions">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setQrAsset(asset)}>QR</Button>
               <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/inventory/asset/${asset.id}`)}>View</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => editAsset(asset)}>Edit</Button>
-              {isAdmin && <Button type="button" variant="ghost" size="sm" className="text-danger" onClick={() => removeAsset(asset)}>Delete</Button>}
             </div>,
           ])}
           empty={loading ? "Loading inventory..." : "No assets match the current filters."}
