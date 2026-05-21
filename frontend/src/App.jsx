@@ -1499,16 +1499,27 @@ function HealthChecks({ api, isAdmin }) {
   const downloadExcel = async () => {
     if (!selectedSession) return;
     try {
-      const response = await api.get(`/reports/export-health-responses/?session=${selectedSession}`, {
+      const exportType = activeReportView || 'all';
+      const params = new URLSearchParams({
+        session: selectedSession,
+        type: exportType,
+      });
+      if (reportSearch.trim()) params.set('search', reportSearch.trim());
+      if (reportDepartment && exportType !== 'critical') params.set('department', reportDepartment);
+
+      const response = await api.get(`/reports/export-health-responses/?${params.toString()}`, {
         responseType: 'blob',
       });
+      const contentDisposition = response.headers['content-disposition'];
+      const fileName = contentDisposition?.match(/filename="?([^"]+)"?/)?.[1] || `health_report_${exportType.replaceAll('-', '_')}_${selectedSession}.xlsx`;
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `health_report_${selectedSession}.xlsx`);
+      link.setAttribute('download', fileName);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Download failed', error);
       setNotice('Failed to download excel report.');

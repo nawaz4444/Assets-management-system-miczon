@@ -23,7 +23,7 @@ from datetime import date
 from django.utils import timezone
 from rest_framework.pagination import PageNumberPagination
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 import re
 
 # --- PAGINATION ---
@@ -1173,6 +1173,227 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=201)
 
 class ReportsViewSet(viewsets.ViewSet):
+    HEALTH_EXPORT_COLUMNS = [
+        'Employee Name', 'Employee Code', 'Department', 'Asset Miczon ID', 'Asset Name', 'Category',
+        'Screen Condition', 'Battery Life', 'Physical Condition', 'Power/Boot Status',
+        'Ports/Connectors', 'Network Functionality', 'Asset Tag Status', 'Performance Rating',
+        'Comments', 'Submitted At'
+    ]
+
+    PENDING_ASSET_COLUMNS = [
+        'Employee Name', 'Employee Code', 'Email', 'Department', 'Asset Miczon ID', 'Asset Name', 'Category'
+    ]
+
+    PENDING_EMPLOYEE_COLUMNS = [
+        'Employee Name', 'Employee Code', 'Email', 'Department', 'Pending Assets', 'Asset Details'
+    ]
+
+    DEPARTMENT_COLUMNS = ['Department', 'Target Assets', 'Completed Assets', 'Pending Assets', 'Completion %']
+
+    def _get_health_session(self, session_id):
+        if not session_id:
+            return None, Response({"error": "Session ID is required"}, status=400)
+        session = HealthCheckSession.objects.filter(id=session_id).first()
+        if not session:
+            return None, Response({"error": "Inspection period was not found."}, status=404)
+        return session, None
+
+    def _get_health_export_dataset(self, request, session):
+        target_assets = Asset.objects.filter(
+            current_status='ASSIGNED',
+            custodian__isnull=False,
+        ).select_related('custodian', 'custodian__department', 'department').order_by(
+            'custodian__name', 'miczon_id'
+        )
+        target_asset_ids = list(target_assets.values_list('id', flat=True))
+
+        responses = HealthCheckResponse.objects.filter(
+            session=session,
+            asset_id__in=target_asset_ids,
+        ).select_related(
+            'employee', 'employee__department', 'asset', 'asset__department'
+        ).order_by('employee__name', 'asset__miczon_id')
+
+        department = request.query_params.get('department', '').strip()
+        if department:
+            target_assets = target_assets.filter(
+                Q(custodian__department__name=department) | Q(department__name=department)
+            )
+            responses = responses.filter(
+                Q(employee__department__name=department) | Q(asset__department__name=department)
+            )
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            response_search = (
+                Q(asset__name__icontains=search) |
+                Q(asset__miczon_id__icontains=search) |
+                Q(asset__category__icontains=search) |
+                Q(employee__name__icontains=search) |
+                Q(employee__employee_id__icontains=search) |
+                Q(employee__email__icontains=search) |
+                Q(employee__department__name__icontains=search) |
+                Q(asset__department__name__icontains=search) |
+                Q(screen_condition__icontains=search) |
+                Q(battery_life__icontains=search) |
+                Q(comments__icontains=search)
+            )
+            if search.isdigit():
+                response_search |= Q(performance_rating=int(search))
+
+            target_assets = target_assets.filter(
+                Q(name__icontains=search) |
+                Q(miczon_id__icontains=search) |
+                Q(category__icontains=search) |
+                Q(custodian__name__icontains=search) |
+                Q(custodian__employee_id__icontains=search) |
+                Q(custodian__email__icontains=search) |
+                Q(custodian__department__name__icontains=search) |
+                Q(department__name__icontains=search)
+            )
+            responses = responses.filter(response_search)
+
+        target_assets = list(target_assets)
+        responses = list(responses)
+        responded_asset_ids = {response.asset_id for response in responses}
+        pending_assets = [asset for asset in target_assets if asset.id not in responded_asset_ids]
+        return target_assets, responses, pending_assets
+
+    def _department_name_for_asset(self, asset):
+        if asset.custodian and asset.custodian.department:
+            return asset.custodian.department.name
+        if asset.department:
+            return asset.department.name
+        return "Unassigned"
+
+    def _department_name_for_response(self, response):
+        if response.employee and response.employee.department:
+            return response.employee.department.name
+        if response.asset and response.asset.department:
+            return response.asset.department.name
+        return ""
+
+    def _health_response_rows(self, responses):
+        rows = []
+        for r in responses:
+            rows.append({
+                'Employee Name': r.employee.name,
+                'Employee Code': r.employee.employee_id,
+                'Department': self._department_name_for_response(r),
+                'Asset Miczon ID': r.asset.miczon_id,
+                'Asset Name': r.asset.name,
+                'Category': r.asset.category,
+                'Screen Condition': r.get_screen_condition_display(),
+                'Battery Life': r.get_battery_life_display(),
+                'Physical Condition': r.get_physical_condition_display(),
+                'Power/Boot Status': r.get_power_boot_status_display(),
+                'Ports/Connectors': r.get_ports_connectors_display(),
+                'Network Functionality': r.get_network_functionality_display(),
+                'Asset Tag Status': r.get_asset_tag_status_display(),
+                'Performance Rating': r.performance_rating,
+                'Comments': r.comments,
+                'Submitted At': timezone.localtime(r.submitted_at).strftime('%Y-%m-%d %H:%M:%S') if r.submitted_at else ""
+            })
+        return rows
+
+    def _pending_asset_rows(self, pending_assets):
+        return [{
+            'Employee Name': asset.custodian.name,
+            'Employee Code': asset.custodian.employee_id,
+            'Email': asset.custodian.email,
+            'Department': self._department_name_for_asset(asset),
+            'Asset Miczon ID': asset.miczon_id,
+            'Asset Name': asset.name,
+            'Category': asset.category or 'Uncategorized',
+        } for asset in pending_assets if asset.custodian]
+
+    def _pending_employee_rows(self, pending_assets):
+        employees = {}
+        for asset in pending_assets:
+            if not asset.custodian:
+                continue
+            row = employees.setdefault(asset.custodian_id, {
+                'Employee Name': asset.custodian.name,
+                'Employee Code': asset.custodian.employee_id,
+                'Email': asset.custodian.email,
+                'Department': self._department_name_for_asset(asset),
+                'Pending Assets': 0,
+                'Asset Details': [],
+            })
+            row['Pending Assets'] += 1
+            row['Asset Details'].append(f"{asset.name} ({asset.miczon_id})")
+        rows = []
+        for row in employees.values():
+            row = row.copy()
+            row['Asset Details'] = ', '.join(row['Asset Details'])
+            rows.append(row)
+        return sorted(rows, key=lambda row: (-row['Pending Assets'], row['Employee Name']))
+
+    def _department_rows(self, target_assets, responses):
+        responded_asset_ids = {response.asset_id for response in responses}
+        departments = {}
+        for asset in target_assets:
+            name = self._department_name_for_asset(asset)
+            row = departments.setdefault(name, {
+                'Department': name,
+                'Target Assets': 0,
+                'Completed Assets': 0,
+                'Pending Assets': 0,
+                'Completion %': 0,
+            })
+            row['Target Assets'] += 1
+            if asset.id in responded_asset_ids:
+                row['Completed Assets'] += 1
+            else:
+                row['Pending Assets'] += 1
+        for row in departments.values():
+            row['Completion %'] = round((row['Completed Assets'] / row['Target Assets']) * 100) if row['Target Assets'] else 0
+        return sorted(departments.values(), key=lambda row: row['Department'])
+
+    def _summary_rows(self, session, target_assets, responses, pending_assets):
+        critical_count = sum(1 for response in responses if response.performance_rating < 3)
+        completed_count = len({response.asset_id for response in responses})
+        total_targets = len(target_assets)
+        return [
+            {'Metric': 'Inspection Period', 'Value': session.title},
+            {'Metric': 'Created At', 'Value': timezone.localtime(session.created_at).strftime('%Y-%m-%d %H:%M:%S') if session.created_at else ''},
+            {'Metric': 'Status', 'Value': session.get_status_display()},
+            {'Metric': 'Target Assets', 'Value': total_targets},
+            {'Metric': 'Completed Assets', 'Value': completed_count},
+            {'Metric': 'Pending Assets', 'Value': len(pending_assets)},
+            {'Metric': 'Pending Employees', 'Value': len({asset.custodian_id for asset in pending_assets if asset.custodian_id})},
+            {'Metric': 'Critical Alerts', 'Value': critical_count},
+            {'Metric': 'Completion %', 'Value': round((completed_count / total_targets) * 100) if total_targets else 0},
+        ]
+
+    def _write_health_export(self, sheets):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for sheet_name, columns, rows in sheets:
+                df = pd.DataFrame(rows, columns=columns)
+                df.to_excel(writer, index=False, sheet_name=sheet_name)
+                worksheet = writer.sheets[sheet_name]
+                for cell in worksheet[1]:
+                    cell.font = Font(bold=True, color='FFFFFF')
+                    cell.fill = PatternFill(start_color='0F766E', end_color='0F766E', fill_type='solid')
+                    cell.alignment = Alignment(horizontal='center')
+                for column_cells in worksheet.columns:
+                    values = [str(cell.value or '') for cell in column_cells]
+                    width = min(max(len(value) for value in values) + 2, 45)
+                    worksheet.column_dimensions[column_cells[0].column_letter].width = width
+                worksheet.freeze_panes = 'A2'
+                worksheet.auto_filter.ref = worksheet.dimensions
+        output.seek(0)
+        return output
+
+    def _health_export_response(self, output, filename):
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
     """
     Reporting and Analytics ViewSet
     """
@@ -1338,57 +1559,42 @@ class ReportsViewSet(viewsets.ViewSet):
             return Response({"error": "Only admins can export reports."}, status=403)
 
         session_id = request.query_params.get('session')
-        if not session_id:
-            return Response({"error": "Session ID is required"}, status=400)
+        session, error_response = self._get_health_session(session_id)
+        if error_response:
+            return error_response
 
-        responses = HealthCheckResponse.objects.filter(session_id=session_id).select_related(
-            'employee', 'employee__department', 'asset', 'asset__department'
-        )
+        report_type = request.query_params.get('type', 'all').strip() or 'all'
+        allowed_report_types = {'all', 'completion', 'pending-assets', 'pending-employees', 'critical'}
+        if report_type not in allowed_report_types:
+            return Response({"error": "Unsupported export type."}, status=400)
 
-        data = []
-        for r in responses:
-            data.append({
-                'Employee Name': r.employee.name,
-                'Employee Code': r.employee.employee_id,
-                'Department': r.employee.department.name if r.employee.department else (r.asset.department.name if r.asset.department else ""),
-                'Asset Miczon ID': r.asset.miczon_id,
-                'Asset Name': r.asset.name,
-                'Category': r.asset.category,
-                'Screen Condition': r.get_screen_condition_display(),
-                'Battery Life': r.get_battery_life_display(),
-                'Physical Condition': r.get_physical_condition_display(),
-                'Power/Boot Status': r.get_power_boot_status_display(),
-                'Ports/Connectors': r.get_ports_connectors_display(),
-                'Network Functionality': r.get_network_functionality_display(),
-                'Asset Tag Status': r.get_asset_tag_status_display(),
-                'Performance Rating': r.performance_rating,
-                'Comments': r.comments,
-                'Submitted At': r.submitted_at.strftime('%Y-%m-%d %H:%M:%S') if r.submitted_at else ""
-            })
+        target_assets, responses, pending_assets = self._get_health_export_dataset(request, session)
+        all_response_rows = self._health_response_rows(responses)
+        critical_rows = self._health_response_rows([response for response in responses if response.performance_rating < 3])
+        pending_asset_rows = self._pending_asset_rows(pending_assets)
+        pending_employee_rows = self._pending_employee_rows(pending_assets)
+        department_rows = self._department_rows(target_assets, responses)
 
-        if not data:
-            # Create an empty dataframe with columns if no data
-            df = pd.DataFrame(columns=[
-                'Employee Name', 'Employee Code', 'Department', 'Asset Miczon ID', 'Asset Name', 'Category',
-                'Screen Condition', 'Battery Life', 'Physical Condition', 'Power/Boot Status',
-                'Ports/Connectors', 'Network Functionality', 'Asset Tag Status', 'Performance Rating',
-                'Comments', 'Submitted At'
-            ])
-        else:
-            df = pd.DataFrame(data)
-        
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Health Checks')
-        
-        output.seek(0)
-        
-        response = HttpResponse(
-            output.read(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        response['Content-Disposition'] = f'attachment; filename="health_report_{session_id}.xlsx"'
-        return response
+        export_map = {
+            'completion': [('Department Completion', self.DEPARTMENT_COLUMNS, department_rows)],
+            'pending-assets': [('Pending Assets', self.PENDING_ASSET_COLUMNS, pending_asset_rows)],
+            'pending-employees': [('Pending Employees', self.PENDING_EMPLOYEE_COLUMNS, pending_employee_rows)],
+            'critical': [('Critical Alerts', self.HEALTH_EXPORT_COLUMNS, critical_rows)],
+        }
+        sheets = export_map.get(report_type)
+        if sheets is None:
+            sheets = [
+                ('Summary', ['Metric', 'Value'], self._summary_rows(session, target_assets, responses, pending_assets)),
+                ('Department Completion', self.DEPARTMENT_COLUMNS, department_rows),
+                ('Pending Assets', self.PENDING_ASSET_COLUMNS, pending_asset_rows),
+                ('Pending Employees', self.PENDING_EMPLOYEE_COLUMNS, pending_employee_rows),
+                ('Critical Alerts', self.HEALTH_EXPORT_COLUMNS, critical_rows),
+                ('Submitted Inspections', self.HEALTH_EXPORT_COLUMNS, all_response_rows),
+            ]
+
+        output = self._write_health_export(sheets)
+        safe_report_type = report_type.replace('-', '_')
+        return self._health_export_response(output, f'health_report_{safe_report_type}_{session_id}.xlsx')
 
     @action(detail=False, methods=['get'], url_path='custom-export')
     def custom_export(self, request):
