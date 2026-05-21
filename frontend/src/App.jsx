@@ -610,6 +610,8 @@ function InventoryPage({ api, isAdmin }) {
             <div className="row-actions">
               <Button type="button" variant="ghost" size="sm" onClick={() => setQrAsset(asset)}>QR</Button>
               <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/inventory/asset/${asset.id}`)}>View</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => editAsset(asset)}>Edit</Button>
+              {isAdmin && <Button type="button" variant="ghost" size="sm" className="text-danger" onClick={() => removeAsset(asset)}>Delete</Button>}
             </div>,
           ])}
           empty={loading ? "Loading inventory..." : "No assets match the current filters."}
@@ -1494,6 +1496,25 @@ function HealthChecks({ api, isAdmin }) {
     setSelectedSession(String(res.data.session?.id || ''));
   };
 
+  const downloadExcel = async () => {
+    if (!selectedSession) return;
+    try {
+      const response = await api.get(`/reports/export-health-responses/?session=${selectedSession}`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `health_report_${selectedSession}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      console.error('Download failed', error);
+      setNotice('Failed to download excel report.');
+    }
+  };
+
   const summary = report?.summary || {};
   const pendingRows = report?.pending_by_employee || [];
   const departmentRows = report?.department_summary || [];
@@ -1560,7 +1581,16 @@ function HealthChecks({ api, isAdmin }) {
   return (
     <>
       <PageHeader eyebrow="Monthly Inspection" title="Monthly inspection report">
-        {isAdmin && <Button type="button" variant="primary" onClick={trigger}>Start Monthly Inspection</Button>}
+        {isAdmin && (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <Button type="button" variant="outline" onClick={downloadExcel} disabled={!selectedSession}>
+              Download Excel
+            </Button>
+            <Button type="button" variant="primary" onClick={trigger}>
+              Start Monthly Inspection
+            </Button>
+          </div>
+        )}
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 

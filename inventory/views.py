@@ -2,7 +2,7 @@ from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from .models import (
     Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog,
     AssetActionRequest, HealthCheckSession, HealthCheckResponse
@@ -1331,6 +1331,64 @@ class ReportsViewSet(viewsets.ViewSet):
             "department_summary": sorted(department_summary.values(), key=lambda row: row["department"]),
             "responses": HealthCheckResponseSerializer(response_qs.order_by('-submitted_at')[:100], many=True).data,
         })
+
+    @action(detail=False, methods=['get'], url_path='export-health-responses')
+    def export_health_responses(self, request):
+        if not request.user.is_superuser:
+            return Response({"error": "Only admins can export reports."}, status=403)
+
+        session_id = request.query_params.get('session')
+        if not session_id:
+            return Response({"error": "Session ID is required"}, status=400)
+
+        responses = HealthCheckResponse.objects.filter(session_id=session_id).select_related(
+            'employee', 'employee__department', 'asset', 'asset__department'
+        )
+
+        data = []
+        for r in responses:
+            data.append({
+                'Employee Name': r.employee.name,
+                'Employee Code': r.employee.employee_id,
+                'Department': r.employee.department.name if r.employee.department else (r.asset.department.name if r.asset.department else ""),
+                'Asset Miczon ID': r.asset.miczon_id,
+                'Asset Name': r.asset.name,
+                'Category': r.asset.category,
+                'Screen Condition': r.get_screen_condition_display(),
+                'Battery Life': r.get_battery_life_display(),
+                'Physical Condition': r.get_physical_condition_display(),
+                'Power/Boot Status': r.get_power_boot_status_display(),
+                'Ports/Connectors': r.get_ports_connectors_display(),
+                'Network Functionality': r.get_network_functionality_display(),
+                'Asset Tag Status': r.get_asset_tag_status_display(),
+                'Performance Rating': r.performance_rating,
+                'Comments': r.comments,
+                'Submitted At': r.submitted_at.strftime('%Y-%m-%d %H:%M:%S') if r.submitted_at else ""
+            })
+
+        if not data:
+            # Create an empty dataframe with columns if no data
+            df = pd.DataFrame(columns=[
+                'Employee Name', 'Employee Code', 'Department', 'Asset Miczon ID', 'Asset Name', 'Category',
+                'Screen Condition', 'Battery Life', 'Physical Condition', 'Power/Boot Status',
+                'Ports/Connectors', 'Network Functionality', 'Asset Tag Status', 'Performance Rating',
+                'Comments', 'Submitted At'
+            ])
+        else:
+            df = pd.DataFrame(data)
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Health Checks')
+        
+        output.seek(0)
+        
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="health_report_{session_id}.xlsx"'
+        return response
 
     @action(detail=False, methods=['get'], url_path='custom-export')
     def custom_export(self, request):
