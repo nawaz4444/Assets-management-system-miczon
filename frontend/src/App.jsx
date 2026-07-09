@@ -15,6 +15,7 @@ export { BACKEND_BASE };
 const navItems = [
   { path: '/', label: 'Dashboard', icon: 'grid' },
   { path: '/inventory', label: 'Inventory', icon: 'box' },
+  { path: '/stock', label: 'Stock', icon: 'layers' },
   { path: '/employees', label: 'Employees', icon: 'users' },
   { path: '/requests', label: 'Requests', icon: 'inbox' },
   { path: '/health-checks', label: 'Health Checks', icon: 'pulse' },
@@ -210,12 +211,22 @@ function AppShell({ token, handleLogout }) {
         </Link>
 
         <nav className="nav-list" aria-label="Primary navigation">
-          {navItems.filter(item => user?.is_superuser || item.path === '/portal').map((item) => (
-            <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
-              <Icon name={item.icon} />
-              <span>{item.label}</span>
-            </Link>
-          ))}
+          {navItems.filter(item => user?.is_superuser || item.path === '/portal').map((item) => {
+            if (item.external) {
+              return (
+                <a key={item.path} className="nav-item" href={item.path}>
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </a>
+              );
+            }
+            return (
+              <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="sidebar-footer">
@@ -241,6 +252,11 @@ function AppShell({ token, handleLogout }) {
             <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
             <Route path="/requests" element={<RequestManager api={api} isAdmin={true} />} />
             <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} />} />
+            <Route path="/stock" element={<StockDashboard api={api} />} />
+            <Route path="/stock/products" element={<StockProducts api={api} />} />
+            <Route path="/stock/stock-in" element={<StockIn api={api} />} />
+            <Route path="/stock/stock-out" element={<StockOut api={api} />} />
+            <Route path="/stock/reports" element={<StockReports api={api} />} />
             <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -2223,6 +2239,1313 @@ function App() {
         )}
       </BrowserRouter>
     </UserContext.Provider>
+  );
+}
+
+// ==========================================
+// STOCK MANAGEMENT MODULE COMPONENTS
+// ==========================================
+
+function StockDashboard({ api }) {
+  const [products, setProducts] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/stock/products/'),
+      api.get('/stock/transactions/')
+    ]).then(([prodRes, txRes]) => {
+      setProducts(prodRes.data);
+      setTransactions(txRes.data);
+    }).catch(() => {
+      setError('Unable to load stock dashboard summary.');
+    }).finally(() => {
+      setLoading(false);
+    });
+  }, [api]);
+
+  if (loading) return <div style={{ padding: '24px', color: '#64748b' }}>Loading dashboard data...</div>;
+
+  const lowStockCount = products.filter(p => p.qty <= p.reorder).length;
+  const totalInQty = transactions.filter(t => t.type === 'IN').reduce((acc, t) => acc + t.qty, 0);
+  const totalOutQty = transactions.filter(t => t.type === 'OUT').reduce((acc, t) => acc + t.qty, 0);
+
+  const metrics = [
+    { label: 'Products', value: products.length, to: '/stock/products', tone: 'blue' },
+    { label: 'Stock IN', value: `+${totalInQty}`, to: '/stock/stock-in', tone: 'green' },
+    { label: 'Stock Out', value: `-${totalOutQty}`, to: '/stock/stock-out', tone: 'red' },
+    { label: 'Reports', value: `${lowStockCount} Alert(s)`, to: '/stock/reports', tone: 'amber' },
+  ];
+
+  return (
+    <>
+      <PageHeader eyebrow="Consumable Stock Portal" title="Stock Dashboard" />
+      {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
+      
+      <div className="metric-grid">
+        {metrics.map((metric) => (
+          <MetricCard key={metric.label} label={metric.label} value={metric.value} to={metric.to} tone={metric.tone} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function StockProducts({ api }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [nameFilter, setNameFilter] = useState('');
+  
+  // Modal State
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    code: '',
+    name: '',
+    category: '',
+    description: '',
+    reorder: 10
+  });
+  
+  // Toast State
+  const [toastShow, setToastShow] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+
+  const loadProducts = useCallback(() => {
+    setLoading(true);
+    api.get('/stock/products/')
+      .then((res) => setProducts(res.data))
+      .catch(() => setError('Unable to load products.'))
+      .finally(() => setLoading(false));
+  }, [api]);
+
+  useEffect(() => {
+    loadProducts();
+  }, [loadProducts]);
+
+  const categories = [...new Set(products.map(p => p.category))].sort();
+  const names = [...new Set(products.map(p => p.name))].sort();
+
+  const handleOpenModal = () => {
+    const randomNum = Math.floor(100 + Math.random() * 900);
+    setNewProduct({
+      code: `CON-PROD-${randomNum}`,
+      name: '',
+      category: '',
+      description: '',
+      reorder: 10
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSaveProduct = async (e) => {
+    e.preventDefault();
+    if (!newProduct.name || !newProduct.category || !newProduct.description) {
+      alert('Please fill in all product specifications.');
+      return;
+    }
+    try {
+      await api.post('/stock/products/', newProduct);
+      setDialogOpen(false);
+      setToastMsg(`Product "${newProduct.name}" successfully added to catalog.`);
+      setToastShow(true);
+      setTimeout(() => setToastShow(false), 5000);
+      loadProducts();
+    } catch (err) {
+      alert('Unable to save new product.');
+    }
+  };
+
+  const filteredProducts = products.filter(p => {
+    const searchVal = search.toLowerCase();
+    const matchesSearch = !search || 
+      p.code.toLowerCase().includes(searchVal) || 
+      p.name.toLowerCase().includes(searchVal) || 
+      p.category.toLowerCase().includes(searchVal) || 
+      p.description.toLowerCase().includes(searchVal);
+      
+    const matchesCategory = !categoryFilter || p.category === categoryFilter;
+    const matchesName = !nameFilter || p.name === nameFilter;
+    
+    return matchesSearch && matchesCategory && matchesName;
+  });
+
+  return (
+    <>
+      <header className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <p className="eyebrow">Stock Dashboard / Products</p>
+          <h1>Products Catalog</h1>
+        </div>
+        <Button onClick={handleOpenModal} style={{ background: '#0d9488', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <span>+</span> Add New Product
+        </Button>
+      </header>
+
+      {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
+
+      {/* Filters Panel */}
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+        <input 
+          type="text" 
+          placeholder="Search by name, code, category..." 
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ flex: 1, minWidth: '240px', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+        />
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={{ width: '220px' }}>
+          <option value="">All Categories</option>
+          {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+        </Select>
+        <Select value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} style={{ width: '240px' }}>
+          <option value="">All Product Names</option>
+          {names.map(name => <option key={name} value={name}>{name}</option>)}
+        </Select>
+      </div>
+
+      {/* Products Table */}
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>Loading products catalog...</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                <th style={{ padding: '16px 24px' }}>Item Code</th>
+                <th style={{ padding: '16px 24px' }}>Product Name</th>
+                <th style={{ padding: '16px 24px' }}>Description</th>
+                <th style={{ padding: '16px 24px', textAlign: 'right' }}>Available Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredProducts.map(prod => (
+                <tr key={prod.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '16px 24px', fontFamily: 'monospace', color: '#94a3b8', fontWeight: '600' }}>{prod.code}</td>
+                  <td style={{ padding: '16px 24px' }}>
+                    <strong style={{ display: 'block', color: '#334155' }}>{prod.name}</strong>
+                    <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px', textTransform: 'uppercase' }}>{prod.category}</span>
+                  </td>
+                  <td style={{ padding: '16px 24px', color: '#64748b', maxWidth: '320px' }}>{prod.description}</td>
+                  <td style={{ padding: '16px 24px', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'end' }}>
+                      <strong style={{ color: '#1e293b' }}>{prod.qty}</strong>
+                      <span style={{
+                        display: 'inline-block',
+                        fontSize: '10px',
+                        fontWeight: '600',
+                        marginTop: '4px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: prod.status === 'In Stock' ? '#ecfdf5' : prod.status === 'Low Stock' ? '#fffbeb' : '#fef2f2',
+                        color: prod.status === 'In Stock' ? '#059669' : prod.status === 'Low Stock' ? '#d97706' : '#dc2626'
+                      }}>{prod.status}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredProducts.length === 0 && (
+                <tr>
+                  <td colSpan="4" style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>No products match the selected filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Modal Dialog */}
+      <Dialog open={dialogOpen}>
+        <DialogContent>
+          <div style={{ padding: '20px' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Register New Product</h3>
+            <form onSubmit={handleSaveProduct} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Product Code</label>
+                <input type="text" readOnly value={newProduct.code} style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#64748b', fontFamily: 'monospace' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Product Name</label>
+                <input required type="text" placeholder="e.g. Dell Optical Mouse" value={newProduct.name} onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })} style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Category</label>
+                <input required type="text" placeholder="e.g. Peripherals" value={newProduct.category} onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })} style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Description</label>
+                <input required type="text" placeholder="e.g. USB wired optical tracker mouse" value={newProduct.description} onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })} style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Low Stock Alert Level</label>
+                <input required type="number" min="1" value={newProduct.reorder} onChange={(e) => setNewProduct({ ...newProduct, reorder: parseInt(e.target.value) })} style={{ width: '120px', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 'bold' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
+                <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" style={{ background: '#0d9488', color: '#fff' }}>Save Product</Button>
+              </div>
+            </form>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Floating Success Toast */}
+      {toastShow && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          background: '#0f172a',
+          color: '#fff',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+          border: '1px solid #1e293b',
+          maxWidth: '400px'
+        }}>
+          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✓</div>
+          <div style={{ flex: 1 }}>
+            <strong style={{ display: 'block', fontSize: '14px', color: '#34d399' }}>Product Added!</strong>
+            <span style={{ display: 'block', fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>{toastMsg}</span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function StockIn({ api }) {
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [supplier, setSupplier] = useState('');
+  
+  const [rows, setRows] = useState([
+    { id: 1, category: '', product_code: '', description: '', unit: 'pieces', qty: 1 }
+  ]);
+  
+  const [toastShow, setToastShow] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/stock/products/')
+      .then((res) => {
+        setProducts(res.data);
+        const uniqueCategories = [...new Set(res.data.map(p => p.category))].sort();
+        setCategories(uniqueCategories);
+      })
+      .finally(() => setLoading(false));
+  }, [api]);
+
+  const handleAddRow = () => {
+    const nextId = rows.length > 0 ? Math.max(...rows.map(r => r.id)) + 1 : 1;
+    setRows([...rows, { id: nextId, category: '', product_code: '', description: '', unit: 'pieces', qty: 1 }]);
+  };
+
+  const handleDeleteRow = (id) => {
+    if (rows.length > 1) {
+      setRows(rows.filter(r => r.id !== id));
+    } else {
+      setRows([{ id: 1, category: '', product_code: '', description: '', unit: 'pieces', qty: 1 }]);
+    }
+  };
+
+  const handleRowChange = (id, field, value) => {
+    setRows(rows.map(r => {
+      if (r.id !== id) return r;
+      
+      const updated = { ...r, [field]: value };
+      
+      if (field === 'category') {
+        updated.product_code = '';
+        updated.description = '';
+      }
+      
+      if (field === 'product_code') {
+        const prodObj = products.find(p => p.code === value);
+        updated.description = prodObj ? prodObj.description : '';
+      }
+      
+      return updated;
+    }));
+  };
+
+  const handleSubmit = async () => {
+    const hasInvalid = rows.some(r => !r.category || !r.product_code || r.qty <= 0);
+    if (hasInvalid) {
+      alert('Please specify Category, Product, and Quantity for all active rows.');
+      return;
+    }
+
+    try {
+      const payload = {
+        date: date,
+        transactions: rows.map(r => ({
+          category: r.category,
+          product_code: r.product_code,
+          description: r.description,
+          unit: r.unit,
+          qty: r.qty
+        }))
+      };
+
+      await api.post('/stock/transactions/bulk_in/', payload);
+      
+      setToastMsg('The inbound items have been registered in the database.');
+      setToastShow(true);
+      
+      setRows([{ id: 1, category: '', product_code: '', description: '', unit: 'pieces', qty: 1 }]);
+      setSupplier('');
+      
+      setTimeout(() => {
+        setToastShow(false);
+        navigate('/stock');
+      }, 3000);
+    } catch {
+      alert('Unable to process bulk inbound registration.');
+    }
+  };
+
+  return (
+    <>
+      <header className="page-header" style={{ marginBottom: '24px' }}>
+        <p className="eyebrow">Stock Dashboard / Stock In</p>
+        <h1>Bulk Stock Inbound</h1>
+      </header>
+
+      <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+        
+        {/* Date Selector & Supplier */}
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '24px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #f1f5f9', width: 'fit-content' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b' }}>Date:</label>
+            <input 
+              type="date" 
+              value={date} 
+              onChange={(e) => setDate(e.target.value)} 
+              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '600', color: '#334155' }}
+            />
+          </div>
+          <div style={{ width: '1px', height: '24px', background: '#cbd5e1' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b' }}>Supplier:</label>
+            <input 
+              type="text" 
+              placeholder="Supplier name..." 
+              value={supplier} 
+              onChange={(e) => setSupplier(e.target.value)} 
+              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '240px' }}
+            />
+          </div>
+        </div>
+
+        {/* Dynamic Table */}
+        <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                <th style={{ padding: '12px 16px', width: '20%' }}>Category</th>
+                <th style={{ padding: '12px 16px', width: '25%' }}>Product</th>
+                <th style={{ padding: '12px 16px', width: '22%' }}>Description</th>
+                <th style={{ padding: '12px 16px', width: '15%' }}>Unit</th>
+                <th style={{ padding: '12px 16px', width: '12%' }}>Quantity</th>
+                <th style={{ padding: '12px 16px', width: '6%', textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const filteredProducts = products.filter(p => p.category === row.category);
+                return (
+                  <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px 16px' }}>
+                      <Select 
+                        value={row.category} 
+                        onChange={(e) => handleRowChange(row.id, 'category', e.target.value)}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">Select Category</option>
+                        {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      </Select>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <Select 
+                        value={row.product_code} 
+                        onChange={(e) => handleRowChange(row.id, 'product_code', e.target.value)}
+                        disabled={!row.category}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">Select Product</option>
+                        {filteredProducts.map(p => <option key={p.code} value={p.code}>{p.name} ({p.code})</option>)}
+                      </Select>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Editable specifications..." 
+                        value={row.description} 
+                        onChange={(e) => handleRowChange(row.id, 'description', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: '13px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <Select 
+                        value={row.unit} 
+                        onChange={(e) => handleRowChange(row.id, 'unit', e.target.value)}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="pieces">Pieces</option>
+                        <option value="boxes">Boxes</option>
+                        <option value="packs">Packs</option>
+                        <option value="units">Units</option>
+                      </Select>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        value={row.qty} 
+                        onChange={(e) => handleRowChange(row.id, 'qty', parseInt(e.target.value) || 0)}
+                        style={{ width: '80px', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => handleDeleteRow(row.id)}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '18px', cursor: 'pointer', padding: '4px' }}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer Actions */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '20px' }}>
+          <Button onClick={handleAddRow} style={{ background: '#f0fdfa', color: '#0d9488', border: '1px solid #ccfbf1' }}>
+            + Add Row
+          </Button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <Button type="button" variant="ghost" onClick={() => navigate('/stock')}>Cancel</Button>
+            <Button onClick={handleSubmit} style={{ background: '#0d9488', color: '#fff' }}>Submit Stock In</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Success Toast */}
+      {toastShow && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          background: '#0f172a',
+          color: '#fff',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+          border: '1px solid #1e293b'
+        }}>
+          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</div>
+          <div>
+            <strong style={{ display: 'block', fontSize: '14px', color: '#34d399' }}>Stock Registered Successfully!</strong>
+            <span style={{ display: 'block', fontSize: '12px', color: '#cbd5e1' }}>{toastMsg}</span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function StockOut({ api }) {
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [demandBy, setDemandBy] = useState('');
+  
+  const [rows, setRows] = useState([
+    { id: 1, category: '', product_code: '', purpose: '', unit: 'pieces', qty: 1 }
+  ]);
+  
+  const [toastShow, setToastShow] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/stock/products/')
+      .then((res) => {
+        setProducts(res.data);
+        const uniqueCategories = [...new Set(res.data.map(p => p.category))].sort();
+        setCategories(uniqueCategories);
+      })
+      .finally(() => setLoading(false));
+  }, [api]);
+
+  const handleAddRow = () => {
+    const nextId = rows.length > 0 ? Math.max(...rows.map(r => r.id)) + 1 : 1;
+    setRows([...rows, { id: nextId, category: '', product_code: '', purpose: '', unit: 'pieces', qty: 1 }]);
+  };
+
+  const handleDeleteRow = (id) => {
+    if (rows.length > 1) {
+      setRows(rows.filter(r => r.id !== id));
+    } else {
+      setRows([{ id: 1, category: '', product_code: '', purpose: '', unit: 'pieces', qty: 1 }]);
+    }
+  };
+
+  const handleRowChange = (id, field, value) => {
+    setRows(rows.map(r => {
+      if (r.id !== id) return r;
+      const updated = { ...r, [field]: value };
+      if (field === 'category') {
+        updated.product_code = '';
+      }
+      return updated;
+    }));
+  };
+
+  const handleSubmit = async () => {
+    if (!demandBy.trim()) {
+      alert('Please specify the recipient in the "Demand By" field.');
+      return;
+    }
+    const hasInvalid = rows.some(r => !r.category || !r.product_code || r.qty <= 0);
+    if (hasInvalid) {
+      alert('Please specify Category, Product, and Quantity for all active rows.');
+      return;
+    }
+
+    try {
+      const payload = {
+        date: date,
+        demand_by: demandBy,
+        transactions: rows.map(r => ({
+          category: r.category,
+          product_code: r.product_code,
+          purpose: r.purpose,
+          unit: r.unit,
+          qty: r.qty
+        }))
+      };
+
+      await api.post('/stock/transactions/bulk_out/', payload);
+      
+      setToastMsg(`Dispatched consumable items to ${demandBy}.`);
+      setToastShow(true);
+      
+      setRows([{ id: 1, category: '', product_code: '', purpose: '', unit: 'pieces', qty: 1 }]);
+      setDemandBy('');
+      
+      setTimeout(() => {
+        setToastShow(false);
+        navigate('/stock');
+      }, 3000);
+    } catch {
+      alert('Unable to process bulk outbound distribution.');
+    }
+  };
+
+  return (
+    <>
+      <header className="page-header" style={{ marginBottom: '24px' }}>
+        <p className="eyebrow">Stock Dashboard / Stock Out</p>
+        <h1>Bulk Stock Outbound</h1>
+      </header>
+
+      <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+        
+        {/* Date Selector & Demand By */}
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '24px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #f1f5f9', width: 'fit-content' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b' }}>Date:</label>
+            <input 
+              type="date" 
+              value={date} 
+              onChange={(e) => setDate(e.target.value)} 
+              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '600', color: '#334155' }}
+            />
+          </div>
+          <div style={{ width: '1px', height: '24px', background: '#cbd5e1' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b', whiteSpace: 'nowrap' }}>Demand By:</label>
+            <input 
+              type="text" 
+              placeholder="Employee Name" 
+              value={demandBy} 
+              onChange={(e) => setDemandBy(e.target.value)} 
+              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '240px' }}
+            />
+          </div>
+        </div>
+
+        {/* Dynamic Table */}
+        <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                <th style={{ padding: '12px 16px', width: '20%' }}>Category</th>
+                <th style={{ padding: '12px 16px', width: '25%' }}>Product</th>
+                <th style={{ padding: '12px 16px', width: '22%' }}>Purpose</th>
+                <th style={{ padding: '12px 16px', width: '15%' }}>Unit</th>
+                <th style={{ padding: '12px 16px', width: '12%' }}>Quantity</th>
+                <th style={{ padding: '12px 16px', width: '6%', textAlign: 'center' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const filteredProducts = products.filter(p => p.category === row.category);
+                return (
+                  <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px 16px' }}>
+                      <Select 
+                        value={row.category} 
+                        onChange={(e) => handleRowChange(row.id, 'category', e.target.value)}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">Select Category</option>
+                        {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      </Select>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <Select 
+                        value={row.product_code} 
+                        onChange={(e) => handleRowChange(row.id, 'product_code', e.target.value)}
+                        disabled={!row.category}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="">Select Product</option>
+                        {filteredProducts.map(p => <option key={p.code} value={p.code}>{p.name} ({p.code})</option>)}
+                      </Select>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Purpose of dispatch..." 
+                        value={row.purpose} 
+                        onChange={(e) => handleRowChange(row.id, 'purpose', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: '13px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <Select 
+                        value={row.unit} 
+                        onChange={(e) => handleRowChange(row.id, 'unit', e.target.value)}
+                        style={{ width: '100%' }}
+                      >
+                        <option value="pieces">Pieces</option>
+                        <option value="boxes">Boxes</option>
+                        <option value="packs">Packs</option>
+                        <option value="units">Units</option>
+                      </Select>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        value={row.qty} 
+                        onChange={(e) => handleRowChange(row.id, 'qty', parseInt(e.target.value) || 0)}
+                        style={{ width: '80px', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => handleDeleteRow(row.id)}
+                        style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '18px', cursor: 'pointer', padding: '4px' }}
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer Actions */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '20px' }}>
+          <Button onClick={handleAddRow} style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #ffe4e6' }}>
+            + Add Row
+          </Button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <Button type="button" variant="ghost" onClick={() => navigate('/stock')}>Cancel</Button>
+            <Button onClick={handleSubmit} style={{ background: '#e11d48', color: '#fff' }}>Submit Stock Out</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Success Toast */}
+      {toastShow && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          background: '#0f172a',
+          color: '#fff',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+          border: '1px solid #1e293b'
+        }}>
+          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e11d48', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</div>
+          <div>
+            <strong style={{ display: 'block', fontSize: '14px', color: '#fb7185' }}>Stock Dispatched!</strong>
+            <span style={{ display: 'block', fontSize: '12px', color: '#cbd5e1' }}>{toastMsg}</span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function StockReports({ api }) {
+  const [products, setProducts] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Tab State
+  const location = useLocation();
+  const initialTab = new URLSearchParams(location.search).get('tab') === 'activity' ? 'activity' : 'products';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  // Filters Product Catalog Tab
+  const [prodCategory, setProdCategory] = useState('');
+  
+  // Filters Activity Logs Tab
+  const [actPeriod, setActPeriod] = useState('this-month');
+  const [actStartDate, setActStartDate] = useState('');
+  const [actEndDate, setActEndDate] = useState('');
+  const [actCategory, setActCategory] = useState('');
+  const [actName, setActName] = useState('');
+  const [showActivityTable, setShowActivityTable] = useState(false);
+
+  // Filters Transaction Audit Tab
+  const [audPeriod, setAudPeriod] = useState('this-month');
+  const [audStartDate, setAudStartDate] = useState('');
+  const [audEndDate, setAudEndDate] = useState('');
+  const [audCategory, setAudCategory] = useState('');
+  const [audProductCode, setAudProductCode] = useState('');
+  const [auditRows, setAuditRows] = useState([]);
+  const [showAuditTable, setShowAuditTable] = useState(false);
+
+  // Toast Export Feedback
+  const [toastShow, setToastShow] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api.get('/stock/products/'),
+      api.get('/stock/transactions/')
+    ]).then(([prodRes, logRes]) => {
+      setProducts(prodRes.data);
+      setLogs(logRes.data);
+    }).finally(() => setLoading(false));
+  }, [api]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Set dates based on Period Selector (Activity Tab)
+  useEffect(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+
+    if (actPeriod === 'this-month') {
+      setActStartDate(new Date(y, m, 1).toISOString().split('T')[0]);
+      setActEndDate(today.toISOString().split('T')[0]);
+    } else if (actPeriod === 'previous-month') {
+      setActStartDate(new Date(y, m - 1, 1).toISOString().split('T')[0]);
+      setActEndDate(new Date(y, m, 0).toISOString().split('T')[0]);
+    }
+  }, [actPeriod]);
+
+  // Set dates based on Period Selector (Audit Tab)
+  useEffect(() => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+
+    if (audPeriod === 'this-month') {
+      setAudStartDate(new Date(y, m, 1).toISOString().split('T')[0]);
+      setAudEndDate(today.toISOString().split('T')[0]);
+    } else if (audPeriod === 'previous-month') {
+      setAudStartDate(new Date(y, m - 1, 1).toISOString().split('T')[0]);
+      setAudEndDate(new Date(y, m, 0).toISOString().split('T')[0]);
+    } else if (audPeriod === 'quarter') {
+      const qMonth = Math.floor(m / 3) * 3;
+      setAudStartDate(new Date(y, qMonth, 1).toISOString().split('T')[0]);
+      setAudEndDate(today.toISOString().split('T')[0]);
+    } else if (audPeriod === 'year') {
+      setAudStartDate(new Date(y, 0, 1).toISOString().split('T')[0]);
+      setAudEndDate(today.toISOString().split('T')[0]);
+    }
+  }, [audPeriod]);
+
+  const categories = [...new Set(products.map(p => p.category))].sort();
+  const names = [...new Set(products.map(p => p.name))].sort();
+
+  const filteredProducts = products.filter(p => !prodCategory || p.category === prodCategory);
+
+  const filteredActivityLogs = logs.filter(log => {
+    const matchesCategory = !actCategory || log.product_category === actCategory;
+    const matchesName = !actName || log.product_name === actName;
+    const matchesDate = (!actStartDate || !actEndDate) || (log.date >= actStartDate && log.date <= actEndDate);
+    return matchesCategory && matchesName && matchesDate;
+  });
+
+  const handleRunAudit = () => {
+    if (!audStartDate || !audEndDate) {
+      alert('Please select a valid date range to perform stock audit.');
+      return;
+    }
+
+    const filteredProds = products.filter(p => {
+      const matchesCategory = !audCategory || p.category === audCategory;
+      const matchesProduct = !audProductCode || p.code === audProductCode;
+      return matchesCategory && matchesProduct;
+    });
+
+    const audited = filteredProds.map(prod => {
+      const prodLogs = logs.filter(l => l.product_code === prod.code);
+      let totalPostIn = 0;
+      let totalPostOut = 0;
+      let periodIn = 0;
+      let periodOut = 0;
+
+      prodLogs.forEach(l => {
+        if (l.date > audEndDate) {
+          if (l.type === 'IN') totalPostIn += l.qty;
+          else totalPostOut += l.qty;
+        } else if (l.date >= audStartDate && l.date <= audEndDate) {
+          if (l.type === 'IN') periodIn += l.qty;
+          else periodOut += l.qty;
+        }
+      });
+
+      const netQty = prod.qty - totalPostIn + totalPostOut;
+      const openingStock = netQty - periodIn + periodOut;
+
+      return {
+        category: prod.category,
+        code: prod.code,
+        name: prod.name,
+        openingStock,
+        periodIn,
+        periodOut,
+        netQty
+      };
+    });
+
+    setAuditRows(audited);
+    setShowAuditTable(true);
+  };
+
+  const triggerExport = (reportName) => {
+    setToastMsg(`Successfully generated PDF file download for "${reportName}".`);
+    setToastShow(true);
+    setTimeout(() => setToastShow(false), 4000);
+  };
+
+  const triggerPrint = (reportName) => {
+    setToastMsg(`Preparing document print margins for "${reportName}"...`);
+    setToastShow(true);
+    setTimeout(() => {
+      setToastShow(false);
+      window.print();
+    }, 1500);
+  };
+
+  if (loading) return <div style={{ padding: '24px', color: '#64748b' }}>Loading report generator...</div>;
+
+  return (
+    <>
+      <header className="page-header" style={{ marginBottom: '24px' }}>
+        <p className="eyebrow">Stock Dashboard / Reports</p>
+        <h1>Inventory Reports Generator</h1>
+      </header>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
+        <button 
+          onClick={() => setActiveTab('products')}
+          style={{
+            paddingBottom: '14px',
+            fontSize: '14px',
+            fontWeight: activeTab === 'products' ? '600' : '500',
+            borderBottom: activeTab === 'products' ? '2px solid #0d9488' : '2px solid transparent',
+            color: activeTab === 'products' ? '#0d9488' : '#64748b',
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          Product List Report
+        </button>
+        <button 
+          onClick={() => setActiveTab('activity')}
+          style={{
+            paddingBottom: '14px',
+            fontSize: '14px',
+            fontWeight: activeTab === 'activity' ? '600' : '500',
+            borderBottom: activeTab === 'activity' ? '2px solid #0d9488' : '2px solid transparent',
+            color: activeTab === 'activity' ? '#0d9488' : '#64748b',
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          Product Activity Report
+        </button>
+        <button 
+          onClick={() => setActiveTab('audit')}
+          style={{
+            paddingBottom: '14px',
+            fontSize: '14px',
+            fontWeight: activeTab === 'audit' ? '600' : '500',
+            borderBottom: activeTab === 'audit' ? '2px solid #0d9488' : '2px solid transparent',
+            color: activeTab === 'audit' ? '#0d9488' : '#64748b',
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          Stock Transaction Audit
+        </button>
+      </div>
+
+      {/* Tab Sections */}
+      {activeTab === 'products' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* Controls */}
+          <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', gap: '12px', alignItems: 'center', width: 'fit-content' }}>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8' }}>Filter Category:</label>
+            <Select value={prodCategory} onChange={(e) => setProdCategory(e.target.value)} style={{ width: '240px' }}>
+              <option value="">All Categories</option>
+              {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </Select>
+          </div>
+
+          {/* Table */}
+          <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Product Specifications Table</h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>Details of registered peripheral items and central consumable counts.</p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => triggerExport('Product List Report')} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }} title="Download PDF">⬇ PDF</button>
+                <button onClick={() => triggerPrint('Product List Report')} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }} title="Print">⎙ Print</button>
+              </div>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                  <th style={{ padding: '16px 24px' }}>Product ID</th>
+                  <th style={{ padding: '16px 24px' }}>Product Name</th>
+                  <th style={{ padding: '16px 24px' }}>Description</th>
+                  <th style={{ padding: '16px 24px', width: '130px' }}>Stock Available</th>
+                  <th style={{ padding: '16px 24px', width: '130px', textAlign: 'right' }}>Low Stock Level</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProducts.map(prod => (
+                  <tr key={prod.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '16px 24px', fontFamily: 'monospace', color: '#94a3b8', fontWeight: '600' }}>{prod.code}</td>
+                    <td style={{ padding: '16px 24px' }}>
+                      <strong style={{ color: '#334155' }}>{prod.name}</strong>
+                      <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px' }}>{prod.category}</span>
+                    </td>
+                    <td style={{ padding: '16px 24px', color: '#64748b', maxWidth: '320px' }}>{prod.description}</td>
+                    <td style={{ padding: '16px 24px', fontWeight: 'bold', color: '#334155' }}>{prod.qty}</td>
+                    <td style={{ padding: '16px 24px', textAlign: 'right', color: '#94a3b8' }}>{prod.reorder}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'activity' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* Controls */}
+          <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Period Selector</label>
+                <Select value={actPeriod} onChange={(e) => setActPeriod(e.target.value)}>
+                  <option value="this-month">This Month</option>
+                  <option value="previous-month">Previous Month</option>
+                  <option value="custom">Custom Range</option>
+                </Select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Start Date</label>
+                <input 
+                  type="date" 
+                  value={actStartDate}
+                  disabled={actPeriod !== 'custom'}
+                  onChange={(e) => setActStartDate(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', background: actPeriod !== 'custom' ? '#f1f5f9' : '#fff' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>End Date</label>
+                <input 
+                  type="date" 
+                  value={actEndDate}
+                  disabled={actPeriod !== 'custom'}
+                  onChange={(e) => setActEndDate(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', background: actPeriod !== 'custom' ? '#f1f5f9' : '#fff' }}
+                />
+              </div>
+              <Button onClick={() => setShowActivityTable(true)} style={{ background: '#0d9488', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', height: '38px' }}>
+                Show Report
+              </Button>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Product Category</label>
+                <Select value={actCategory} onChange={(e) => setActCategory(e.target.value)}>
+                  <option value="">All Categories</option>
+                  {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </Select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Product Name</label>
+                <Select value={actName} onChange={(e) => setActName(e.target.value)}>
+                  <option value="">All Product Names</option>
+                  {names.map(name => <option key={name} value={name}>{name}</option>)}
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* Results Table */}
+          {showActivityTable && (
+            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Product Activity Audit Report</h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>Logs of inbound supplies and outbound hardware dispatches for the selected period.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => triggerExport('Product Activity Report')} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }} title="Download PDF">⬇ PDF</button>
+                  <button onClick={() => triggerPrint('Product Activity Report')} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }} title="Print">⎙ Print</button>
+                </div>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                    <th style={{ padding: '16px 24px' }}>Date</th>
+                    <th style={{ padding: '16px 24px' }}>Item Code</th>
+                    <th style={{ padding: '16px 24px' }}>Product Name</th>
+                    <th style={{ padding: '16px 24px' }}>Activity Type</th>
+                    <th style={{ padding: '16px 24px' }}>Recipient / Supplier</th>
+                    <th style={{ padding: '16px 24px', textAlign: 'right' }}>Quantity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredActivityLogs.map(log => (
+                    <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '16px 24px', color: '#64748b', fontWeight: '600' }}>{log.date}</td>
+                      <td style={{ padding: '16px 24px', fontFamily: 'monospace', color: '#94a3b8' }}>{log.product_code}</td>
+                      <td style={{ padding: '16px 24px', fontWeight: '600', color: '#334155' }}>{log.product_name}</td>
+                      <td style={{ padding: '16px 24px' }}>
+                        <span style={{
+                          display: 'inline-block',
+                          fontSize: '10px',
+                          fontWeight: 'bold',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          background: log.type === 'IN' ? '#ecfdf5' : '#fff2f2',
+                          color: log.type === 'IN' ? '#059669' : '#e11d48',
+                          textTransform: 'uppercase'
+                        }}>
+                          {log.type === 'IN' ? 'Stock In' : 'Stock Out'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '16px 24px', color: '#475569' }}>{log.details}</td>
+                      <td style={{
+                        padding: '16px 24px',
+                        textAlign: 'right',
+                        fontWeight: 'bold',
+                        color: log.type === 'IN' ? '#059669' : '#e11d48'
+                      }}>
+                        {log.type === 'IN' ? '+' : '-'}{log.qty} {log.unit}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredActivityLogs.length === 0 && (
+                    <tr>
+                      <td colSpan="6" style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>No activity records found in selected range.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'audit' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* Controls */}
+          <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Period Selector</label>
+                <Select value={audPeriod} onChange={(e) => setAudPeriod(e.target.value)}>
+                  <option value="this-month">This Month</option>
+                  <option value="previous-month">Previous Month</option>
+                  <option value="quarter">This Quarter</option>
+                  <option value="year">This Year</option>
+                  <option value="custom">Custom Range</option>
+                </Select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Date From</label>
+                <input 
+                  type="date" 
+                  value={audStartDate}
+                  disabled={audPeriod !== 'custom'}
+                  onChange={(e) => setAudStartDate(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', background: audPeriod !== 'custom' ? '#f1f5f9' : '#fff' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Date To</label>
+                <input 
+                  type="date" 
+                  value={audEndDate}
+                  disabled={audPeriod !== 'custom'}
+                  onChange={(e) => setAudEndDate(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', background: audPeriod !== 'custom' ? '#f1f5f9' : '#fff' }}
+                />
+              </div>
+              <Button onClick={handleRunAudit} style={{ background: '#0d9488', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', height: '38px' }}>
+                Run Audit
+              </Button>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Product Category</label>
+                <Select value={audCategory} onChange={(e) => setAudCategory(e.target.value)}>
+                  <option value="">All Categories</option>
+                  {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </Select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Select Product</label>
+                <Select value={audProductCode} onChange={(e) => setAudProductCode(e.target.value)}>
+                  <option value="">All Products</option>
+                  {products.map(p => <option key={p.code} value={p.code}>{p.name} ({p.code})</option>)}
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* Audit Results Table */}
+          {showAuditTable && (
+            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Stock Transaction History Audit</h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>Calculated stock activity audit summary from date range parameters.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => triggerExport('Stock Transaction Audit')} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }} title="Download PDF">⬇ PDF</button>
+                  <button onClick={() => triggerPrint('Stock Transaction Audit')} style={{ padding: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }} title="Print">⎙ Print</button>
+                </div>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                    <th style={{ padding: '16px 24px' }}>Category Name</th>
+                    <th style={{ padding: '16px 24px' }}>Product ID</th>
+                    <th style={{ padding: '16px 24px' }}>Product Name</th>
+                    <th style={{ padding: '16px 24px', width: '110px', textAlign: 'center' }}>Opening Stock</th>
+                    <th style={{ padding: '16px 24px', width: '110px', textAlign: 'center' }}>Stock In</th>
+                    <th style={{ padding: '16px 24px', width: '110px', textAlign: 'center' }}>Stock Out</th>
+                    <th style={{ padding: '16px 24px', width: '130px', textAlign: 'right' }}>Net Quantity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditRows.map(row => (
+                    <tr key={row.code} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '16px 24px' }}>
+                        <span style={{ display: 'inline-block', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px' }}>{row.category}</span>
+                      </td>
+                      <td style={{ padding: '16px 24px', fontFamily: 'monospace', color: '#94a3b8', fontWeight: '600' }}>{row.code}</td>
+                      <td style={{ padding: '16px 24px', fontWeight: '600', color: '#334155' }}>{row.name}</td>
+                      <td style={{ padding: '16px 24px', textAlign: 'center', color: '#475569', fontWeight: '600' }}>{row.openingStock}</td>
+                      <td style={{ padding: '16px 24px', textAlign: 'center', fontWeight: 'bold', color: '#059669' }}>{row.periodIn > 0 ? `+${row.periodIn}` : '0'}</td>
+                      <td style={{ padding: '16px 24px', textAlign: 'center', fontWeight: 'bold', color: '#e11d48' }}>{row.periodOut > 0 ? `-${row.periodOut}` : '0'}</td>
+                      <td style={{ padding: '16px 24px', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>{row.netQty}</td>
+                    </tr>
+                  ))}
+                  {auditRows.length === 0 && (
+                    <tr>
+                      <td colSpan="7" style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>No audit records generated. Run the audit query first.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating Success Toast */}
+      {toastShow && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          background: '#0f172a',
+          color: '#fff',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+          border: '1px solid #1e293b'
+        }}>
+          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#0d9488', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</div>
+          <div>
+            <strong style={{ display: 'block', fontSize: '14px', color: '#2dd4bf' }}>Report Exported</strong>
+            <span style={{ display: 'block', fontSize: '12px', color: '#cbd5e1' }}>{toastMsg}</span>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

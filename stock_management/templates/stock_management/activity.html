@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block title %}Product Activity | AssetZone{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs & Header -->
+<div class="mb-8">
+    <div class="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        <a href="{% url 'stock_management:dashboard' %}" class="hover:text-slate-600">Stock Dashboard</a>
+        <span>/</span>
+        <span class="text-slate-600">Product Activity</span>
+    </div>
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900">Product Activity Feed</h1>
+    <p class="text-sm text-slate-500 mt-1">Timeline of recent consumable stock movements, reorders, and checkouts.</p>
+</div>
+
+<!-- Timeline -->
+<div class="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-3xl">
+    <div class="relative border-l-2 border-slate-100 pl-6 ml-3 flex flex-col gap-8">
+        {% for act in activities %}
+        <div class="relative">
+            <!-- Bullet Point Indicator -->
+            <span class="absolute -left-[31px] top-1.5 grid w-4.5 h-4.5 place-items-center rounded-full bg-white border-2 {% if act.action == 'Registered Inbound' %}border-emerald-500{% elif act.action == 'Checked Out' %}border-rose-500{% else %}border-amber-500{% endif %}">
+                <span class="w-1.5 h-1.5 rounded-full {% if act.action == 'Registered Inbound' %}bg-emerald-500{% elif act.action == 'Checked Out' %}bg-rose-500{% else %}bg-amber-500{% endif %}"></span>
+            </span>
+            
+            <div class="flex items-baseline justify-between gap-4">
+                <span class="text-sm font-bold text-slate-800">{{ act.action }}</span>
+                <span class="text-xs text-slate-400">{{ act.time }}</span>
+            </div>
+            
+            <p class="text-sm text-slate-600 mt-1.5">{{ act.details }}</p>
+            <div class="flex items-center gap-1.5 text-xs text-slate-400 mt-2">
+                <span>By:</span>
+                <span class="font-semibold text-slate-500">{{ act.user }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

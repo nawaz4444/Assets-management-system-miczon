@@ -1,0 +1,629 @@
+{% extends 'base.html' %}
+
+{% block title %}Stock Reports | AssetZone{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs & Header -->
+<div class="mb-8">
+    <div class="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        <a href="{% url 'stock_management:dashboard' %}" class="hover:text-slate-600">Stock Dashboard</a>
+        <span>/</span>
+        <span class="text-slate-600">Reports</span>
+    </div>
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900">Inventory Reports Generator</h1>
+    <p class="text-sm text-slate-500 mt-1">Generate tabular catalogs, filter product activity logs, and export printable sheets.</p>
+</div>
+
+<!-- Tab Navigation -->
+<div class="flex border-b border-slate-200 mb-6 gap-6">
+    <button id="tab-btn-products" class="tab-btn pb-3.5 text-sm font-semibold border-b-2 border-teal-600 text-teal-600 transition-colors focus:outline-none" onclick="switchTab('products')">
+        Product List Report
+    </button>
+    <button id="tab-btn-activity" class="tab-btn pb-3.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition-colors focus:outline-none" onclick="switchTab('activity')">
+        Product Activity Report
+    </button>
+    <button id="tab-btn-audit" class="tab-btn pb-3.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition-colors focus:outline-none" onclick="switchTab('audit')">
+        Stock Transaction Audit
+    </button>
+</div>
+
+<!-- SECTION 1: PRODUCT LIST REPORT -->
+<div id="section-products" class="tab-section block flex flex-col gap-6">
+    <!-- Filter Control Block -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center gap-3">
+        <label for="prod-category-select" class="text-xs font-bold uppercase text-slate-400 tracking-wider">Filter Category:</label>
+        <select id="prod-category-select" class="px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 w-full md:w-64 cursor-pointer">
+            <option value="">All Categories</option>
+            {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- Results Table Container -->
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-slate-800">Product Specifications Table</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Details of registered peripheral items and central consumable counts.</p>
+            </div>
+            <!-- Action Icons (Print, Download) -->
+            <div class="flex items-center gap-2">
+                <!-- PDF Download Icon -->
+                <button onclick="triggerExport('Product List Report')" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-all" title="Download PDF">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </button>
+                <!-- Print Icon -->
+                <button onclick="triggerPrint('Product List Report')" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-all" title="Print Report">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse" id="prod-list-table">
+                <thead>
+                    <tr class="bg-slate-50/75 border-b border-slate-100 text-xs font-bold uppercase text-slate-400 tracking-wider">
+                        <th class="p-4 pl-6">Product ID</th>
+                        <th class="p-4">Product Name</th>
+                        <th class="p-4">Description</th>
+                        <th class="p-4 w-32">Stock Available</th>
+                        <th class="p-4 pr-6 w-32 text-right">Low Stock Level</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-sm">
+                    {% for product in products %}
+                    <tr class="hover:bg-slate-50/50 transition-colors" data-category="{{ product.category }}">
+                        <td class="p-4 pl-6 font-mono text-xs text-slate-400 font-semibold">{{ product.code }}</td>
+                        <td class="p-4">
+                            <span class="font-semibold text-slate-700 block">{{ product.name }}</span>
+                            <span class="inline-flex items-center mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 uppercase">
+                                {{ product.category }}
+                            </span>
+                        </td>
+                        <td class="p-4 text-slate-500 max-w-sm">{{ product.description }}</td>
+                        <td class="p-4 font-bold text-slate-700">{{ product.qty }}</td>
+                        <td class="p-4 pr-6 text-right text-slate-400 font-semibold">{{ product.reorder }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION 2: PRODUCT ACTIVITY REPORT -->
+<div id="section-activity" class="tab-section hidden flex flex-col gap-6">
+    <!-- Filters Panel Grid -->
+    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-5">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <!-- Period Dropdown -->
+            <div>
+                <label for="act-period" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Period Selector</label>
+                <select id="act-period" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 cursor-pointer">
+                    <option value="this-month">This Month</option>
+                    <option value="previous-month">Previous Month</option>
+                    <option value="custom">Custom Range</option>
+                </select>
+            </div>
+            
+            <!-- Start Date Picker -->
+            <div>
+                <label for="act-start-date" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Start Date</label>
+                <input type="date" id="act-start-date" class="w-full px-3.5 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-700 font-semibold cursor-pointer" disabled>
+            </div>
+
+            <!-- End Date Picker -->
+            <div>
+                <label for="act-end-date" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">End Date</label>
+                <input type="date" id="act-end-date" class="w-full px-3.5 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-700 font-semibold cursor-pointer" disabled>
+            </div>
+
+            <!-- Show Report Action Button -->
+            <button type="button" onclick="showActivityReport()" class="w-full py-2.5 px-4 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm hover:shadow transition-all duration-150 flex items-center justify-center gap-2 whitespace-nowrap">
+                <!-- Eye Icon -->
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                Show Report
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+            <!-- Category Filter -->
+            <div>
+                <label for="act-category" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Product Category</label>
+                <select id="act-category" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 cursor-pointer">
+                    <option value="">All Categories</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Product Name Filter -->
+            <div>
+                <label for="act-name" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Product Name</label>
+                <select id="act-name" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 cursor-pointer">
+                    <option value="">All Product Names</option>
+                    {% for name in names %}
+                        <option value="{{ name }}">{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity Report Results Table -->
+    <div id="activity-results-container" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm animate-[fadeIn_0.2s_ease-out]">
+        <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-slate-800">Product Activity Audit Report</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Logs of inbound supplies and outbound hardware dispatches for the selected period.</p>
+            </div>
+            <!-- Action Icons -->
+            <div class="flex items-center gap-2">
+                <button onclick="triggerExport('Product Activity Report')" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-all" title="Download PDF">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </button>
+                <button onclick="triggerPrint('Product Activity Report')" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-all" title="Print Report">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse" id="act-list-table">
+                <thead>
+                    <tr class="bg-slate-50/75 border-b border-slate-100 text-xs font-bold uppercase text-slate-400 tracking-wider">
+                        <th class="p-4 pl-6">Date</th>
+                        <th class="p-4">Item Code</th>
+                        <th class="p-4">Product Name</th>
+                        <th class="p-4">Activity Type</th>
+                        <th class="p-4">Recipient / Supplier</th>
+                        <th class="p-4 pr-6 text-right">Quantity</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-sm">
+                    {% for log in activity_logs %}
+                    <tr class="hover:bg-slate-50/50 transition-colors"
+                        data-category="{{ log.category }}"
+                        data-name="{{ log.name }}"
+                        data-date="{{ log.date }}">
+                        <td class="p-4 pl-6 text-slate-500 font-semibold">{{ log.date }}</td>
+                        <td class="p-4 font-mono text-xs text-slate-400">{{ log.code }}</td>
+                        <td class="p-4 font-semibold text-slate-700">{{ log.name }}</td>
+                        <td class="p-4">
+                            {% if log.type == 'Stock IN' %}
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+                                    Stock In
+                                </span>
+                            {% else %}
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-800 uppercase tracking-wide">
+                                    Stock Out
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="p-4 text-slate-500 font-medium">{{ log.details }}</td>
+                        <td class="p-4 pr-6 text-right font-bold {% if log.type == 'Stock IN' %}text-emerald-600{% else %}text-rose-600{% endif %}">
+                            {% if log.type == 'Stock IN' %}+{% else %}-{% endif %}{{ log.qty }} {{ log.unit|lower }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- SECTION 3: STOCK TRANSACTION AUDIT -->
+<div id="section-audit" class="tab-section hidden flex flex-col gap-6">
+    <!-- Filters Panel Grid -->
+    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-5">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <!-- Period Dropdown -->
+            <div>
+                <label for="aud-period" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Period Selector</label>
+                <select id="aud-period" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 cursor-pointer">
+                    <option value="this-month">This Month</option>
+                    <option value="previous-month">Previous Month</option>
+                    <option value="quarter">This Quarter</option>
+                    <option value="year">This Year</option>
+                    <option value="custom">Custom Range</option>
+                </select>
+            </div>
+            
+            <!-- Date From Picker -->
+            <div>
+                <label for="aud-start-date" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Date From</label>
+                <input type="date" id="aud-start-date" class="w-full px-3.5 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-700 font-semibold cursor-pointer" disabled>
+            </div>
+
+            <!-- Date To Picker -->
+            <div>
+                <label for="aud-end-date" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Date To</label>
+                <input type="date" id="aud-end-date" class="w-full px-3.5 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-700 font-semibold cursor-pointer" disabled>
+            </div>
+
+            <!-- Run Audit Button -->
+            <button type="button" onclick="runStockAudit()" class="w-full py-2.5 px-4 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm hover:shadow transition-all duration-150 flex items-center justify-center gap-2 whitespace-nowrap">
+                <!-- Play Icon -->
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"></path>
+                </svg>
+                Run Audit
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+            <!-- Category Filter -->
+            <div>
+                <label for="aud-category" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Product Category</label>
+                <select id="aud-category" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 cursor-pointer">
+                    <option value="">All Categories</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Product Code Filter -->
+            <div>
+                <label for="aud-product" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Select Product</label>
+                <select id="aud-product" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700 cursor-pointer">
+                    <option value="">All Products</option>
+                    {% for product in products %}
+                        <option value="{{ product.code }}">{{ product.name }} ({{ product.code }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Report Results Table -->
+    <div id="audit-results-container" class="hidden bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm animate-[fadeIn_0.2s_ease-out]">
+        <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-bold text-slate-800">Stock Transaction History Audit</h3>
+                <p class="text-xs text-slate-400 mt-0.5">Calculated stock activity audit summary from date range parameters.</p>
+            </div>
+            <!-- Action Icons -->
+            <div class="flex items-center gap-2">
+                <button onclick="triggerExport('Stock Transaction Audit')" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-all" title="Download PDF">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </button>
+                <button onclick="triggerPrint('Stock Transaction Audit')" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-slate-50 rounded-lg transition-all" title="Print Report">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse" id="audit-list-table">
+                <thead>
+                    <tr class="bg-slate-50/75 border-b border-slate-100 text-xs font-bold uppercase text-slate-400 tracking-wider">
+                        <th class="p-4 pl-6">Category Name</th>
+                        <th class="p-4">Product ID</th>
+                        <th class="p-4">Product Name</th>
+                        <th class="p-4 w-28 text-center">Opening Stock</th>
+                        <th class="p-4 w-28 text-center">Stock In</th>
+                        <th class="p-4 w-28 text-center">Stock Out</th>
+                        <th class="p-4 pr-6 w-32 text-right">Net Quantity</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-sm">
+                    <!-- Dynamic rows will be inserted here by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Floating Action Feedback Toast -->
+<div id="toast-notification" class="fixed bottom-5 right-5 z-50 transform translate-y-10 opacity-0 pointer-events-none transition-all duration-300 ease-out flex items-center gap-3 bg-slate-900 text-white py-3.5 px-5 rounded-xl shadow-2xl max-w-md border border-slate-800">
+    <div class="w-6 h-6 rounded-full bg-teal-500 text-white flex items-center justify-center shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path>
+        </svg>
+    </div>
+    <div class="flex-1 min-w-0">
+        <strong class="text-sm font-bold block text-teal-400">Report Action Triggered</strong>
+        <span id="toast-message" class="text-xs text-slate-300 block mt-0.5 leading-relaxed">Processing file export.</span>
+    </div>
+</div>
+
+<!-- JSON databases passed safely to JavaScript -->
+<script id="products-json" type="application/json">
+[
+    {% for p in products %}
+    {
+        "code": "{{ p.code|escapejs }}",
+        "name": "{{ p.name|escapejs }}",
+        "category": "{{ p.category|escapejs }}",
+        "qty": {{ p.qty }},
+        "reorder": {{ p.reorder }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+]
+</script>
+
+<script id="logs-json" type="application/json">
+[
+    {% for log in activity_logs %}
+    {
+        "date": "{{ log.date|escapejs }}",
+        "code": "{{ log.code|escapejs }}",
+        "type": "{{ log.type|escapejs }}",
+        "qty": {{ log.qty }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+]
+</script>
+
+<style>
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+
+<script>
+// Tab Swapping Script
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-teal-600', 'text-teal-600');
+        btn.classList.add('border-transparent', 'text-slate-500', 'font-medium');
+    });
+    document.querySelectorAll('.tab-section').forEach(sec => {
+        sec.classList.add('hidden');
+        sec.classList.remove('block');
+    });
+
+    if (tabId === 'products') {
+        document.getElementById('tab-btn-products').className = 'tab-btn pb-3.5 text-sm font-semibold border-b-2 border-teal-600 text-teal-600 transition-colors focus:outline-none';
+        document.getElementById('section-products').classList.remove('hidden');
+        document.getElementById('section-products').classList.add('block');
+    } else if (tabId === 'activity') {
+        document.getElementById('tab-btn-activity').className = 'tab-btn pb-3.5 text-sm font-semibold border-b-2 border-teal-600 text-teal-600 transition-colors focus:outline-none';
+        document.getElementById('section-activity').classList.remove('hidden');
+        document.getElementById('section-activity').classList.add('block');
+    } else {
+        document.getElementById('tab-btn-audit').className = 'tab-btn pb-3.5 text-sm font-semibold border-b-2 border-teal-600 text-teal-600 transition-colors focus:outline-none';
+        document.getElementById('section-audit').classList.remove('hidden');
+        document.getElementById('section-audit').classList.add('block');
+    }
+}
+
+// PDF Download and Print Mock Actions
+function triggerExport(reportName) {
+    const toast = document.getElementById('toast-notification');
+    const toastMsg = document.getElementById('toast-message');
+    toastMsg.textContent = `Successfully generated PDF file download for "${reportName}".`;
+    toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+    toast.classList.add('translate-y-0', 'opacity-100');
+    setTimeout(() => {
+        toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+    }, 4000);
+}
+
+function triggerPrint(reportName) {
+    const toast = document.getElementById('toast-notification');
+    const toastMsg = document.getElementById('toast-message');
+    toastMsg.textContent = `Preparing document print margins for "${reportName}"...`;
+    toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+    toast.classList.add('translate-y-0', 'opacity-100');
+    setTimeout(() => {
+        toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        window.print();
+    }, 1500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // --- LOAD JSON DATABASES ---
+    const productsList = JSON.parse(document.getElementById('products-json').textContent);
+    const activityLogs = JSON.parse(document.getElementById('logs-json').textContent);
+
+    // --- PRODUCT LIST REPORT FILTER ---
+    const prodCategorySelect = document.getElementById('prod-category-select');
+    const prodRows = document.querySelectorAll('#prod-list-table tbody tr');
+
+    prodCategorySelect.addEventListener('change', () => {
+        const catVal = prodCategorySelect.value.toLowerCase();
+        prodRows.forEach(row => {
+            if (row.cells.length === 1) return;
+            const category = row.getAttribute('data-category').toLowerCase();
+            row.style.display = (!catVal || category === catVal) ? '' : 'none';
+        });
+    });
+
+    // --- ACTIVITY REPORT PERIOD HELPER ---
+    const actPeriodSelect = document.getElementById('act-period');
+    const actStartDate = document.getElementById('act-start-date');
+    const actEndDate = document.getElementById('act-end-date');
+
+    function setPeriodDates() {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = today.getMonth();
+        if (actPeriodSelect.value === 'this-month') {
+            actStartDate.value = new Date(y, m, 1).toISOString().split('T')[0];
+            actEndDate.value = today.toISOString().split('T')[0];
+            actStartDate.disabled = true;
+            actEndDate.disabled = true;
+        } else if (actPeriodSelect.value === 'previous-month') {
+            actStartDate.value = new Date(y, m - 1, 1).toISOString().split('T')[0];
+            actEndDate.value = new Date(y, m, 0).toISOString().split('T')[0];
+            actStartDate.disabled = true;
+            actEndDate.disabled = true;
+        } else {
+            actStartDate.disabled = false;
+            actEndDate.disabled = false;
+        }
+    }
+    actPeriodSelect.addEventListener('change', setPeriodDates);
+    setPeriodDates();
+
+    // --- AUDIT REPORT PERIOD HELPER ---
+    const audPeriodSelect = document.getElementById('aud-period');
+    const audStartDate = document.getElementById('aud-start-date');
+    const audEndDate = document.getElementById('aud-end-date');
+
+    function setAuditPeriodDates() {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = today.getMonth();
+        if (audPeriodSelect.value === 'this-month') {
+            audStartDate.value = new Date(y, m, 1).toISOString().split('T')[0];
+            audEndDate.value = today.toISOString().split('T')[0];
+            audStartDate.disabled = true;
+            audEndDate.disabled = true;
+        } else if (audPeriodSelect.value === 'previous-month') {
+            audStartDate.value = new Date(y, m - 1, 1).toISOString().split('T')[0];
+            audEndDate.value = new Date(y, m, 0).toISOString().split('T')[0];
+            audStartDate.disabled = true;
+            audEndDate.disabled = true;
+        } else if (audPeriodSelect.value === 'quarter') {
+            const quarterMonth = Math.floor(m / 3) * 3;
+            audStartDate.value = new Date(y, quarterMonth, 1).toISOString().split('T')[0];
+            audEndDate.value = today.toISOString().split('T')[0];
+            audStartDate.disabled = true;
+            audEndDate.disabled = true;
+        } else if (audPeriodSelect.value === 'year') {
+            audStartDate.value = new Date(y, 0, 1).toISOString().split('T')[0];
+            audEndDate.value = today.toISOString().split('T')[0];
+            audStartDate.disabled = true;
+            audEndDate.disabled = true;
+        } else {
+            audStartDate.disabled = false;
+            audEndDate.disabled = false;
+        }
+    }
+    audPeriodSelect.addEventListener('change', setAuditPeriodDates);
+    setAuditPeriodDates();
+});
+
+// Show Activity Report Handler
+function showActivityReport() {
+    const actCategory = document.getElementById('act-category').value.toLowerCase();
+    const actName = document.getElementById('act-name').value.toLowerCase();
+    const startDateVal = document.getElementById('act-start-date').value;
+    const endDateVal = document.getElementById('act-end-date').value;
+    const actRows = document.querySelectorAll('#act-list-table tbody tr');
+
+    actRows.forEach(row => {
+        const rowCategory = row.getAttribute('data-category').toLowerCase();
+        const rowName = row.getAttribute('data-name').toLowerCase();
+        const rowDate = row.getAttribute('data-date');
+
+        const matchesCategory = !actCategory || rowCategory === actCategory;
+        const matchesName = !actName || rowName === actName;
+        const matchesDate = (!startDateVal || !endDateVal) || (rowDate >= startDateVal && rowDate <= endDateVal);
+
+        row.style.display = (matchesCategory && matchesName && matchesDate) ? '' : 'none';
+    });
+
+    const resultsContainer = document.getElementById('activity-results-container');
+    resultsContainer.classList.remove('hidden');
+    resultsContainer.classList.add('block');
+}
+
+// Run Stock Transaction Audit Handler (Tab 3 Calculations)
+function runStockAudit() {
+    const products = JSON.parse(document.getElementById('products-json').textContent);
+    const logs = JSON.parse(document.getElementById('logs-json').textContent);
+
+    const audCategory = document.getElementById('aud-category').value.toLowerCase();
+    const audProductCode = document.getElementById('aud-product').value;
+    const startDateVal = document.getElementById('aud-start-date').value;
+    const endDateVal = document.getElementById('aud-end-date').value;
+
+    if (!startDateVal || !endDateVal) {
+        alert('Please select a valid date range to perform stock audit.');
+        return;
+    }
+
+    const tbody = document.querySelector('#audit-list-table tbody');
+    tbody.innerHTML = ''; // Clear previous audit rows
+
+    // Filter products catalog
+    const filteredProducts = products.filter(p => {
+        const matchesCategory = !audCategory || p.category.toLowerCase() === audCategory;
+        const matchesProduct = !audProductCode || p.code === audProductCode;
+        return matchesCategory && matchesProduct;
+    });
+
+    if (filteredProducts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400">No matching products found for the selected category/product filters.</td></tr>`;
+    } else {
+        filteredProducts.forEach(prod => {
+            // Find all activity logs for this product code
+            const prodLogs = logs.filter(l => l.code === prod.code);
+
+            let totalPostIn = 0;
+            let totalPostOut = 0;
+            let periodIn = 0;
+            let periodOut = 0;
+
+            prodLogs.forEach(log => {
+                if (log.date > endDateVal) {
+                    if (log.type === 'Stock IN') {
+                        totalPostIn += log.qty;
+                    } else {
+                        totalPostOut += log.qty;
+                    }
+                } else if (log.date >= startDateVal && log.date <= endDateVal) {
+                    if (log.type === 'Stock IN') {
+                        periodIn += log.qty;
+                    } else {
+                        periodOut += log.qty;
+                    }
+                }
+            });
+
+            // Back-calculate stock levels
+            const netQty = prod.qty - totalPostIn + totalPostOut; // Stock at end of period
+            const openingStock = netQty - periodIn + periodOut; // Stock at start of period
+
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-slate-50/50 transition-colors';
+            
+            row.innerHTML = `
+                <td class="p-4 pl-6">
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 uppercase tracking-wide">
+                        ${prod.category}
+                    </span>
+                </td>
+                <td class="p-4 font-mono text-xs text-slate-400 font-semibold">${prod.code}</td>
+                <td class="p-4 font-semibold text-slate-700">${prod.name}</td>
+                <td class="p-4 text-center font-semibold text-slate-600">${openingStock}</td>
+                <td class="p-4 text-center font-bold text-emerald-600">${periodIn > 0 ? '+' + periodIn : '0'}</td>
+                <td class="p-4 text-center font-bold text-rose-600">${periodOut > 0 ? '-' + periodOut : '0'}</td>
+                <td class="p-4 pr-6 text-right font-extrabold text-slate-900">${netQty}</td>
+            `;
+
+            tbody.appendChild(row);
+        });
+    }
+
+    // Reveal results container
+    const resultsContainer = document.getElementById('audit-results-container');
+    resultsContainer.classList.remove('hidden');
+    resultsContainer.classList.add('block');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,359 @@
+{% extends 'base.html' %}
+
+{% block title %}Products List | AssetZone{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs & Header -->
+<div class="mb-8">
+    <div class="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        <a href="{% url 'stock_management:dashboard' %}" class="hover:text-slate-600">Stock Dashboard</a>
+        <span>/</span>
+        <span class="text-slate-600">Products</span>
+    </div>
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Products Catalog</h1>
+            <p class="text-sm text-slate-500 mt-1">Search, filter, and monitor central consumable inventory levels.</p>
+        </div>
+        <!-- Add ID to the button to register click listener -->
+        <button id="add-product-btn" class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm hover:shadow transition-all duration-150 gap-2">
+            <!-- Plus Icon -->
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
+            </svg>
+            Add New Product
+        </button>
+    </div>
+</div>
+
+<!-- Aligned Search & Filter Block -->
+<div class="flex flex-col md:flex-row md:items-center gap-4 mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+    <!-- Text Search Input -->
+    <div class="flex-1 relative">
+        <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+            <svg class="h-4.5 w-4.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+        </span>
+        <input type="text" id="search-input" placeholder="Search by name, code, category..." class="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30">
+    </div>
+
+    <!-- Category Dropdown Filter -->
+    <div class="w-full md:w-60">
+        <select id="category-select" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700">
+            <option value="">All Categories</option>
+            {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- Product Name Dropdown Filter -->
+    <div class="w-full md:w-64">
+        <select id="name-select" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700">
+            <option value="">All Product Names</option>
+            {% for name in names %}
+                <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+<!-- Products Table -->
+<div class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+    <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse" id="products-table">
+            <thead>
+                <tr class="bg-slate-50/75 border-b border-slate-100 text-xs font-bold uppercase text-slate-400 tracking-wider">
+                    <th class="p-4 pl-6">Item Code</th>
+                    <th class="p-4">Product Name</th>
+                    <th class="p-4">Description</th>
+                    <th class="p-4 pr-6 w-32 text-right">Available Stock</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-sm">
+                {% for product in products %}
+                <tr class="hover:bg-slate-50/50 transition-colors" 
+                    data-code="{{ product.code }}"
+                    data-name="{{ product.name }}"
+                    data-category="{{ product.category }}"
+                    data-desc="{{ product.description }}">
+                    <td class="p-4 pl-6 font-mono text-xs text-slate-400 font-semibold">{{ product.code }}</td>
+                    <td class="p-4">
+                        <span class="font-semibold text-slate-700 block">{{ product.name }}</span>
+                        <span class="inline-flex items-center mt-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 uppercase tracking-wide">
+                            {{ product.category }}
+                        </span>
+                    </td>
+                    <td class="p-4 text-slate-500 max-w-sm">{{ product.description }}</td>
+                    <td class="p-4 pr-6 text-right font-bold text-slate-700">
+                        <div class="flex flex-col items-end">
+                            <span>{{ product.qty }}</span>
+                            {% if product.status == 'In Stock' %}
+                                <span class="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded mt-1">In Stock</span>
+                            {% elif product.status == 'Low Stock' %}
+                                <span class="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded mt-1 animate-pulse">Low Stock</span>
+                            {% else %}
+                                <span class="text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded mt-1">Out of Stock</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr id="empty-row">
+                    <td colspan="4" class="p-8 text-center text-slate-400">No products registered in catalog.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal: Add New Product (hidden by default) -->
+<div id="add-product-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm hidden opacity-0 transition-opacity duration-200">
+    <div class="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden transform scale-95 transition-transform duration-200">
+        <!-- Modal Header -->
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <h3 class="text-base font-bold text-slate-800">Register New Product</h3>
+            <button id="close-modal-btn" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition-colors">
+                <!-- Close Icon -->
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        
+        <!-- Modal Form Body -->
+        <div class="p-6 flex flex-col gap-4">
+            <!-- Product Code (Auto-populated/Readonly) -->
+            <div>
+                <label for="new-product-code" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Product Code (Item ID)</label>
+                <input type="text" id="new-product-code" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 bg-slate-100 text-slate-500 font-mono font-semibold" readonly>
+            </div>
+            <!-- Product Name -->
+            <div>
+                <label for="new-product-name" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Product Name</label>
+                <input type="text" id="new-product-name" placeholder="e.g. Dell Optical Mouse" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-800 font-medium">
+            </div>
+            <!-- Category -->
+            <div>
+                <label for="new-product-category" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Category</label>
+                <input type="text" id="new-product-category" placeholder="e.g. Peripherals" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-800 font-medium">
+            </div>
+            <!-- Description -->
+            <div>
+                <label for="new-product-desc" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Description</label>
+                <input type="text" id="new-product-desc" placeholder="e.g. USB wired mouse with optical tracking sensor" class="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-800 font-medium">
+            </div>
+            <!-- Reorder level -->
+            <div>
+                <label for="new-product-reorder" class="block text-xs font-bold uppercase text-slate-400 mb-1.5">Low Stock Reorder Level</label>
+                <input type="number" id="new-product-reorder" min="1" value="10" class="w-28 px-3.5 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-800 font-bold">
+            </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
+            <button id="cancel-modal-btn" class="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
+                Cancel
+            </button>
+            <button id="save-product-btn" class="px-5 py-2 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg shadow-sm hover:shadow transition-colors">
+                Save Product
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Floating Action Feedback Toast -->
+<div id="toast-notification" class="fixed bottom-5 right-5 z-50 transform translate-y-10 opacity-0 pointer-events-none transition-all duration-300 ease-out flex items-center gap-3 bg-slate-900 text-white py-3.5 px-5 rounded-xl shadow-2xl max-w-md border border-slate-800">
+    <div class="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path>
+        </svg>
+    </div>
+    <div class="flex-1 min-w-0">
+        <strong class="text-sm font-bold block text-emerald-400">Product Added!</strong>
+        <span id="toast-message" class="text-xs text-slate-300 block mt-0.5 leading-relaxed">Product has been successfully registered in the catalog.</span>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- EXISTING FILTER & SEARCH CODE ---
+        const searchInput = document.getElementById('search-input');
+        const categorySelect = document.getElementById('category-select');
+        const nameSelect = document.getElementById('name-select');
+        
+        function filterTable() {
+            const tableRows = document.querySelectorAll('#products-table tbody tr');
+            const searchVal = searchInput.value.toLowerCase().trim();
+            const categoryVal = categorySelect.value.toLowerCase();
+            const nameVal = nameSelect.value.toLowerCase();
+
+            tableRows.forEach(row => {
+                // If it's the "No products" row, skip
+                if (row.id === 'empty-row') return;
+
+                const code = row.getAttribute('data-code').toLowerCase();
+                const name = row.getAttribute('data-name').toLowerCase();
+                const category = row.getAttribute('data-category').toLowerCase();
+                const desc = row.getAttribute('data-desc').toLowerCase();
+
+                // Check text search
+                const matchesSearch = !searchVal || 
+                                      code.includes(searchVal) || 
+                                      name.includes(searchVal) || 
+                                      category.includes(searchVal) || 
+                                      desc.includes(searchVal);
+
+                // Check category dropdown
+                const matchesCategory = !categoryVal || category === categoryVal;
+
+                // Check name dropdown
+                const matchesName = !nameVal || name === nameVal;
+
+                if (matchesSearch && matchesCategory && matchesName) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        searchInput.addEventListener('input', filterTable);
+        categorySelect.addEventListener('change', filterTable);
+        nameSelect.addEventListener('change', filterTable);
+
+        // --- NEW PRODUCT ADDITION MODAL CODE ---
+        const modal = document.getElementById('add-product-modal');
+        const modalContent = modal.querySelector('.bg-white');
+        const addProductBtn = document.getElementById('add-product-btn');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const cancelModalBtn = document.getElementById('cancel-modal-btn');
+        const saveProductBtn = document.getElementById('save-product-btn');
+        
+        const newCodeInput = document.getElementById('new-product-code');
+        const newNameInput = document.getElementById('new-product-name');
+        const newCategoryInput = document.getElementById('new-product-category');
+        const newDescInput = document.getElementById('new-product-desc');
+        const newReorderInput = document.getElementById('new-product-reorder');
+
+        const toast = document.getElementById('toast-notification');
+        const toastMsg = document.getElementById('toast-message');
+
+        function openModal() {
+            // Auto generate an item ID / Product Code
+            const randomNum = Math.floor(100 + Math.random() * 900); // 3 digit number
+            newCodeInput.value = `CON-PROD-${randomNum}`;
+            
+            // Reset input values
+            newNameInput.value = '';
+            newCategoryInput.value = '';
+            newDescInput.value = '';
+            newReorderInput.value = 10;
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modalContent.classList.remove('scale-95');
+            }, 10);
+        }
+
+        function closeModal() {
+            modal.classList.add('opacity-0');
+            modalContent.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        addProductBtn.addEventListener('click', openModal);
+        closeModalBtn.addEventListener('click', closeModal);
+        cancelModalBtn.addEventListener('click', closeModal);
+
+        // Close on overlay click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // Save action
+        saveProductBtn.addEventListener('click', () => {
+            const code = newCodeInput.value;
+            const name = newNameInput.value.trim();
+            const category = newCategoryInput.value.trim();
+            const desc = newDescInput.value.trim();
+            const reorder = newReorderInput.value;
+
+            if (!name || !category || !desc || !reorder) {
+                alert('Please fill out all product details.');
+                return;
+            }
+
+            // Remove empty row if it exists
+            const emptyRow = document.getElementById('empty-row');
+            if (emptyRow) emptyRow.remove();
+
+            // Create new table row element
+            const tbody = document.querySelector('#products-table tbody');
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-slate-50/50 transition-colors animate-[fadeIn_0.2s_ease-out]';
+            row.setAttribute('data-code', code);
+            row.setAttribute('data-name', name);
+            row.setAttribute('data-category', category);
+            row.setAttribute('data-desc', desc);
+
+            row.innerHTML = `
+                <td class="p-4 pl-6 font-mono text-xs text-slate-400 font-semibold">${code}</td>
+                <td class="p-4">
+                    <span class="font-semibold text-slate-700 block">${name}</span>
+                    <span class="inline-flex items-center mt-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 uppercase tracking-wide">
+                        ${category}
+                    </span>
+                </td>
+                <td class="p-4 text-slate-500 max-w-sm">${desc}</td>
+                <td class="p-4 pr-6 text-right font-bold text-slate-700">
+                    <div class="flex flex-col items-end">
+                        <span>0</span>
+                        <span class="text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded mt-1">Out of Stock</span>
+                    </div>
+                </td>
+            `;
+
+            tbody.appendChild(row);
+
+            // Re-bind dynamic select options (optionally insert into dropdown filters)
+            const existsCategory = Array.from(categorySelect.options).some(opt => opt.value.toLowerCase() === category.toLowerCase());
+            if (!existsCategory) {
+                const opt = new Option(category, category);
+                categorySelect.add(opt);
+            }
+            
+            const existsName = Array.from(nameSelect.options).some(opt => opt.value.toLowerCase() === name.toLowerCase());
+            if (!existsName) {
+                const opt = new Option(name, name);
+                nameSelect.add(opt);
+            }
+
+            // Close modal
+            closeModal();
+
+            // Show Toast feedback
+            toastMsg.textContent = `Product "${name}" (${code}) has been successfully added to catalog.`;
+            toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
+                toast.classList.remove('translate-y-0', 'opacity-100');
+            }, 5000);
+        });
+    });
+</script>
+
+<style>
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+{% endblock %}

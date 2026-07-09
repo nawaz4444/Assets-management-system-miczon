@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+
+{% block title %}Bulk Stock OUT | AssetZone{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs & Header -->
+<div class="mb-8">
+    <div class="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+        <a href="{% url 'stock_management:dashboard' %}" class="hover:text-slate-600">Stock Dashboard</a>
+        <span>/</span>
+        <span class="text-slate-600">Stock Out</span>
+    </div>
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900">Bulk Stock Outbound</h1>
+    <p class="text-sm text-slate-500 mt-1">Dispatch multiple consumable hardware items to employees or departments at once.</p>
+</div>
+
+<!-- Main Section -->
+<div class="flex flex-col gap-6">
+    <!-- Form Container -->
+    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        
+        <!-- Date & Demand By Selectors -->
+        <div class="flex flex-col md:flex-row items-stretch md:items-center gap-4 mb-6 bg-slate-50/75 p-4 rounded-lg border border-slate-100 w-fit">
+            <!-- Date Picker -->
+            <div class="flex items-center gap-3">
+                <label for="stock-out-date" class="text-xs font-bold uppercase text-slate-500 tracking-wider">Date:</label>
+                <input type="date" id="stock-out-date" class="px-3.5 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white font-semibold text-slate-700 cursor-pointer">
+            </div>
+            
+            <!-- Divider -->
+            <div class="hidden md:block w-px h-6 bg-slate-200"></div>
+            
+            <!-- Demand By Picker -->
+            <div class="flex items-center gap-3">
+                <label for="demand-by" class="text-xs font-bold uppercase text-slate-500 tracking-wider whitespace-nowrap">Demand By:</label>
+                <input type="text" id="demand-by" placeholder="Employee Name" class="px-3.5 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white font-semibold text-slate-700 w-56">
+            </div>
+        </div>
+
+        <!-- Bulk Outbound Table -->
+        <div class="overflow-x-auto mb-6">
+            <table class="w-full text-left border-collapse" id="bulk-stock-out-table">
+                <thead>
+                    <tr class="bg-slate-50/50 border-b border-slate-100 text-xs font-bold uppercase text-slate-400 tracking-wider">
+                        <th class="p-3 pl-4 w-[20%]">Category</th>
+                        <th class="p-3 w-[25%]">Product</th>
+                        <th class="p-3 w-[22%]">Purpose</th>
+                        <th class="p-3 w-[15%]">Unit</th>
+                        <th class="p-3 w-[12%]">Quantity</th>
+                        <th class="p-3 pr-4 text-center w-[6%]">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-sm" id="table-body">
+                    <!-- Dynamic rows will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-between border-t border-slate-100 pt-6">
+            <button type="button" id="add-row-btn" class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg hover:bg-teal-100 transition-colors gap-2">
+                <!-- Add Icon -->
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
+                </svg>
+                Add Row
+            </button>
+            
+            <div class="flex items-center gap-3">
+                <a href="{% url 'stock_management:dashboard' %}" class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors no-underline">
+                    Cancel
+                </a>
+                <button type="button" id="submit-stock-btn" class="inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm hover:shadow transition-all duration-150 gap-2 whitespace-nowrap">
+                    <!-- Check Icon -->
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path>
+                    </svg>
+                    Submit Stock Out
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Floating Success Toast Notification -->
+<div id="toast-notification" class="fixed bottom-5 right-5 z-50 transform translate-y-10 opacity-0 pointer-events-none transition-all duration-300 ease-out flex items-center gap-3 bg-slate-900 text-white py-3.5 px-5 rounded-xl shadow-2xl max-w-md border border-slate-800">
+    <div class="w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"></path>
+        </svg>
+    </div>
+    <div class="flex-1 min-w-0">
+        <strong class="text-sm font-bold block text-rose-400">Stock Dispatched Successfully!</strong>
+        <span id="toast-message" class="text-xs text-slate-300 block mt-0.5 leading-relaxed">The items were allocated.</span>
+    </div>
+</div>
+
+<!-- JSON Database passed safely to frontend script -->
+<script id="products-data" type="application/json">
+[
+    {% for p in products %}
+    {
+        "code": "{{ p.code|escapejs }}",
+        "name": "{{ p.name|escapejs }}",
+        "category": "{{ p.category|escapejs }}"
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+]
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Initialise datepicker to today's date
+    const dateInput = document.getElementById('stock-out-date');
+    const today = new Date().toISOString().split('T')[0];
+    dateInput.value = today;
+
+    // 2. Parse database records
+    const products = JSON.parse(document.getElementById('products-data').textContent);
+    
+    // Get unique categories list
+    const categories = [...new Set(products.map(p => p.category))].sort();
+
+    const tableBody = document.getElementById('table-body');
+    const addRowBtn = document.getElementById('add-row-btn');
+    const submitBtn = document.getElementById('submit-stock-btn');
+    const demandByInput = document.getElementById('demand-by');
+    const toast = document.getElementById('toast-notification');
+    const toastMessage = document.getElementById('toast-message');
+
+    // 3. Helper: Generate a unique row element
+    function createRow() {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-slate-50/25 transition-colors group/row';
+        
+        // Category options string
+        let categoryOptions = '<option value="">Select Category</option>';
+        categories.forEach(cat => {
+            categoryOptions += `<option value="${cat}">${cat}</option>`;
+        });
+
+        row.innerHTML = `
+            <td class="p-3 pl-4">
+                <select class="row-category w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700">
+                    ${categoryOptions}
+                </select>
+            </td>
+            <td class="p-3">
+                <select class="row-product w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700" disabled>
+                    <option value="">Select Category First</option>
+                </select>
+            </td>
+            <td class="p-3">
+                <input type="text" class="row-purpose w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 text-slate-600" placeholder="Purpose of dispatch...">
+            </td>
+            <td class="p-3">
+                <select class="row-unit w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-medium text-slate-700">
+                    <option value="pieces">Pieces</option>
+                    <option value="boxes">Boxes</option>
+                    <option value="packs">Packs</option>
+                    <option value="units">Units</option>
+                </select>
+            </td>
+            <td class="p-3">
+                <input type="number" min="1" value="1" class="row-quantity w-24 px-3 py-1.5 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/30 font-semibold text-slate-800">
+            </td>
+            <td class="p-3 pr-4 text-center">
+                <button type="button" class="row-delete-btn text-slate-300 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-all">
+                    <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                </button>
+            </td>
+        `;
+
+        // References to elements inside the row
+        const categorySelect = row.querySelector('.row-category');
+        const productSelect = row.querySelector('.row-product');
+        const quantityInput = row.querySelector('.row-quantity');
+        const deleteBtn = row.querySelector('.row-delete-btn');
+
+        // Dynamic cascading dropdown: Category -> Product
+        categorySelect.addEventListener('change', () => {
+            const selectedCat = categorySelect.value;
+            productSelect.innerHTML = '';
+
+            if (!selectedCat) {
+                productSelect.innerHTML = '<option value="">Select Category First</option>';
+                productSelect.disabled = true;
+                return;
+            }
+
+            const filteredProducts = products.filter(p => p.category === selectedCat);
+            let productOptions = '<option value="">Select Product</option>';
+            filteredProducts.forEach(p => {
+                productOptions += `<option value="${p.code}">${p.name} (${p.code})</option>`;
+            });
+
+            productSelect.innerHTML = productOptions;
+            productSelect.disabled = false;
+        });
+
+        // Delete Row functionality
+        deleteBtn.addEventListener('click', () => {
+            // Keep at least one row
+            if (tableBody.children.length > 1) {
+                row.classList.add('scale-95', 'opacity-0');
+                setTimeout(() => row.remove(), 150);
+            } else {
+                // Clear row values instead of deleting last row
+                categorySelect.value = '';
+                categorySelect.dispatchEvent(new Event('change'));
+                row.querySelector('.row-purpose').value = '';
+                quantityInput.value = 1;
+            }
+        });
+
+        return row;
+    }
+
+    // 4. Initialise: Load first blank row
+    tableBody.appendChild(createRow());
+
+    // 5. Add Row button handler
+    addRowBtn.addEventListener('click', () => {
+        const newRow = createRow();
+        newRow.classList.add('scale-95', 'opacity-0');
+        tableBody.appendChild(newRow);
+        // Animate row entry
+        setTimeout(() => {
+            newRow.classList.remove('scale-95', 'opacity-0');
+            newRow.classList.add('transition-all', 'duration-200');
+        }, 10);
+    });
+
+    // 6. Submit Stock-Out Form handler
+    submitBtn.addEventListener('click', () => {
+        const recipientName = demandByInput.value.trim();
+        const rows = tableBody.children;
+        const loggedItems = [];
+        let validationError = false;
+
+        if (!recipientName) {
+            alert('Please specify the recipient in the "Demand By" field.');
+            demandByInput.classList.add('border-rose-300', 'bg-rose-50');
+            setTimeout(() => demandByInput.classList.remove('border-rose-300', 'bg-rose-50'), 1500);
+            demandByInput.focus();
+            return;
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const cat = row.querySelector('.row-category').value;
+            const prodCode = row.querySelector('.row-product').value;
+            const prodNameText = row.querySelector('.row-product').options[row.querySelector('.row-product').selectedIndex]?.text;
+            const purpose = row.querySelector('.row-purpose').value.trim();
+            const qty = row.querySelector('.row-quantity').value;
+            const unit = row.querySelector('.row-unit').value;
+
+            if (!cat || !prodCode || !qty) {
+                validationError = true;
+                row.classList.add('bg-rose-50/50');
+                setTimeout(() => row.classList.remove('bg-rose-50/50'), 1500);
+            } else {
+                loggedItems.push({
+                    code: prodCode,
+                    name: prodNameText.split(' (')[0],
+                    purpose: purpose,
+                    qty: qty,
+                    unit: unit
+                });
+            }
+        }
+
+        if (validationError) {
+            alert('Please select a Category and Product, and specify a Quantity for all active rows.');
+            return;
+        }
+
+        // Simulating the submission success and description updates
+        const details = loggedItems.map(item => `${item.qty} ${item.unit} of ${item.name}`).join(', ');
+        toastMessage.textContent = `Dispatched: ${details} to ${recipientName}. Outbound logs updated.`;
+        
+        toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+        toast.classList.add('translate-y-0', 'opacity-100');
+
+        // Reset Table and Input Fields
+        tableBody.innerHTML = '';
+        tableBody.appendChild(createRow());
+        demandByInput.value = '';
+
+        // Hide notification after 5s
+        setTimeout(() => {
+            toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
+            toast.classList.remove('translate-y-0', 'opacity-100');
+        }, 5000);
+    });
+});
+</script>
+{% endblock %}

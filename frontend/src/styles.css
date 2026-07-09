@@ -131,6 +131,18 @@ a {
   border-radius: 4px;
 }
 
+.app-icon-layers::before {
+  inset: 2px 2px 8px 2px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.app-icon-layers::after {
+  inset: 8px 2px 2px 2px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
 .app-icon-users::before {
   width: 8px;
   height: 8px;
