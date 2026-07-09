@@ -1,9 +1,15 @@
 from django.db import models
 
+class StockCategory(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
 class StockProduct(models.Model):
     code = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=255)
-    category = models.CharField(max_length=100)
+    category = models.ForeignKey(StockCategory, on_delete=models.CASCADE, related_name='products')
     description = models.TextField(blank=True, default='')
     qty = models.IntegerField(default=0)
     reorder = models.IntegerField(default=10)

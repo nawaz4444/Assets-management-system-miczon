@@ -254,8 +254,7 @@ function AppShell({ token, handleLogout }) {
             <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} />} />
             <Route path="/stock" element={<StockDashboard api={api} />} />
             <Route path="/stock/products" element={<StockProducts api={api} />} />
-            <Route path="/stock/stock-in" element={<StockIn api={api} />} />
-            <Route path="/stock/stock-out" element={<StockOut api={api} />} />
+            <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
             <Route path="/stock/reports" element={<StockReports api={api} />} />
             <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -306,12 +305,19 @@ function PageHeader({ eyebrow, title, children }) {
   );
 }
 
-function MetricCard({ label, value, to, tone = 'slate' }) {
+function MetricCard({ label, value, to, tone = 'slate', subtext }) {
   return (
     <Link className="metric-card-link" to={to} aria-label={`Open ${label}`}>
-      <section className={`metric-card ${tone}`}>
-        <span>{label}</span>
-        <strong>{value ?? 0}</strong>
+      <section className={`metric-card ${tone}`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <span>{label}</span>
+          {subtext && <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#64748b' }}>{subtext}</span>}
+        </div>
+        {typeof value === 'object' ? (
+          value
+        ) : (
+          <strong>{value ?? 0}</strong>
+        )}
       </section>
     </Link>
   );
@@ -2267,16 +2273,59 @@ function StockDashboard({ api }) {
   }, [api]);
 
   if (loading) return <div style={{ padding: '24px', color: '#64748b' }}>Loading dashboard data...</div>;
-
+ 
   const lowStockCount = products.filter(p => p.qty <= p.reorder).length;
   const totalInQty = transactions.filter(t => t.type === 'IN').reduce((acc, t) => acc + t.qty, 0);
   const totalOutQty = transactions.filter(t => t.type === 'OUT').reduce((acc, t) => acc + t.qty, 0);
 
+  const adjustmentsValue = (
+    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '10px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#0d9488', fontWeight: 'bold', fontSize: '24px' }}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '18px', height: '18px', transform: 'rotate(180deg)', transformOrigin: 'center' }}>
+            <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm1.25-11.25a.75.75 0 0 0-1.5 0v4.59L7.53 9.03a.75.75 0 0 0-1.06 1.06l3.5 3.5a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 1 0-1.06-1.06l-2.22 2.22V6.75Z" clipRule="evenodd" />
+          </svg>
+          +{totalInQty}
+        </div>
+        <span style={{ fontSize: '10px', color: '#0d9488', textTransform: 'uppercase', fontWeight: 'bold' }}>Stock In</span>
+      </div>
+      <div style={{ width: '1px', height: '28px', background: '#cbd5e1' }} />
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#e11d48', fontWeight: 'bold', fontSize: '24px' }}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style={{ width: '18px', height: '18px' }}>
+            <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm1.25-11.25a.75.75 0 0 0-1.5 0v4.59L7.53 9.03a.75.75 0 0 0-1.06 1.06l3.5 3.5a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 1 0-1.06-1.06l-2.22 2.22V6.75Z" clipRule="evenodd" />
+          </svg>
+          -{totalOutQty}
+        </div>
+        <span style={{ fontSize: '10px', color: '#e11d48', textTransform: 'uppercase', fontWeight: 'bold' }}>Stock Out</span>
+      </div>
+    </div>
+  );
+
+  const alertsValue = lowStockCount > 0 ? (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#d97706', fontWeight: 'bold', fontSize: '28px' }}>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: '24px', height: '24px' }}>
+          <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003ZM12 8.25a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V9a.75.75 0 0 1 .75-.75Zm0 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
+        </svg>
+        {lowStockCount} Alert(s)
+      </div>
+    </div>
+  ) : (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669', fontWeight: 'bold', fontSize: '24px' }}>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style={{ width: '24px', height: '24px' }}>
+          <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z" clipRule="evenodd" />
+        </svg>
+        Optimal
+      </div>
+    </div>
+  );
+
   const metrics = [
-    { label: 'Products', value: products.length, to: '/stock/products', tone: 'blue' },
-    { label: 'Stock IN', value: `+${totalInQty}`, to: '/stock/stock-in', tone: 'green' },
-    { label: 'Stock Out', value: `-${totalOutQty}`, to: '/stock/stock-out', tone: 'red' },
-    { label: 'Reports', value: `${lowStockCount} Alert(s)`, to: '/stock/reports', tone: 'amber' },
+    { label: 'Products', value: products.length, to: '/stock/products', tone: 'blue', subtext: 'Total registered items' },
+    { label: 'Adjustments', value: adjustmentsValue, to: '/stock/adjustments', tone: 'green', subtext: 'Stock inbound & outbound' },
+    { label: 'Reports', value: alertsValue, to: '/stock/reports', tone: 'amber', subtext: 'Reorder warnings' },
   ];
 
   return (
@@ -2286,9 +2335,60 @@ function StockDashboard({ api }) {
       
       <div className="metric-grid">
         {metrics.map((metric) => (
-          <MetricCard key={metric.label} label={metric.label} value={metric.value} to={metric.to} tone={metric.tone} />
+          <MetricCard key={metric.label} label={metric.label} value={metric.value} to={metric.to} tone={metric.tone} subtext={metric.subtext} />
         ))}
       </div>
+    </>
+  );
+}
+
+function StockAdjustments({ api }) {
+  const [activeTab, setActiveTab] = useState('in'); // 'in' or 'out'
+
+  return (
+    <>
+      <header className="page-header" style={{ marginBottom: '24px' }}>
+        <p className="eyebrow">Stock Dashboard / Adjustments</p>
+        <h1>Inventory Adjustments</h1>
+      </header>
+
+      {/* Tab Switcher */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
+        <button 
+          onClick={() => setActiveTab('in')}
+          style={{
+            paddingBottom: '14px',
+            fontSize: '14px',
+            fontWeight: activeTab === 'in' ? '600' : '500',
+            borderBottom: activeTab === 'in' ? '2px solid #0d9488' : '2px solid transparent',
+            color: activeTab === 'in' ? '#0d9488' : '#64748b',
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          Stock Inbound (Stock In)
+        </button>
+        <button 
+          onClick={() => setActiveTab('out')}
+          style={{
+            paddingBottom: '14px',
+            fontSize: '14px',
+            fontWeight: activeTab === 'out' ? '600' : '500',
+            borderBottom: activeTab === 'out' ? '2px solid #0d9488' : '2px solid transparent',
+            color: activeTab === 'out' ? '#0d9488' : '#64748b',
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+            cursor: 'pointer'
+          }}
+        >
+          Stock Outbound (Stock Out)
+        </button>
+      </div>
+
+      {activeTab === 'in' ? (
+        <StockIn api={api} />
+      ) : (
+        <StockOut api={api} />
+      )}
     </>
   );
 }
@@ -2301,8 +2401,20 @@ function StockProducts({ api }) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [nameFilter, setNameFilter] = useState('');
   
-  // Modal State
+  // Modal & Category State
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [newCatDialogName, setNewCatDialogName] = useState('');
+  const [categoriesList, setCategoriesList] = useState([]);
+  const [showAddCatInline, setShowAddCatInline] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  
+  // Edit States
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editProductId, setEditProductId] = useState(null);
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editingCatName, setEditingCatName] = useState('');
+
   const [newProduct, setNewProduct] = useState({
     code: '',
     name: '',
@@ -2323,11 +2435,18 @@ function StockProducts({ api }) {
       .finally(() => setLoading(false));
   }, [api]);
 
+  const loadCategories = useCallback(() => {
+    api.get('/stock/categories/')
+      .then((res) => setCategoriesList(res.data))
+      .catch(() => {});
+  }, [api]);
+
   useEffect(() => {
     loadProducts();
-  }, [loadProducts]);
+    loadCategories();
+  }, [loadProducts, loadCategories]);
 
-  const categories = [...new Set(products.map(p => p.category))].sort();
+  const categories = [...new Set(products.map(p => p.category_name))].filter(Boolean).sort();
   const names = [...new Set(products.map(p => p.name))].sort();
 
   const handleOpenModal = () => {
@@ -2339,6 +2458,23 @@ function StockProducts({ api }) {
       description: '',
       reorder: 10
     });
+    setIsEditMode(false);
+    setEditProductId(null);
+    setShowAddCatInline(false);
+    setNewCatName('');
+    setDialogOpen(true);
+  };
+
+  const handleEditProduct = (prod) => {
+    setNewProduct({
+      code: prod.code,
+      name: prod.name,
+      category: prod.category, // ID
+      description: prod.description,
+      reorder: prod.reorder
+    });
+    setIsEditMode(true);
+    setEditProductId(prod.id);
     setDialogOpen(true);
   };
 
@@ -2349,14 +2485,38 @@ function StockProducts({ api }) {
       return;
     }
     try {
-      await api.post('/stock/products/', newProduct);
+      if (isEditMode) {
+        await api.put(`/stock/products/${editProductId}/`, newProduct);
+        setToastMsg(`Product "${newProduct.name}" successfully updated.`);
+      } else {
+        await api.post('/stock/products/', newProduct);
+        setToastMsg(`Product "${newProduct.name}" successfully added to catalog.`);
+      }
       setDialogOpen(false);
-      setToastMsg(`Product "${newProduct.name}" successfully added to catalog.`);
       setToastShow(true);
       setTimeout(() => setToastShow(false), 5000);
       loadProducts();
     } catch (err) {
-      alert('Unable to save new product.');
+      alert('Unable to save product specs.');
+    }
+  };
+
+  const handleSaveCategoryOnly = async (e) => {
+    e.preventDefault();
+    if (!newCatDialogName.trim()) {
+      alert('Please enter category name.');
+      return;
+    }
+    try {
+      await api.post('/stock/categories/', { name: newCatDialogName });
+      setCatDialogOpen(false);
+      setNewCatDialogName('');
+      setToastMsg(`Category "${newCatDialogName}" successfully added.`);
+      setToastShow(true);
+      setTimeout(() => setToastShow(false), 4000);
+      loadCategories();
+    } catch {
+      alert('Unable to save category. It might already exist.');
     }
   };
 
@@ -2365,10 +2525,10 @@ function StockProducts({ api }) {
     const matchesSearch = !search || 
       p.code.toLowerCase().includes(searchVal) || 
       p.name.toLowerCase().includes(searchVal) || 
-      p.category.toLowerCase().includes(searchVal) || 
+      (p.category_name || '').toLowerCase().includes(searchVal) || 
       p.description.toLowerCase().includes(searchVal);
       
-    const matchesCategory = !categoryFilter || p.category === categoryFilter;
+    const matchesCategory = !categoryFilter || p.category_name === categoryFilter;
     const matchesName = !nameFilter || p.name === nameFilter;
     
     return matchesSearch && matchesCategory && matchesName;
@@ -2381,9 +2541,14 @@ function StockProducts({ api }) {
           <p className="eyebrow">Stock Dashboard / Products</p>
           <h1>Products Catalog</h1>
         </div>
-        <Button onClick={handleOpenModal} style={{ background: '#0d9488', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <span>+</span> Add New Product
-        </Button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <Button onClick={() => setCatDialogOpen(true)} style={{ background: '#0f766e', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span>+</span> Add Category
+          </Button>
+          <Button onClick={handleOpenModal} style={{ background: '#0d9488', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span>+</span> Add New Product
+          </Button>
+        </div>
       </header>
 
       {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
@@ -2419,6 +2584,7 @@ function StockProducts({ api }) {
                 <th style={{ padding: '16px 24px' }}>Product Name</th>
                 <th style={{ padding: '16px 24px' }}>Description</th>
                 <th style={{ padding: '16px 24px', textAlign: 'right' }}>Available Stock</th>
+                <th style={{ padding: '16px 24px', width: '100px', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -2427,7 +2593,7 @@ function StockProducts({ api }) {
                   <td style={{ padding: '16px 24px', fontFamily: 'monospace', color: '#94a3b8', fontWeight: '600' }}>{prod.code}</td>
                   <td style={{ padding: '16px 24px' }}>
                     <strong style={{ display: 'block', color: '#334155' }}>{prod.name}</strong>
-                    <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px', textTransform: 'uppercase' }}>{prod.category}</span>
+                    <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px', textTransform: 'uppercase' }}>{prod.category_name}</span>
                   </td>
                   <td style={{ padding: '16px 24px', color: '#64748b', maxWidth: '320px' }}>{prod.description}</td>
                   <td style={{ padding: '16px 24px', textAlign: 'right' }}>
@@ -2445,11 +2611,51 @@ function StockProducts({ api }) {
                       }}>{prod.status}</span>
                     </div>
                   </td>
+                  <td style={{ padding: '16px 24px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', alignItems: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => handleEditProduct(prod)}
+                        style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', display: 'inline-flex', color: '#64748b', transition: 'color 0.2s' }}
+                        title="Edit Product"
+                        onMouseEnter={(e) => e.currentTarget.style.color = '#0d9488'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.83 20.04a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                        </svg>
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={async () => {
+                          if (window.confirm(`Are you sure you want to delete product "${prod.name}"?`)) {
+                            try {
+                              await api.delete(`/stock/products/${prod.id}/`);
+                              setToastMsg(`Product "${prod.name}" successfully deleted.`);
+                              setToastShow(true);
+                              setTimeout(() => setToastShow(false), 4000);
+                              loadProducts();
+                            } catch {
+                              alert('Unable to delete product.');
+                            }
+                          }
+                        }}
+                        style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', display: 'inline-flex', color: '#ef4444', transition: 'opacity 0.2s' }}
+                        title="Delete Product"
+                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {filteredProducts.length === 0 && (
                 <tr>
-                  <td colSpan="4" style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>No products match the selected filters.</td>
+                  <td colSpan="5" style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>No products match the selected filters.</td>
                 </tr>
               )}
             </tbody>
@@ -2461,7 +2667,7 @@ function StockProducts({ api }) {
       <Dialog open={dialogOpen}>
         <DialogContent>
           <div style={{ padding: '20px' }}>
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Register New Product</h3>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>{isEditMode ? 'Edit Product Details' : 'Register New Product'}</h3>
             <form onSubmit={handleSaveProduct} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Product Code</label>
@@ -2473,7 +2679,64 @@ function StockProducts({ api }) {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Category</label>
-                <input required type="text" placeholder="e.g. Peripherals" value={newProduct.category} onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })} style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <Select 
+                    required 
+                    value={newProduct.category} 
+                    onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">Select Category</option>
+                    {categoriesList.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </Select>
+                  <Button 
+                    type="button" 
+                    variant="ghost" 
+                    onClick={() => setShowAddCatInline(!showAddCatInline)}
+                    style={{ padding: '6px 12px', minHeight: '38px', fontSize: '12px', fontWeight: 'bold' }}
+                  >
+                    {showAddCatInline ? 'Cancel' : '+ New Category'}
+                  </Button>
+                </div>
+                
+                {showAddCatInline && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Category name..." 
+                      value={newCatName}
+                      onChange={(e) => setNewCatName(e.target.value)}
+                      style={{ flex: 1, padding: '6px 10px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                    />
+                    <Button 
+                      type="button" 
+                      onClick={async () => {
+                        if (!newCatName.trim()) {
+                          alert('Please enter a category name.');
+                          return;
+                        }
+                        try {
+                          const res = await api.post('/stock/categories/', { name: newCatName });
+                          setNewCatName('');
+                          setShowAddCatInline(false);
+                          // Refresh categories
+                          api.get('/stock/categories/').then((catRes) => {
+                            setCategoriesList(catRes.data);
+                            // Pre-select the newly created category
+                            setNewProduct(prev => ({ ...prev, category: res.data.id }));
+                          });
+                        } catch {
+                          alert('Unable to save category. It might already exist.');
+                        }
+                      }}
+                      style={{ background: '#0d9488', color: '#fff', fontSize: '12px', minHeight: '32px', padding: '4px 10px' }}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                )}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Description</label>
@@ -2485,9 +2748,145 @@ function StockProducts({ api }) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
                 <Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" style={{ background: '#0d9488', color: '#fff' }}>Save Product</Button>
+                <Button type="submit" style={{ background: '#0d9488', color: '#fff' }}>{isEditMode ? 'Save Changes' : 'Save Product'}</Button>
               </div>
             </form>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Standalone Add Category Dialog */}
+      <Dialog open={catDialogOpen}>
+        <DialogContent>
+          <div style={{ padding: '20px' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Add New Category</h3>
+            <form onSubmit={handleSaveCategoryOnly} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Category Name</label>
+                <input 
+                  required 
+                  type="text" 
+                  placeholder="e.g. Peripherals" 
+                  value={newCatDialogName} 
+                  onChange={(e) => setNewCatDialogName(e.target.value)} 
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }} 
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
+                <Button type="button" variant="ghost" onClick={() => { setCatDialogOpen(false); setNewCatDialogName(''); }}>Cancel</Button>
+                <Button type="submit" style={{ background: '#0f766e', color: '#fff' }}>Save Category</Button>
+              </div>
+            </form>
+
+            <hr style={{ border: '0', borderTop: '1px solid #e2e8f0', margin: '20px 0' }} />
+            
+            <div>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '10px' }}>Existing Categories</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                {categoriesList.map(cat => {
+                  const isEditing = editingCatId === cat.id;
+                  return (
+                    <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '8px 12px', borderRadius: '6px', border: '1px solid #f1f5f9', gap: '8px' }}>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+                          <input 
+                            type="text" 
+                            value={editingCatName} 
+                            onChange={(e) => setEditingCatName(e.target.value)} 
+                            style={{ flex: 1, padding: '4px 8px', fontSize: '13px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                          />
+                          <button 
+                            type="button"
+                            onClick={async () => {
+                              if (!editingCatName.trim()) {
+                                alert('Category name cannot be empty.');
+                                return;
+                              }
+                              try {
+                                await api.put(`/stock/categories/${cat.id}/`, { name: editingCatName });
+                                setEditingCatId(null);
+                                // Refresh categories list
+                                api.get('/stock/categories/').then((catRes) => {
+                                  setCategoriesList(catRes.data);
+                                });
+                                // Refresh products catalog in the background
+                                loadProducts();
+                              } catch {
+                                alert('Unable to update category name.');
+                              }
+                            }}
+                            style={{ background: '#0d9488', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                          >
+                            Save
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setEditingCatId(null)}
+                            style={{ background: '#cbd5e1', color: '#334155', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: '#334155' }}>{cat.name}</span>
+                          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                            <button 
+                              type="button" 
+                              onClick={() => {
+                                setEditingCatId(cat.id);
+                                setEditingCatName(cat.name);
+                              }}
+                              style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', display: 'inline-flex', color: '#64748b', transition: 'color 0.2s' }}
+                              title="Edit Category Name"
+                              onMouseEnter={(e) => e.currentTarget.style.color = '#0d9488'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '15px', height: '15px' }}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.83 20.04a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                              </svg>
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={async () => {
+                                if (window.confirm(`WARNING: Deleting category "${cat.name}" will also delete all associated products. Are you sure you want to proceed?`)) {
+                                  try {
+                                    await api.delete(`/stock/categories/${cat.id}/`);
+                                    setToastMsg(`Category "${cat.name}" successfully deleted.`);
+                                    setToastShow(true);
+                                    setTimeout(() => setToastShow(false), 4000);
+                                    
+                                    // Refresh categories list
+                                    api.get('/stock/categories/').then((catRes) => {
+                                      setCategoriesList(catRes.data);
+                                    });
+                                    // Refresh products catalog in the background
+                                    loadProducts();
+                                  } catch {
+                                    alert('Unable to delete category.');
+                                  }
+                                }
+                              }}
+                              style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', display: 'inline-flex', color: '#ef4444', transition: 'opacity 0.2s' }}
+                              title="Delete Category"
+                              onMouseEnter={(e) => e.currentTarget.style.opacity = '0.7'}
+                              onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '15px', height: '15px' }}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                              </svg>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+                {categoriesList.length === 0 && (
+                  <span style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', display: 'block', padding: '10px 0' }}>No categories registered.</span>
+                )}
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2536,15 +2935,140 @@ function StockIn({ api }) {
   const [toastMsg, setToastMsg] = useState('');
   const navigate = useNavigate();
 
+  // History & Edit states
+  const [existingTx, setExistingTx] = useState([]);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [batchItems, setBatchItems] = useState([]);
+  const [batchDate, setBatchDate] = useState('');
+  const [batchDetails, setBatchDetails] = useState('');
+  
+  // Add item to batch states
+  const [addProdCode, setAddProdCode] = useState('');
+  const [addQty, setAddQty] = useState(1);
+  const [addUnit, setAddUnit] = useState('pieces');
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api.get('/stock/products/'),
+      api.get('/stock/categories/'),
+      api.get('/stock/transactions/')
+    ]).then(([prodRes, catRes, txRes]) => {
+      setProducts(prodRes.data);
+      setCategories(catRes.data.map(c => c.name));
+      const inTx = txRes.data.filter(t => t.type === 'IN');
+      
+      const groups = {};
+      inTx.forEach(tx => {
+        const key = `${tx.date}_${tx.details || ''}`;
+        if (!groups[key]) {
+          groups[key] = {
+            key,
+            date: tx.date,
+            details: tx.details || 'Metro Procurement',
+            items: [],
+            totalQty: 0
+          };
+        }
+        groups[key].items.push(tx);
+        groups[key].totalQty += tx.qty;
+      });
+      const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
+      setExistingTx(sortedGroups);
+
+      // If editing dialog is currently open, refresh the active batchItems state from updated transactions
+      if (selectedGroup) {
+        const currentGroupKey = selectedGroup.key;
+        if (groups[currentGroupKey]) {
+          setBatchItems(groups[currentGroupKey].items.map(item => ({ ...item })));
+        }
+      }
+    })
+    .finally(() => setLoading(false));
+  }, [api, selectedGroup]);
+
   useEffect(() => {
-    api.get('/stock/products/')
-      .then((res) => {
-        setProducts(res.data);
-        const uniqueCategories = [...new Set(res.data.map(p => p.category))].sort();
-        setCategories(uniqueCategories);
-      })
-      .finally(() => setLoading(false));
-  }, [api]);
+    loadData();
+  }, [loadData]);
+
+  const handleOpenEditBatch = (group) => {
+    setSelectedGroup(group);
+    setBatchItems(group.items.map(item => ({ ...item })));
+    setBatchDate(group.date);
+    setBatchDetails(group.details);
+    setEditDialogOpen(true);
+  };
+
+  const handleDeleteGroup = async (group) => {
+    if (window.confirm(`Are you sure you want to delete this batch of ${group.items.length} transaction(s)? Product quantities will be adjusted automatically.`)) {
+      try {
+        await Promise.all(group.items.map(item => api.delete(`/stock/transactions/${item.id}/`)));
+        loadData();
+      } catch {
+        alert("Unable to delete batch transactions.");
+      }
+    }
+  };
+
+  const handleSaveBatchChanges = async (e) => {
+    e.preventDefault();
+    try {
+      await Promise.all(batchItems.map(item => 
+        api.put(`/stock/transactions/${item.id}/`, {
+          date: batchDate,
+          product: item.product, // ID
+          type: item.type,
+          details: batchDetails,
+          qty: item.qty,
+          unit: item.unit
+        })
+      ));
+      setEditDialogOpen(false);
+      setSelectedGroup(null);
+      loadData();
+    } catch {
+      alert('Unable to save changes to batch.');
+    }
+  };
+
+  const handleDeleteBatchItem = async (itemId) => {
+    if (window.confirm("Are you sure you want to delete this product from the batch? Quantity will be adjusted automatically.")) {
+      try {
+        await api.delete(`/stock/transactions/${itemId}/`);
+        // Refresh local list
+        setBatchItems(prev => prev.filter(item => item.id !== itemId));
+        loadData();
+      } catch {
+        alert('Unable to delete item.');
+      }
+    }
+  };
+
+  const handleAddProductToBatch = async () => {
+    if (!addProdCode) {
+      alert('Please select a product.');
+      return;
+    }
+    const selectedProd = products.find(p => p.code === addProdCode);
+    if (!selectedProd) return;
+    try {
+      const res = await api.post('/stock/transactions/', {
+        date: batchDate,
+        product: selectedProd.id,
+        type: 'IN',
+        details: batchDetails,
+        qty: addQty,
+        unit: addUnit
+      });
+      setBatchItems(prev => [...prev, res.data]);
+      setAddProdCode('');
+      setAddQty(1);
+      loadData();
+    } catch {
+      alert('Unable to add product to batch.');
+    }
+  };
 
   const handleAddRow = () => {
     const nextId = rows.length > 0 ? Math.max(...rows.map(r => r.id)) + 1 : 1;
@@ -2605,10 +3129,10 @@ function StockIn({ api }) {
       
       setRows([{ id: 1, category: '', product_code: '', description: '', unit: 'pieces', qty: 1 }]);
       setSupplier('');
+      loadData();
       
       setTimeout(() => {
         setToastShow(false);
-        navigate('/stock');
       }, 3000);
     } catch {
       alert('Unable to process bulk inbound registration.');
@@ -2617,11 +3141,6 @@ function StockIn({ api }) {
 
   return (
     <>
-      <header className="page-header" style={{ marginBottom: '24px' }}>
-        <p className="eyebrow">Stock Dashboard / Stock In</p>
-        <h1>Bulk Stock Inbound</h1>
-      </header>
-
       <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         
         {/* Date Selector & Supplier */}
@@ -2663,7 +3182,7 @@ function StockIn({ api }) {
             </thead>
             <tbody>
               {rows.map(row => {
-                const filteredProducts = products.filter(p => p.category === row.category);
+                const filteredProducts = products.filter(p => p.category_name === row.category);
                 return (
                   <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '12px 16px' }}>
@@ -2745,29 +3264,203 @@ function StockIn({ api }) {
         </div>
       </div>
 
-      {/* Floating Success Toast */}
-      {toastShow && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          background: '#0f172a',
-          color: '#fff',
-          padding: '14px 20px',
-          borderRadius: '12px',
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
-          border: '1px solid #1e293b'
-        }}>
-          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</div>
-          <div>
-            <strong style={{ display: 'block', fontSize: '14px', color: '#34d399' }}>Stock Registered Successfully!</strong>
-            <span style={{ display: 'block', fontSize: '12px', color: '#cbd5e1' }}>{toastMsg}</span>
-          </div>
+      {/* Existing Inbound Transactions Table */}
+      <div style={{ marginTop: '40px' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Inbound Transaction History (Grouped)</h3>
+        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                <th style={{ padding: '12px 16px' }}>Date</th>
+                <th style={{ padding: '12px 16px' }}>Supplier / Source</th>
+                <th style={{ padding: '12px 16px' }}>Total Products</th>
+                <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Quantity</th>
+                <th style={{ padding: '12px 16px', width: '100px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {existingTx.map(group => (
+                <tr key={group.key} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '12px 16px', color: '#334155', fontWeight: '600' }}>{group.date}</td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>{group.details}</td>
+                  <td style={{ padding: '12px 16px', color: '#64748b' }}>{group.items.length} product(s)</td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold', color: '#0f766e' }}>+{group.totalQty} items</td>
+                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', alignItems: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => handleOpenEditBatch(group)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'inline-flex' }}
+                        title="Edit Batch"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '15px', height: '15px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.83 20.04a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                        </svg>
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => handleDeleteGroup(group)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', display: 'inline-flex' }}
+                        title="Delete Batch"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '15px', height: '15px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {existingTx.length === 0 && (
+                <tr>
+                  <td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No inbound transactions recorded yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
+
+      {/* Group Batch Edit Modal Dialog */}
+      {editDialogOpen && selectedGroup && (
+        <Dialog open={editDialogOpen}>
+          <DialogContent style={{ maxWidth: '640px', width: '90%' }}>
+            <div style={{ padding: '20px' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Edit Inbound Batch</h3>
+              <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: '#64748b' }}>Modify values or add/remove products in this batch transaction.</p>
+              
+              <form onSubmit={handleSaveBatchChanges} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Batch Date</label>
+                    <input 
+                      required 
+                      type="date" 
+                      value={batchDate} 
+                      onChange={(e) => setBatchDate(e.target.value)} 
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Supplier / Source</label>
+                    <input 
+                      required 
+                      type="text" 
+                      value={batchDetails} 
+                      onChange={(e) => setBatchDetails(e.target.value)} 
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginTop: '8px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '12px' }}>Products List ({batchItems.length})</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {batchItems.map((item, idx) => (
+                      <div key={item.id || idx} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ display: 'block', fontSize: '13px', color: '#334155' }}>{item.product_name}</strong>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>{item.product_code}</span>
+                        </div>
+                        <div style={{ width: '90px' }}>
+                          <input 
+                            required 
+                            type="number" 
+                            min="1"
+                            value={item.qty} 
+                            onChange={(e) => {
+                              const newQty = parseInt(e.target.value) || 0;
+                              setBatchItems(batchItems.map((it, i) => i === idx ? { ...it, qty: newQty } : it));
+                            }} 
+                            style={{ width: '100%', padding: '6px 10px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}
+                          />
+                        </div>
+                        <div style={{ width: '110px' }}>
+                          <Select 
+                            value={item.unit} 
+                            onChange={(e) => {
+                              const newUnit = e.target.value;
+                              setBatchItems(batchItems.map((it, i) => i === idx ? { ...it, unit: newUnit } : it));
+                            }}
+                            style={{ width: '100%', minHeight: '32px', fontSize: '13px', padding: '4px 8px' }}
+                          >
+                            <option value="pieces">Pieces</option>
+                            <option value="boxes">Boxes</option>
+                            <option value="packs">Packs</option>
+                            <option value="units">Units</option>
+                          </Select>
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={() => handleDeleteBatchItem(item.id)}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '18px', cursor: 'pointer', padding: '4px' }}
+                          title="Remove Product"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {batchItems.length === 0 && (
+                      <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No products in this batch.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Add product to batch sub-form */}
+                <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '8px', border: '1px solid #bbf7d0', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end', marginTop: '8px' }}>
+                  <div style={{ flex: 2, minWidth: '180px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: '#166534', marginBottom: '4px' }}>Add Product</label>
+                    <Select 
+                      value={addProdCode} 
+                      onChange={(e) => setAddProdCode(e.target.value)}
+                      style={{ width: '100%', minHeight: '32px', padding: '4px 8px', fontSize: '13px' }}
+                    >
+                      <option value="">Select Product</option>
+                      {products.map(p => (
+                        <option key={p.code} value={p.code}>{p.name} ({p.code})</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div style={{ width: '70px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: '#166534', marginBottom: '4px' }}>Qty</label>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      value={addQty} 
+                      onChange={(e) => setAddQty(parseInt(e.target.value) || 1)} 
+                      style={{ width: '100%', padding: '5px 8px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1' }} 
+                    />
+                  </div>
+                  <div style={{ width: '90px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: '#166534', marginBottom: '4px' }}>Unit</label>
+                    <Select 
+                      value={addUnit} 
+                      onChange={(e) => setAddUnit(e.target.value)}
+                      style={{ width: '100%', minHeight: '32px', padding: '4px 8px', fontSize: '13px' }}
+                    >
+                      <option value="pieces">Pieces</option>
+                      <option value="boxes">Boxes</option>
+                      <option value="packs">Packs</option>
+                      <option value="units">Units</option>
+                    </Select>
+                  </div>
+                  <Button 
+                    type="button" 
+                    onClick={handleAddProductToBatch}
+                    style={{ background: '#166534', color: '#fff', fontSize: '12px', minHeight: '32px', padding: '4px 12px' }}
+                  >
+                    + Add Item
+                  </Button>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                  <Button type="button" variant="ghost" onClick={() => { setEditDialogOpen(false); setSelectedGroup(null); }}>Cancel</Button>
+                  <Button type="submit" style={{ background: '#0d9488', color: '#fff' }}>Save Changes</Button>
+                </div>
+              </form>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   );
@@ -2788,15 +3481,140 @@ function StockOut({ api }) {
   const [toastMsg, setToastMsg] = useState('');
   const navigate = useNavigate();
 
+  // History & Edit states
+  const [existingTx, setExistingTx] = useState([]);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [batchItems, setBatchItems] = useState([]);
+  const [batchDate, setBatchDate] = useState('');
+  const [batchDetails, setBatchDetails] = useState('');
+  
+  // Add item to batch states
+  const [addProdCode, setAddProdCode] = useState('');
+  const [addQty, setAddQty] = useState(1);
+  const [addUnit, setAddUnit] = useState('pieces');
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api.get('/stock/products/'),
+      api.get('/stock/categories/'),
+      api.get('/stock/transactions/')
+    ]).then(([prodRes, catRes, txRes]) => {
+      setProducts(prodRes.data);
+      setCategories(catRes.data.map(c => c.name));
+      const outTx = txRes.data.filter(t => t.type === 'OUT');
+      
+      const groups = {};
+      outTx.forEach(tx => {
+        const key = `${tx.date}_${tx.details || ''}`;
+        if (!groups[key]) {
+          groups[key] = {
+            key,
+            date: tx.date,
+            details: tx.details || 'Internal Request',
+            items: [],
+            totalQty: 0
+          };
+        }
+        groups[key].items.push(tx);
+        groups[key].totalQty += tx.qty;
+      });
+      const sortedGroups = Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
+      setExistingTx(sortedGroups);
+
+      // If editing dialog is currently open, refresh the active batchItems state from updated transactions
+      if (selectedGroup) {
+        const currentGroupKey = selectedGroup.key;
+        if (groups[currentGroupKey]) {
+          setBatchItems(groups[currentGroupKey].items.map(item => ({ ...item })));
+        }
+      }
+    })
+    .finally(() => setLoading(false));
+  }, [api, selectedGroup]);
+
   useEffect(() => {
-    api.get('/stock/products/')
-      .then((res) => {
-        setProducts(res.data);
-        const uniqueCategories = [...new Set(res.data.map(p => p.category))].sort();
-        setCategories(uniqueCategories);
-      })
-      .finally(() => setLoading(false));
-  }, [api]);
+    loadData();
+  }, [loadData]);
+
+  const handleOpenEditBatch = (group) => {
+    setSelectedGroup(group);
+    setBatchItems(group.items.map(item => ({ ...item })));
+    setBatchDate(group.date);
+    setBatchDetails(group.details);
+    setEditDialogOpen(true);
+  };
+
+  const handleDeleteGroup = async (group) => {
+    if (window.confirm(`Are you sure you want to delete this batch of ${group.items.length} transaction(s)? Product quantities will be adjusted automatically.`)) {
+      try {
+        await Promise.all(group.items.map(item => api.delete(`/stock/transactions/${item.id}/`)));
+        loadData();
+      } catch {
+        alert("Unable to delete batch transactions.");
+      }
+    }
+  };
+
+  const handleSaveBatchChanges = async (e) => {
+    e.preventDefault();
+    try {
+      await Promise.all(batchItems.map(item => 
+        api.put(`/stock/transactions/${item.id}/`, {
+          date: batchDate,
+          product: item.product, // ID
+          type: item.type,
+          details: batchDetails,
+          qty: item.qty,
+          unit: item.unit
+        })
+      ));
+      setEditDialogOpen(false);
+      setSelectedGroup(null);
+      loadData();
+    } catch {
+      alert('Unable to save changes to batch.');
+    }
+  };
+
+  const handleDeleteBatchItem = async (itemId) => {
+    if (window.confirm("Are you sure you want to delete this product from the batch? Quantity will be adjusted automatically.")) {
+      try {
+        await api.delete(`/stock/transactions/${itemId}/`);
+        // Refresh local list
+        setBatchItems(prev => prev.filter(item => item.id !== itemId));
+        loadData();
+      } catch {
+        alert('Unable to delete item.');
+      }
+    }
+  };
+
+  const handleAddProductToBatch = async () => {
+    if (!addProdCode) {
+      alert('Please select a product.');
+      return;
+    }
+    const selectedProd = products.find(p => p.code === addProdCode);
+    if (!selectedProd) return;
+    try {
+      const res = await api.post('/stock/transactions/', {
+        date: batchDate,
+        product: selectedProd.id,
+        type: 'OUT',
+        details: batchDetails,
+        qty: addQty,
+        unit: addUnit
+      });
+      setBatchItems(prev => [...prev, res.data]);
+      setAddProdCode('');
+      setAddQty(1);
+      loadData();
+    } catch {
+      alert('Unable to add product to batch.');
+    }
+  };
 
   const handleAddRow = () => {
     const nextId = rows.length > 0 ? Math.max(...rows.map(r => r.id)) + 1 : 1;
@@ -2853,10 +3671,10 @@ function StockOut({ api }) {
       
       setRows([{ id: 1, category: '', product_code: '', purpose: '', unit: 'pieces', qty: 1 }]);
       setDemandBy('');
+      loadData();
       
       setTimeout(() => {
         setToastShow(false);
-        navigate('/stock');
       }, 3000);
     } catch {
       alert('Unable to process bulk outbound distribution.');
@@ -2865,11 +3683,6 @@ function StockOut({ api }) {
 
   return (
     <>
-      <header className="page-header" style={{ marginBottom: '24px' }}>
-        <p className="eyebrow">Stock Dashboard / Stock Out</p>
-        <h1>Bulk Stock Outbound</h1>
-      </header>
-
       <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
         
         {/* Date Selector & Demand By */}
@@ -2911,7 +3724,7 @@ function StockOut({ api }) {
             </thead>
             <tbody>
               {rows.map(row => {
-                const filteredProducts = products.filter(p => p.category === row.category);
+                const filteredProducts = products.filter(p => p.category_name === row.category);
                 return (
                   <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '12px 16px' }}>
@@ -2993,34 +3806,207 @@ function StockOut({ api }) {
         </div>
       </div>
 
-      {/* Floating Success Toast */}
-      {toastShow && (
-        <div style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          background: '#0f172a',
-          color: '#fff',
-          padding: '14px 20px',
-          borderRadius: '12px',
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
-          border: '1px solid #1e293b'
-        }}>
-          <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e11d48', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</div>
-          <div>
-            <strong style={{ display: 'block', fontSize: '14px', color: '#fb7185' }}>Stock Dispatched!</strong>
-            <span style={{ display: 'block', fontSize: '12px', color: '#cbd5e1' }}>{toastMsg}</span>
-          </div>
+      {/* Existing Outbound Transactions Table */}
+      <div style={{ marginTop: '40px' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Outbound Transaction History (Grouped)</h3>
+        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                <th style={{ padding: '12px 16px' }}>Date</th>
+                <th style={{ padding: '12px 16px' }}>Recipient (Demand By)</th>
+                <th style={{ padding: '12px 16px' }}>Total Products</th>
+                <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Quantity</th>
+                <th style={{ padding: '12px 16px', width: '100px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {existingTx.map(group => (
+                <tr key={group.key} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '12px 16px', color: '#334155', fontWeight: '600' }}>{group.date}</td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>{group.details}</td>
+                  <td style={{ padding: '12px 16px', color: '#64748b' }}>{group.items.length} product(s)</td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold', color: '#e11d48' }}>-{group.totalQty} items</td>
+                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', alignItems: 'center' }}>
+                      <button 
+                        type="button" 
+                        onClick={() => handleOpenEditBatch(group)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'inline-flex' }}
+                        title="Edit Batch"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '15px', height: '15px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.83 20.04a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                        </svg>
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => handleDeleteGroup(group)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', display: 'inline-flex' }}
+                        title="Delete Batch"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '15px', height: '15px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {existingTx.length === 0 && (
+                <tr>
+                  <td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No outbound transactions recorded yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
+      </div>
+
+      {/* Group Batch Edit Modal Dialog */}
+      {editDialogOpen && selectedGroup && (
+        <Dialog open={editDialogOpen}>
+          <DialogContent style={{ maxWidth: '640px', width: '90%' }}>
+            <div style={{ padding: '20px' }}>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>Edit Outbound Batch</h3>
+              <p style={{ margin: '0 0 20px 0', fontSize: '13px', color: '#64748b' }}>Modify values or add/remove products in this batch transaction.</p>
+              
+              <form onSubmit={handleSaveBatchChanges} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Batch Date</label>
+                    <input 
+                      required 
+                      type="date" 
+                      value={batchDate} 
+                      onChange={(e) => setBatchDate(e.target.value)} 
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Recipient Details (Demand By)</label>
+                    <input 
+                      required 
+                      type="text" 
+                      value={batchDetails} 
+                      onChange={(e) => setBatchDetails(e.target.value)} 
+                      style={{ width: '100%', padding: '8px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginTop: '8px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '12px' }}>Products List ({batchItems.length})</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {batchItems.map((item, idx) => (
+                      <div key={item.id || idx} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ display: 'block', fontSize: '13px', color: '#334155' }}>{item.product_name}</strong>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace' }}>{item.product_code}</span>
+                        </div>
+                        <div style={{ width: '90px' }}>
+                          <input 
+                            required 
+                            type="number" 
+                            min="1"
+                            value={item.qty} 
+                            onChange={(e) => {
+                              const newQty = parseInt(e.target.value) || 0;
+                              setBatchItems(batchItems.map((it, i) => i === idx ? { ...it, qty: newQty } : it));
+                            }} 
+                            style={{ width: '100%', padding: '6px 10px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}
+                          />
+                        </div>
+                        <div style={{ width: '110px' }}>
+                          <Select 
+                            value={item.unit} 
+                            onChange={(e) => {
+                              const newUnit = e.target.value;
+                              setBatchItems(batchItems.map((it, i) => i === idx ? { ...it, unit: newUnit } : it));
+                            }}
+                            style={{ width: '100%', minHeight: '32px', fontSize: '13px', padding: '4px 8px' }}
+                          >
+                            <option value="pieces">Pieces</option>
+                            <option value="boxes">Boxes</option>
+                            <option value="packs">Packs</option>
+                            <option value="units">Units</option>
+                          </Select>
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={() => handleDeleteBatchItem(item.id)}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '18px', cursor: 'pointer', padding: '4px' }}
+                          title="Remove Product"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {batchItems.length === 0 && (
+                      <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No products in this batch.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Add product to batch sub-form */}
+                <div style={{ background: '#fff1f2', padding: '12px', borderRadius: '8px', border: '1px solid #fecdd3', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end', marginTop: '8px' }}>
+                  <div style={{ flex: 2, minWidth: '180px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: '#9f1239', marginBottom: '4px' }}>Add Product</label>
+                    <Select 
+                      value={addProdCode} 
+                      onChange={(e) => setAddProdCode(e.target.value)}
+                      style={{ width: '100%', minHeight: '32px', padding: '4px 8px', fontSize: '13px' }}
+                    >
+                      <option value="">Select Product</option>
+                      {products.map(p => (
+                        <option key={p.code} value={p.code}>{p.name} ({p.code})</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div style={{ width: '70px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: '#9f1239', marginBottom: '4px' }}>Qty</label>
+                    <input 
+                      type="number" 
+                      min="1" 
+                      value={addQty} 
+                      onChange={(e) => setAddQty(parseInt(e.target.value) || 1)} 
+                      style={{ width: '100%', padding: '5px 8px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1' }} 
+                    />
+                  </div>
+                  <div style={{ width: '90px' }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', color: '#9f1239', marginBottom: '4px' }}>Unit</label>
+                    <Select 
+                      value={addUnit} 
+                      onChange={(e) => setAddUnit(e.target.value)}
+                      style={{ width: '100%', minHeight: '32px', padding: '4px 8px', fontSize: '13px' }}
+                    >
+                      <option value="pieces">Pieces</option>
+                      <option value="boxes">Boxes</option>
+                      <option value="packs">Packs</option>
+                      <option value="units">Units</option>
+                    </Select>
+                  </div>
+                  <Button 
+                    type="button" 
+                    onClick={handleAddProductToBatch}
+                    style={{ background: '#9f1239', color: '#fff', fontSize: '12px', minHeight: '32px', padding: '4px 12px' }}
+                  >
+                    + Add Item
+                  </Button>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                  <Button type="button" variant="ghost" onClick={() => { setEditDialogOpen(false); setSelectedGroup(null); }}>Cancel</Button>
+                  <Button type="submit" style={{ background: '#e11d48', color: '#fff' }}>Save Changes</Button>
+                </div>
+              </form>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   );
 }
-
 function StockReports({ api }) {
   const [products, setProducts] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -3107,10 +4093,10 @@ function StockReports({ api }) {
     }
   }, [audPeriod]);
 
-  const categories = [...new Set(products.map(p => p.category))].sort();
+  const categories = [...new Set(products.map(p => p.category_name))].filter(Boolean).sort();
   const names = [...new Set(products.map(p => p.name))].sort();
 
-  const filteredProducts = products.filter(p => !prodCategory || p.category === prodCategory);
+  const filteredProducts = products.filter(p => !prodCategory || p.category_name === prodCategory);
 
   const filteredActivityLogs = logs.filter(log => {
     const matchesCategory = !actCategory || log.product_category === actCategory;
@@ -3126,7 +4112,7 @@ function StockReports({ api }) {
     }
 
     const filteredProds = products.filter(p => {
-      const matchesCategory = !audCategory || p.category === audCategory;
+      const matchesCategory = !audCategory || p.category_name === audCategory;
       const matchesProduct = !audProductCode || p.code === audProductCode;
       return matchesCategory && matchesProduct;
     });
@@ -3152,7 +4138,7 @@ function StockReports({ api }) {
       const openingStock = netQty - periodIn + periodOut;
 
       return {
-        category: prod.category,
+        category: prod.category_name,
         code: prod.code,
         name: prod.name,
         openingStock,
@@ -3276,7 +4262,7 @@ function StockReports({ api }) {
                     <td style={{ padding: '16px 24px', fontFamily: 'monospace', color: '#94a3b8', fontWeight: '600' }}>{prod.code}</td>
                     <td style={{ padding: '16px 24px' }}>
                       <strong style={{ color: '#334155' }}>{prod.name}</strong>
-                      <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px' }}>{prod.category}</span>
+                      <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: '600', color: '#475569', background: '#f1f5f9', borderRadius: '4px' }}>{prod.category_name}</span>
                     </td>
                     <td style={{ padding: '16px 24px', color: '#64748b', maxWidth: '320px' }}>{prod.description}</td>
                     <td style={{ padding: '16px 24px', fontWeight: 'bold', color: '#334155' }}>{prod.qty}</td>

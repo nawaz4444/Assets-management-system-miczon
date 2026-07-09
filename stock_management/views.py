@@ -3,8 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
 from django.utils import timezone
-from .models import StockProduct, StockTransaction
-from .serializers import StockProductSerializer, StockTransactionSerializer
+from .models import StockCategory, StockProduct, StockTransaction
+from .serializers import StockCategorySerializer, StockProductSerializer, StockTransactionSerializer
 
 # Seed database definitions for consistency on first load
 PRODUCTS_DB = [
@@ -58,29 +58,84 @@ PRODUCTS_DB = [
     },
 ]
 
+class StockCategoryViewSet(viewsets.ModelViewSet):
+    queryset = StockCategory.objects.all().order_by('name')
+    serializer_class = StockCategorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+
 class StockProductViewSet(viewsets.ModelViewSet):
     queryset = StockProduct.objects.all().order_by('name')
     serializer_class = StockProductSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Auto-seed sample products if empty
+        # Auto-seed sample categories and products if empty
         if not StockProduct.objects.exists():
             for p in PRODUCTS_DB:
+                cat_obj, _ = StockCategory.objects.get_or_create(name=p['category'])
                 StockProduct.objects.create(
                     code=p['code'],
                     name=p['name'],
-                    category=p['category'],
+                    category=cat_obj,
                     description=p['description'],
                     qty=p['qty'],
                     reorder=p['reorder']
                 )
         return super().get_queryset()
-
 class StockTransactionViewSet(viewsets.ModelViewSet):
     queryset = StockTransaction.objects.all().select_related('product').order_by('-date')
     serializer_class = StockTransactionSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            instance = serializer.save()
+            prod = StockProduct.objects.select_for_update().get(pk=instance.product.pk)
+            if instance.type == 'IN':
+                prod.qty += instance.qty
+            elif instance.type == 'OUT':
+                prod.qty = max(0, prod.qty - instance.qty)
+            prod.save()
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            prod = instance.product
+            prod = StockProduct.objects.select_for_update().get(pk=prod.pk)
+            if instance.type == 'IN':
+                prod.qty = max(0, prod.qty - instance.qty)
+            elif instance.type == 'OUT':
+                prod.qty += instance.qty
+            prod.save()
+            instance.delete()
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            old_instance = self.get_object()
+            old_qty = old_instance.qty
+            old_type = old_instance.type
+            old_product = old_instance.product
+
+            # Save the new state using serializer
+            new_instance = serializer.save()
+            new_qty = new_instance.qty
+            new_type = new_instance.type
+            new_product = new_instance.product
+
+            # Revert old product quantity
+            old_prod_locked = StockProduct.objects.select_for_update().get(pk=old_product.pk)
+            if old_type == 'IN':
+                old_prod_locked.qty = max(0, old_prod_locked.qty - old_qty)
+            elif old_type == 'OUT':
+                old_prod_locked.qty += old_qty
+            old_prod_locked.save()
+
+            # Apply new product quantity
+            new_prod_locked = StockProduct.objects.select_for_update().get(pk=new_product.pk)
+            if new_type == 'IN':
+                new_prod_locked.qty += new_qty
+            elif new_type == 'OUT':
+                new_prod_locked.qty = max(0, new_prod_locked.qty - new_qty)
+            new_prod_locked.save()
 
     def get_queryset(self):
         # Auto-seed sample transactions if empty
@@ -88,10 +143,11 @@ class StockTransactionViewSet(viewsets.ModelViewSet):
             # First ensure products are seeded
             if not StockProduct.objects.exists():
                 for p in PRODUCTS_DB:
+                    cat_obj, _ = StockCategory.objects.get_or_create(name=p['category'])
                     StockProduct.objects.create(
                         code=p['code'],
                         name=p['name'],
-                        category=p['category'],
+                        category=cat_obj,
                         description=p['description'],
                         qty=p['qty'],
                         reorder=p['reorder']
