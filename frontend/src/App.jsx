@@ -133,6 +133,22 @@ const ratingOptions = [1, 2, 3, 4, 5];
 const inventoryPageSize = 25;
 
 function Icon({ name }) {
+  if (name === 'edit') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+      </svg>
+    );
+  }
+  if (name === 'cross' || name === 'close' || name === 'trash') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    );
+  }
   return <span className={`app-icon app-icon-${name}`} aria-hidden="true" />;
 }
 
@@ -211,7 +227,13 @@ function AppShell({ token, handleLogout }) {
         </Link>
 
         <nav className="nav-list" aria-label="Primary navigation">
-          {navItems.filter(item => user?.is_superuser || item.path === '/portal').map((item) => {
+          {navItems.filter(item => {
+            if (user?.is_superuser) return true;
+            if (user?.employee_details?.is_manager) {
+              return ['/portal', '/inventory', '/requests', '/health-checks'].includes(item.path);
+            }
+            return item.path === '/portal';
+          }).map((item) => {
             if (item.external) {
               return (
                 <a key={item.path} className="nav-item" href={item.path}>
@@ -234,7 +256,11 @@ function AppShell({ token, handleLogout }) {
             <span className="avatar">{user?.email?.[0]?.toUpperCase() || 'U'}</span>
             <span>
               <strong>{user?.employee_details?.name || user?.email || 'Signed in'}</strong>
-              <small>{user?.is_superuser ? 'Administrator' : 'Employee'}</small>
+              <small>
+                {user?.is_superuser
+                  ? 'Administrator'
+                  : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee')}
+              </small>
             </span>
           </div>
           <Button type="button" variant="ghost" className="full" onClick={handleLogout}>Sign out</Button>
@@ -250,14 +276,23 @@ function AppShell({ token, handleLogout }) {
             <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={true} />} />
             <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
             <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
-            <Route path="/requests" element={<RequestManager api={api} isAdmin={true} />} />
-            <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} />} />
+            <Route path="/requests" element={<RequestManager api={api} isAdmin={true} user={user} />} />
+            <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} user={user} />} />
             <Route path="/stock" element={<StockDashboard api={api} />} />
             <Route path="/stock/products" element={<StockProducts api={api} />} />
             <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
             <Route path="/stock/reports" element={<StockReports api={api} />} />
             <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        ) : user?.employee_details?.is_manager ? (
+          <Routes>
+            <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+            <Route path="/inventory" element={<InventoryPage api={api} isAdmin={false} isManager={true} />} />
+            <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
+            <Route path="/requests" element={<RequestManager api={api} isAdmin={false} isManager={true} user={user} />} />
+            <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={false} isManager={true} user={user} />} />
+            <Route path="*" element={<Navigate to="/portal" replace />} />
           </Routes>
         ) : (
           <Routes>
@@ -903,32 +938,157 @@ function AssetDetailPage({ api, isAdmin }) {
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
-      <section className="panel asset-detail-panel">
-        <div className="asset-detail-grid">
+      {/* Overview Grid Card */}
+      <section className="panel asset-detail-panel" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1rem', color: '#1e293b' }}>Asset Information</h3>
+        <div className="asset-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1.25rem' }}>
           <div>
-            <span>Miczon ID</span>
-            <strong>{asset.miczon_id}</strong>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Miczon ID</span>
+            <strong style={{ fontSize: '15px' }}>{asset.miczon_id}</strong>
           </div>
           <div>
-            <span>Category</span>
-            <strong>{asset.category || 'Uncategorized'}</strong>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Category</span>
+            <strong style={{ fontSize: '15px' }}>{asset.category || 'Uncategorized'}</strong>
           </div>
           <div>
-            <span>Status</span>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Current Status</span>
             <StatusBadge status={asset.current_status} />
           </div>
           <div>
-            <span>Department</span>
-            <strong>{asset.department_name || 'No department'}</strong>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Department</span>
+            <strong style={{ fontSize: '15px' }}>{asset.department_name || 'No department'}</strong>
           </div>
           <div>
-            <span>Custodian</span>
-            <strong>{asset.custodian_name || 'Unassigned'}</strong>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Current Custodian</span>
+            <strong style={{ fontSize: '15px', color: asset.custodian_name ? '#0f766e' : '#64748b' }}>{asset.custodian_name || 'Unassigned'}</strong>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Date Registered</span>
+            <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.created_at ? new Date(asset.created_at).toLocaleDateString() : '-'}</strong>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Last Inspection</span>
+            <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.last_inspection_date ? new Date(asset.last_inspection_date).toLocaleDateString() : 'Never'}</strong>
           </div>
         </div>
       </section>
 
+      {/* Specifications & Remarks Panel */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+        <section className="panel" style={{ margin: 0 }}>
+          <h3 style={{ marginBottom: '0.75rem', fontSize: '15px', color: '#1e293b' }}>Specifications</h3>
+          <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0', minHeight: '80px' }}>
+            <p style={{ margin: 0, fontSize: '14px', color: asset.specifications ? '#334155' : '#94a3b8', whiteSpace: 'pre-wrap' }}>
+              {asset.specifications || 'No detailed specifications entered.'}
+            </p>
+          </div>
+        </section>
+
+        <section className="panel" style={{ margin: 0 }}>
+          <h3 style={{ marginBottom: '0.75rem', fontSize: '15px', color: '#1e293b' }}>Remarks & Notes</h3>
+          <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0', minHeight: '80px' }}>
+            <p style={{ margin: 0, fontSize: '14px', color: asset.remarks ? '#334155' : '#94a3b8', whiteSpace: 'pre-wrap' }}>
+              {asset.remarks || 'No admin remarks recorded.'}
+            </p>
+          </div>
+        </section>
+      </div>
+
+      {/* Repair & Maintenance Panel (if applicable) */}
+      {(asset.current_status === 'BROKEN' || asset.maintenance_vendor || asset.sent_to_repair_date) && (
+        <section className="panel" style={{ marginBottom: '1.5rem', borderLeft: '4px solid #ef4444' }}>
+          <h3 style={{ marginBottom: '1rem', color: '#991b1b' }}>Maintenance & Repair Status</h3>
+          {asset.is_overdue_repair && (
+            <Notice tone="error" style={{ marginBottom: '1rem' }}>
+              Warning: Hardware return is overdue! Expected return was {new Date(asset.expected_return_date).toLocaleDateString()}.
+            </Notice>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            <div>
+              <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Maintenance Vendor</span>
+              <strong>{asset.maintenance_vendor || 'Not specified'}</strong>
+            </div>
+            <div>
+              <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Sent to Repair Date</span>
+              <strong>{asset.sent_to_repair_date ? new Date(asset.sent_to_repair_date).toLocaleDateString() : '-'}</strong>
+            </div>
+            <div>
+              <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Expected Return Date</span>
+              <strong>{asset.expected_return_date ? new Date(asset.expected_return_date).toLocaleDateString() : '-'}</strong>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Health Check & History Tabs / Timeline */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+        {/* Latest Inspection Card */}
+        <section className="panel" style={{ margin: 0 }}>
+          <h3 style={{ marginBottom: '0.75rem', fontSize: '15px', color: '#1e293b' }}>Latest Inspection Findings</h3>
+          {asset.latest_inspection ? (
+            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'grid', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Performance Rating:</span>
+                <strong style={{ fontSize: '14px', color: asset.latest_inspection.performance_rating >= 3 ? '#166534' : '#991b1b' }}>
+                  {asset.latest_inspection.performance_rating} / 5 ⭐
+                </strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Screen Condition:</span>
+                <strong>{asset.latest_inspection.screen_condition || 'N/A'}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Battery Health:</span>
+                <strong>{asset.latest_inspection.battery_life || 'N/A'}</strong>
+              </div>
+              {asset.latest_inspection.comments && (
+                <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
+                  <small style={{ color: '#64748b', display: 'block' }}>Comments:</small>
+                  <em style={{ fontSize: '13px', color: '#334155' }}>"{asset.latest_inspection.comments}"</em>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="empty-state" style={{ padding: '1rem', margin: 0, background: '#f8fafc', borderRadius: '6px' }}>
+              No inspection responses submitted yet.
+            </p>
+          )}
+        </section>
+
+        {/* Activity & Transfer History Timeline */}
+        <section className="panel" style={{ margin: 0 }}>
+          <h3 style={{ marginBottom: '0.75rem', fontSize: '15px', color: '#1e293b' }}>Asset Activity & History</h3>
+          {asset.history && asset.history.length > 0 ? (
+            <div style={{ maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }}>
+              {asset.history.map((log, idx) => (
+                <div key={idx} style={{ padding: '8px 0', borderBottom: idx < asset.history.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                    <span className="status-badge" style={{ fontSize: '10px', padding: '2px 6px', textTransform: 'uppercase' }}>
+                      {log.action}
+                    </span>
+                    <small style={{ color: '#94a3b8', fontSize: '11px' }}>
+                      {new Date(log.date).toLocaleDateString()}
+                    </small>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#334155' }}>
+                    {log.from_employee_name ? `${log.from_employee_name} ➔ ` : ''}
+                    {log.to_employee_name || 'System'}
+                  </p>
+                  {log.remarks && <small style={{ color: '#64748b', fontStyle: 'italic', display: 'block' }}>{log.remarks}</small>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state" style={{ padding: '1rem', margin: 0, background: '#f8fafc', borderRadius: '6px' }}>
+              No activity logs recorded yet.
+            </p>
+          )}
+        </section>
+      </div>
+
+      {/* QR Code Tag Card */}
       <section className="panel qr-detail-panel">
+        <h3 style={{ marginBottom: '1rem', color: '#1e293b' }}>Asset QR Code Tag</h3>
         <div className="qr-preview">
           <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={180} includeMargin />
           <strong>Miczon ID: {asset.miczon_id}</strong>
@@ -983,21 +1143,36 @@ function AssetDetailPage({ api, isAdmin }) {
 }
 
 function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
+  const [mode, setMode] = useState('EXISTING');
+  const [departments, setDepartments] = useState([]);
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [assets, setAssets] = useState([]);
   const [quantity, setQuantity] = useState(12);
-  const [miczonIds, setMiczonIds] = useState([]);
+  const [newMiczonIds, setNewMiczonIds] = useState([]);
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const generateAndPrint = async (event) => {
+  useEffect(() => {
+    if (open) {
+      fetchAll(api, '/departments/').then(setDepartments).catch(() => {});
+      api.get('/assets/?page_size=500')
+        .then((res) => setAssets(res.data?.results || res.data || []))
+        .catch(() => setNotice('Unable to load hardware assets.'));
+    }
+  }, [api, open]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const generateNewIds = async (event) => {
     event.preventDefault();
     const safeQuantity = Math.max(1, Math.min(Number(quantity) || 1, 500));
     setLoading(true);
     setNotice('');
-
     try {
       const response = await api.get(`/assets/next-miczon-ids/?quantity=${safeQuantity}`);
-      setMiczonIds(response.data?.ids || []);
-      window.setTimeout(() => window.print(), 100);
+      setNewMiczonIds(response.data?.ids || []);
     } catch {
       setNotice('Unable to generate Miczon IDs.');
     } finally {
@@ -1005,40 +1180,147 @@ function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
     }
   };
 
+  const filteredAssets = assets.filter((asset) => {
+    if (!selectedDepartment) return true;
+    return String(asset.department) === String(selectedDepartment) || String(asset.department_id) === String(selectedDepartment);
+  });
+
   return (
     <Dialog open={open}>
-      <DialogContent className="qr-labels-dialog">
-        <DialogHeader title="QR Labels" description="Generate bulk QR labels." />
-        <div className="modal-toolbar" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-          <Button type="button" variant="outline" onClick={onOpenScanner}>Scan QR Asset</Button>
-        </div>
-        {notice && <Notice tone="error">{notice}</Notice>}
-        <section className="panel qr-generator-controls">
-          <form className="form-grid" onSubmit={generateAndPrint}>
-            <Field label="Quantity">
-              <input min="1" max="500" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-            </Field>
-            <div className="form-action-cell">
-              <Button type="submit" variant="primary" disabled={loading}>{loading ? 'Generating...' : 'Generate & Print'}</Button>
-            </div>
-          </form>
-        </section>
+      <DialogContent className="qr-labels-dialog" style={{ maxWidth: '880px' }}>
+        <DialogHeader
+          title="Print Asset QR Labels"
+          description="Filter assets by department to view and print formatted tags matching your asset tags."
+        />
 
-        <section className="panel qr-print-surface">
-          {miczonIds.length === 0 ? (
-            <p className="empty-state">Generate labels to preview the printable QR grid.</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              type="button"
+              variant={mode === 'EXISTING' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setMode('EXISTING')}
+            >
+              Department Assets ({filteredAssets.length})
+            </Button>
+            <Button
+              type="button"
+              variant={mode === 'NEW' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setMode('NEW')}
+            >
+              Generate Blank Tags
+            </Button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <Button type="button" variant="outline" size="sm" onClick={onOpenScanner}>
+              Scan QR Code
+            </Button>
+            <Button type="button" variant="primary" size="sm" onClick={handlePrint}>
+              🖨️ Print Asset Tags
+            </Button>
+          </div>
+        </div>
+
+        {notice && <Notice tone="error">{notice}</Notice>}
+
+        {mode === 'EXISTING' ? (
+          <section className="panel" style={{ padding: '16px', marginBottom: '16px' }}>
+            <Field label="Select Department">
+              <Select value={selectedDepartment} onChange={(e) => setSelectedDepartment(e.target.value)}>
+                <option value="">All Departments ({assets.length} Assets)</option>
+                {departments.map((dept) => {
+                  const count = assets.filter(a => String(a.department) === String(dept.id) || String(a.department_id) === String(dept.id)).length;
+                  return (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name} ({count} Assets)
+                    </option>
+                  );
+                })}
+              </Select>
+            </Field>
+          </section>
+        ) : (
+          <section className="panel" style={{ padding: '16px', marginBottom: '16px' }}>
+            <form className="form-grid" onSubmit={generateNewIds} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+              <Field label="Quantity of Blank Tags" style={{ flex: 1 }}>
+                <input min="1" max="500" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+              </Field>
+              <Button type="submit" variant="primary" disabled={loading}>
+                {loading ? 'Generating...' : 'Generate New IDs'}
+              </Button>
+            </form>
+          </section>
+        )}
+
+        {/* Printable Surface */}
+        <section className="panel qr-print-surface" style={{ maxHeight: '460px', overflowY: 'auto', padding: '16px' }}>
+          {mode === 'EXISTING' ? (
+            filteredAssets.length === 0 ? (
+              <p className="empty-state">No assets found for the selected department.</p>
+            ) : (
+              <div className="qr-label-grid">
+                {filteredAssets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="qr-label asset-print-label"
+                    style={{
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      textAlign: 'center',
+                      background: '#ffffff',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      breakInside: 'avoid'
+                    }}
+                  >
+                    <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={130} includeMargin />
+                    <strong style={{ display: 'block', fontSize: '13px', marginTop: '6px', color: '#0f172a' }}>
+                      Miczon ID: {asset.miczon_id}
+                    </strong>
+                    <span style={{ display: 'block', fontSize: '12px', color: '#334155', fontWeight: '600' }}>
+                      Device: {asset.name}
+                    </span>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
+                      Dept: {asset.department_name || 'No department'}
+                    </span>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
+                      Custodian: {asset.custodian_name || 'Unassigned'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )
           ) : (
-            <div className="qr-label-grid">
-              {miczonIds.map((miczonId) => (
-                <div className="qr-label" key={miczonId}>
-                  <QRCodeCanvas value={getQrPayload(miczonId)} size={132} includeMargin />
-                  <strong>Miczon ID: {miczonId}</strong>
-                </div>
-              ))}
-            </div>
+            newMiczonIds.length === 0 ? (
+              <p className="empty-state">Enter a quantity and click Generate to preview blank tags.</p>
+            ) : (
+              <div className="qr-label-grid">
+                {newMiczonIds.map((miczonId) => (
+                  <div
+                    key={miczonId}
+                    className="qr-label asset-print-label"
+                    style={{
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      padding: '12px',
+                      textAlign: 'center',
+                      background: '#ffffff',
+                      breakInside: 'avoid'
+                    }}
+                  >
+                    <QRCodeCanvas value={getQrPayload(miczonId)} size={130} includeMargin />
+                    <strong style={{ display: 'block', fontSize: '13px', marginTop: '6px' }}>Miczon ID: {miczonId}</strong>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Unassigned Tag</span>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </section>
-        <div className="dialog-footer">
+
+        <div className="dialog-footer" style={{ marginTop: '16px' }}>
           <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
         </div>
       </DialogContent>
@@ -1450,64 +1732,398 @@ function EmployeeDirectory({ api, isAdmin }) {
   );
 }
 
-function RequestManager({ api, isAdmin }) {
+function RequestManager({ api, isAdmin, isManager, user }) {
+  const isManagerOrAdmin = isAdmin || isManager || Boolean(user?.employee_details?.is_manager);
   const [requests, setRequests] = useState([]);
   const [notice, setNotice] = useState('');
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [adminRemarkInput, setAdminRemarkInput] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const [employees, setEmployees] = useState([]);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [adminRequestForm, setAdminRequestForm] = useState({
+    employeeId: '',
+    requested_device_type: 'Laptop',
+    specifications: '',
+    remarks: '',
+  });
+
   const loadRequests = useCallback(() => fetchAll(api, '/requests/').then(setRequests), [api]);
 
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
 
-  const processRequest = async (id, action) => {
-    const admin_remarks = window.prompt(`Optional remarks for ${action}:`);
-    if (admin_remarks === null) return; // Cancelled
+  const openAdminCreateModal = async () => {
+    try {
+      const empData = await fetchAll(api, '/employees/');
+      setEmployees(empData);
+      setAdminRequestForm({
+        employeeId: empData[0]?.id || '',
+        requested_device_type: 'Laptop',
+        specifications: '',
+        remarks: '',
+      });
+      setCreateModalOpen(true);
+    } catch (err) {
+      setNotice('Unable to fetch employee list.');
+    }
+  };
+
+  const submitAdminRequest = async (e) => {
+    e.preventDefault();
+    if (!adminRequestForm.employeeId) {
+      setNotice('Please select an employee.');
+      return;
+    }
+    try {
+      await api.post('/requests/', {
+        requester: Number(adminRequestForm.employeeId),
+        action_type: 'ASSIGN',
+        requested_device_type: adminRequestForm.requested_device_type,
+        specifications: adminRequestForm.specifications,
+        reason_for_request: adminRequestForm.remarks,
+        remarks: adminRequestForm.remarks,
+      });
+      setNotice('Hardware request created successfully.');
+      setCreateModalOpen(false);
+      loadRequests();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to create request.');
+    }
+  };
+
+  const processRequest = async (id, action, customRemarks) => {
+    const admin_remarks = customRemarks !== undefined ? customRemarks : window.prompt(`Optional remarks for ${action}:`);
+    if (admin_remarks === null) return;
     
     try {
       await api.post(`/requests/${id}/${action}/`, { admin_remarks: admin_remarks || `Processed via Request Manager.` });
       setNotice(`Request ${action === 'approve' ? 'approved' : 'denied'}.`);
+      setSelectedRequest(null);
+      setAdminRemarkInput('');
       loadRequests();
     } catch (err) {
       setNotice(err.response?.data?.error || 'Unable to process request.');
     }
   };
 
+  const filteredRequests = requests.filter((req) => {
+    if (statusFilter !== 'ALL' && req.status !== statusFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const match = (req.requester_name || '').toLowerCase().includes(q) ||
+                    (req.asset_name || '').toLowerCase().includes(q) ||
+                    (req.requested_device_type || '').toLowerCase().includes(q) ||
+                    (req.action_type || '').toLowerCase().includes(q) ||
+                    (req.reason_for_request || '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    return true;
+  });
+
+  const pendingCount = requests.filter((r) => r.status === 'PENDING').length;
+  const approvedCount = requests.filter((r) => r.status === 'APPROVED').length;
+  const rejectedCount = requests.filter((r) => r.status === 'REJECTED').length;
+
   return (
     <>
-      <PageHeader eyebrow="Request Manager" title="Review hardware requests" />
+      <PageHeader eyebrow="Request Manager" title="Review hardware requests">
+        {isManagerOrAdmin && (
+          <Button type="button" variant="primary" onClick={openAdminCreateModal}>
+            + Request for Team Member
+          </Button>
+        )}
+      </PageHeader>
       {notice && <Notice>{notice}</Notice>}
+
+      {/* Filter Toolbar */}
+      <section className="panel" style={{ padding: '16px 20px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <Button
+              type="button"
+              variant={statusFilter === 'ALL' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setStatusFilter('ALL')}
+            >
+              All ({requests.length})
+            </Button>
+            <Button
+              type="button"
+              variant={statusFilter === 'PENDING' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setStatusFilter('PENDING')}
+            >
+              Pending ({pendingCount})
+            </Button>
+            <Button
+              type="button"
+              variant={statusFilter === 'APPROVED' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setStatusFilter('APPROVED')}
+            >
+              Approved ({approvedCount})
+            </Button>
+            <Button
+              type="button"
+              variant={statusFilter === 'REJECTED' ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setStatusFilter('REJECTED')}
+            >
+              Rejected ({rejectedCount})
+            </Button>
+          </div>
+          <input
+            className="search"
+            type="search"
+            placeholder="Search requester, device..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ width: '260px' }}
+          />
+        </div>
+      </section>
+
+      {/* Main Request Table (Scannable, Minimal Info) */}
       <section className="panel">
         <DataTable
-          columns={['Requester', 'Device', 'Reason', 'Status', 'Processed At', 'Actions']}
-          rows={requests.map((request) => [
-            request.requester_name,
-            <div>
-              <strong>{request.asset_name || request.requested_device_type || request.asset_miczon_id || 'New hardware'}</strong>
-              {request.specifications && <><br/><small>Specs: {request.specifications}</small></>}
-              <br/><small>Created: {new Date(request.created_at).toLocaleDateString()}</small>
+          columns={['Requester', 'Type & Device', 'Submitted Date', 'Status', 'Actions']}
+          rows={filteredRequests.map((req) => [
+            <div key="requester" className="employee-cell">
+              <strong>{req.requester_name || 'Employee'}</strong>
+              <small>{req.target_employee_name ? `Target: ${req.target_employee_name}` : 'Self request'}</small>
             </div>,
-            request.reason_for_request || request.remarks || 'No reason provided',
-            <StatusBadge status={request.status} />,
-            request.processed_at ? new Date(request.processed_at).toLocaleDateString() : '-',
-            isAdmin && request.status === 'PENDING' ? (
-              <div className="row-actions">
-                <Button type="button" variant="primary" size="sm" onClick={() => processRequest(request.id, 'approve')}>Approve</Button>
-                <Button type="button" variant="danger" size="sm" onClick={() => processRequest(request.id, 'reject')}>Deny</Button>
-              </div>
-            ) : (
-              <div style={{ maxWidth: '200px', fontSize: '0.875rem', color: '#64748b' }}>
-                {request.admin_remarks || 'No remarks'}
-              </div>
-            ),
+            <div key="device">
+              <span className="status-badge" style={{ fontSize: '11px', padding: '2px 8px', marginRight: '6px', textTransform: 'uppercase' }}>
+                {req.action_type || 'REQUEST'}
+              </span>
+              <strong>{req.asset_name || req.requested_device_type || req.asset_miczon_id || 'Hardware'}</strong>
+            </div>,
+            <span key="date" style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: '13px' }}>
+              {new Date(req.created_at).toLocaleDateString()}
+            </span>,
+            <StatusBadge key="status" status={req.status} />,
+            <div key="actions" style={{ display: 'flex', gap: '6px', alignItems: 'center', whiteSpace: 'nowrap' }}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => { setSelectedRequest(req); setAdminRemarkInput(''); }}
+              >
+                View Details
+              </Button>
+              {isAdmin && req.status === 'PENDING' && (
+                <>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={() => processRequest(req.id, 'approve')}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    onClick={() => processRequest(req.id, 'reject')}
+                  >
+                    Deny
+                  </Button>
+                </>
+              )}
+            </div>,
           ])}
-          empty="No requests yet."
+          empty="No requests match your filter."
         />
       </section>
+
+      {/* Interactive Request Detail Modal */}
+      {selectedRequest && (
+        <Dialog open={!!selectedRequest}>
+          <DialogContent style={{ maxWidth: '640px' }}>
+            <DialogHeader
+              title={`Request #${selectedRequest.id} — Details`}
+              description={`Action: ${selectedRequest.action_type || 'Hardware Request'} | Submitted: ${new Date(selectedRequest.created_at).toLocaleString()}`}
+            />
+            <div style={{ display: 'grid', gap: '16px', margin: '16px 0' }}>
+              
+              {/* Requester & Device Overview Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <small style={{ color: '#64748b', fontWeight: '700', textTransform: 'uppercase', fontSize: '11px' }}>Requester</small>
+                  <h4 style={{ margin: '4px 0 2px', fontSize: '15px' }}>{selectedRequest.requester_name || 'N/A'}</h4>
+                  {selectedRequest.target_employee_name && (
+                    <p style={{ margin: 0, fontSize: '12px', color: '#0f766e' }}>Target: {selectedRequest.target_employee_name}</p>
+                  )}
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <small style={{ color: '#64748b', fontWeight: '700', textTransform: 'uppercase', fontSize: '11px' }}>Device / Hardware</small>
+                  <h4 style={{ margin: '4px 0 2px', fontSize: '15px' }}>
+                    {selectedRequest.asset_name || selectedRequest.requested_device_type || 'Hardware'}
+                  </h4>
+                  {selectedRequest.asset_miczon_id && (
+                    <small style={{ color: '#64748b' }}>ID: {selectedRequest.asset_miczon_id}</small>
+                  )}
+                </div>
+              </div>
+
+              {/* Specifications if available */}
+              {selectedRequest.specifications && (
+                <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <small style={{ color: '#64748b', fontWeight: '700', textTransform: 'uppercase', fontSize: '11px' }}>Specifications</small>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#334155' }}>{selectedRequest.specifications}</p>
+                </div>
+              )}
+
+              {/* Reason for Request Box */}
+              <div style={{ background: '#f1f5f9', padding: '14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                <small style={{ color: '#475569', fontWeight: '700', textTransform: 'uppercase', fontSize: '11px' }}>Reason for Request</small>
+                <p style={{ margin: '6px 0 0', fontSize: '14px', color: '#1e293b', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontStyle: 'italic' }}>
+                  "{selectedRequest.reason_for_request || selectedRequest.remarks || 'No reason provided.'}"
+                </p>
+              </div>
+
+              {/* Status & Processing Audit Trail */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div>
+                  <small style={{ color: '#64748b', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: '700' }}>Current Status</small>
+                  <StatusBadge status={selectedRequest.status} />
+                </div>
+                {selectedRequest.processed_at && (
+                  <div style={{ textAlign: 'right' }}>
+                    <small style={{ color: '#64748b', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: '700' }}>Processed Date</small>
+                    <span style={{ fontSize: '13px', color: '#334155' }}>{new Date(selectedRequest.processed_at).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Admin Remarks Section if already processed */}
+              {selectedRequest.admin_remarks && (
+                <div style={{ background: '#faf5ff', padding: '12px 14px', borderRadius: '8px', border: '1px solid #e9d5ff' }}>
+                  <small style={{ color: '#6b21a8', fontWeight: '700', textTransform: 'uppercase', fontSize: '11px' }}>Admin Remarks</small>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#581c87' }}>{selectedRequest.admin_remarks}</p>
+                </div>
+              )}
+
+              {/* Admin Actions inside Modal if Pending */}
+              {isAdmin && selectedRequest.status === 'PENDING' && (
+                <div style={{ marginTop: '8px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+                  <Field label="Admin Remarks (Optional)">
+                    <textarea
+                      rows="2"
+                      placeholder="Add processing note or instructions..."
+                      value={adminRemarkInput}
+                      onChange={(e) => setAdminRemarkInput(e.target.value)}
+                    />
+                  </Field>
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px' }}>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => processRequest(selectedRequest.id, 'reject', adminRemarkInput)}
+                    >
+                      Deny Request
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={() => processRequest(selectedRequest.id, 'approve', adminRemarkInput)}
+                    >
+                      Approve Request
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="dialog-footer">
+              <Button type="button" variant="ghost" onClick={() => setSelectedRequest(null)}>
+                Close
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Admin Create Request for Employee Modal */}
+      {createModalOpen && (
+        <Dialog open={createModalOpen}>
+          <DialogContent style={{ maxWidth: '560px' }}>
+            <DialogHeader
+              title="Create Request for Employee"
+              description="Submit a hardware provision request on behalf of an employee."
+            />
+            <form className="dialog-form" onSubmit={submitAdminRequest} style={{ margin: '16px 0' }}>
+              <Field label="Target Employee">
+                <Select
+                  value={adminRequestForm.employeeId}
+                  onChange={(e) => setAdminRequestForm({ ...adminRequestForm, employeeId: e.target.value })}
+                  required
+                >
+                  <option value="">Select Employee...</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.employee_id}) {emp.department_name ? `- ${emp.department_name}` : ''}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '12px' }}>
+                <Field label="Hardware Type">
+                  <Select
+                    value={adminRequestForm.requested_device_type}
+                    onChange={(e) => setAdminRequestForm({ ...adminRequestForm, requested_device_type: e.target.value })}
+                  >
+                    <option>Laptop</option>
+                    <option>Mobile</option>
+                    <option>Accessory</option>
+                    <option>Monitor</option>
+                    <option>Other</option>
+                  </Select>
+                </Field>
+                <Field label="Specifications">
+                  <input
+                    value={adminRequestForm.specifications}
+                    onChange={(e) => setAdminRequestForm({ ...adminRequestForm, specifications: e.target.value })}
+                    placeholder="e.g. 16GB RAM, 512GB SSD..."
+                  />
+                </Field>
+              </div>
+
+              <Field label="Reason / Remarks" style={{ marginTop: '12px' }}>
+                <textarea
+                  required
+                  rows="3"
+                  value={adminRequestForm.remarks}
+                  onChange={(e) => setAdminRequestForm({ ...adminRequestForm, remarks: e.target.value })}
+                  placeholder="Explain why this hardware request is being submitted..."
+                />
+              </Field>
+
+              <div className="dialog-footer" style={{ marginTop: '20px' }}>
+                <Button type="button" variant="ghost" onClick={() => setCreateModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary">
+                  Submit Request
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }
 
-function HealthChecks({ api, isAdmin }) {
+function HealthChecks({ api, isAdmin, isManager, user }) {
+  const canInspectTeam = isAdmin || isManager || Boolean(user?.employee_details?.is_manager);
   const [sessions, setSessions] = useState([]);
   const [report, setReport] = useState(null);
   const [selectedSession, setSelectedSession] = useState('');
@@ -1515,6 +2131,10 @@ function HealthChecks({ api, isAdmin }) {
   const [reportSearch, setReportSearch] = useState('');
   const [reportDepartment, setReportDepartment] = useState('');
   const [notice, setNotice] = useState('');
+
+  const [adminInspectEmployee, setAdminInspectEmployee] = useState(null);
+  const [adminPendingAssets, setAdminPendingAssets] = useState([]);
+  const [adminHealthForm, setAdminHealthForm] = useState({});
 
   const load = useCallback(() => {
     const reportPath = selectedSession ? `/reports/health-compliance/?session=${selectedSession}` : '/reports/health-compliance/';
@@ -1535,6 +2155,59 @@ function HealthChecks({ api, isAdmin }) {
     const res = await api.post('/health-checks/trigger-global/');
     setNotice(`Monthly inspection started for ${res.data.assigned_assets || res.data.target_assets || 0} hardware item(s).`);
     setSelectedSession(String(res.data.session?.id || ''));
+  };
+
+  const openAdminInspection = async (emp) => {
+    try {
+      const empId = emp.employee_id || emp.id;
+      const pendingRes = await api.get(`/health-checks/${selectedSession}/pending-assets/?employee=${empId}`);
+      setAdminPendingAssets(pendingRes.data);
+      setAdminInspectEmployee(emp);
+      setAdminHealthForm({});
+    } catch (err) {
+      setNotice('Unable to fetch pending assets for employee.');
+    }
+  };
+
+  const updateAdminHealthField = (assetId, field, value) => {
+    setAdminHealthForm((current) => ({
+      ...current,
+      [assetId]: { ...(current[assetId] || {}), [field]: value },
+    }));
+  };
+
+  const submitAdminInspectionBatch = async (event) => {
+    event.preventDefault();
+    if (!selectedSession || !adminInspectEmployee || adminPendingAssets.length === 0) return;
+
+    const empId = adminInspectEmployee.employee_id || adminInspectEmployee.id;
+    const responses = adminPendingAssets.map((asset) => {
+      const values = adminHealthForm[asset.id] || {};
+      const inspectionValues = Object.fromEntries(
+        healthInspectionFields.map((field) => [field.name, values[field.name] || field.defaultValue])
+      );
+      return {
+        asset: asset.id,
+        ...inspectionValues,
+        performance_rating: Number(values.performance_rating || 4),
+        comments: values.comments || '',
+      };
+    });
+
+    try {
+      await api.post('/health-responses/bulk-submit/', {
+        session: selectedSession,
+        employee: empId,
+        responses,
+      });
+      setNotice(`Inspection completed for ${adminInspectEmployee.employee_name} (${responses.length} asset(s)).`);
+      setAdminInspectEmployee(null);
+      setAdminPendingAssets([]);
+      setAdminHealthForm({});
+      load();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to save health check responses.');
+    }
   };
 
   const downloadExcel = async () => {
@@ -1745,7 +2418,7 @@ function HealthChecks({ api, isAdmin }) {
             <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
           </div>
           <DataTable
-            columns={['Asset', 'Employee', 'Department', 'Category']}
+            columns={canInspectTeam ? ['Asset', 'Employee', 'Department', 'Category', 'Action'] : ['Asset', 'Employee', 'Department', 'Category']}
             rows={filteredPendingAssetRows.map((asset) => [
               <strong>{asset.name} ({asset.miczon_id})</strong>,
               <div className="employee-cell">
@@ -1754,6 +2427,17 @@ function HealthChecks({ api, isAdmin }) {
               </div>,
               asset.employee.department,
               asset.category || 'Uncategorized',
+              ...(canInspectTeam ? [
+                <Button
+                  key="inspect"
+                  type="button"
+                  variant="primary"
+                  size="small"
+                  onClick={() => openAdminInspection(asset.employee)}
+                >
+                  Inspect
+                </Button>
+              ] : []),
             ])}
             empty="No pending assets for this inspection."
           />
@@ -1770,20 +2454,25 @@ function HealthChecks({ api, isAdmin }) {
             <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
           </div>
           <DataTable
-            columns={['Employee', 'Department', 'Pending', 'Assets']}
+            columns={canInspectTeam ? ['Employee', 'Department', 'Pending Assets', 'Action'] : ['Employee', 'Department', 'Pending Assets']}
             rows={filteredPendingRows.map((row) => [
-              <div className="employee-cell">
+              <div className="employee-cell" key="emp">
                 <strong>{row.employee_name}</strong>
                 <small>{row.employee_code || 'No employee ID'}{row.email ? ` - ${row.email}` : ''}</small>
               </div>,
               row.department,
-              <strong>{row.pending_count}</strong>,
-              <div className="asset-chip-list">
-                {row.assets.slice(0, 4).map((asset) => (
-                  <span className="asset-chip" key={asset.id}>{asset.name} ({asset.miczon_id})</span>
-                ))}
-                {row.assets.length > 4 && <span className="asset-chip muted">+{row.assets.length - 4} more</span>}
-              </div>,
+              <strong key="pending" className="text-danger">{row.pending_count} pending</strong>,
+              ...(canInspectTeam ? [
+                <Button
+                  key="inspect"
+                  type="button"
+                  variant="primary"
+                  size="small"
+                  onClick={() => openAdminInspection(row)}
+                >
+                  Inspect
+                </Button>
+              ] : []),
             ])}
             empty="Everyone has completed this inspection."
           />
@@ -1811,6 +2500,69 @@ function HealthChecks({ api, isAdmin }) {
             empty="No critical alerts for this inspection."
           />
         </section>
+      )}
+
+      {isAdmin && adminInspectEmployee && (
+        <Dialog open={!!adminInspectEmployee}>
+          <DialogContent className="inspection-dialog">
+            <DialogHeader
+              title={`Gear Inspection for ${adminInspectEmployee?.employee_name || ''}`}
+              description={`${sessionTitle} (${adminPendingAssets.length} pending item(s))`}
+            />
+            {adminPendingAssets.length === 0 ? (
+              <div className="dialog-footer">
+                <Button type="button" variant="ghost" onClick={() => setAdminInspectEmployee(null)}>Close</Button>
+              </div>
+            ) : (
+              <form className="health-list-form" onSubmit={submitAdminInspectionBatch}>
+                <div className="health-response-list">
+                  {adminPendingAssets.map((asset, index) => {
+                    const values = adminHealthForm[asset.id] || {};
+                    return (
+                      <article className="health-list-item" key={asset.id}>
+                        <div className="health-asset-summary">
+                          <span className="health-index">{index + 1}</span>
+                          <div><h3>{asset.name}</h3><p>{asset.miczon_id}</p></div>
+                        </div>
+                        <div className="health-control-grid">
+                          {healthInspectionFields.map((field) => (
+                            <Field key={field.name} label={field.label}>
+                              <Select
+                                value={values[field.name] || field.defaultValue}
+                                onChange={(e) => updateAdminHealthField(asset.id, field.name, e.target.value)}
+                              >
+                                {field.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              </Select>
+                            </Field>
+                          ))}
+                          <Field label="Rating">
+                            <Select
+                              value={values.performance_rating || 4}
+                              onChange={(e) => updateAdminHealthField(asset.id, 'performance_rating', e.target.value)}
+                            >
+                              {ratingOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+                            </Select>
+                          </Field>
+                          <Field label="Comments" className="health-comments-field">
+                            <textarea
+                              rows="2"
+                              value={values.comments || ''}
+                              onChange={(e) => updateAdminHealthField(asset.id, 'comments', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+                <div className="dialog-footer">
+                  <Button type="button" variant="ghost" onClick={() => setAdminInspectEmployee(null)}>Cancel</Button>
+                  <Button type="submit" variant="primary">Submit Inspection for {adminInspectEmployee?.employee_name}</Button>
+                </div>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
       )}
     </>
   );
@@ -2081,15 +2833,17 @@ function EmployeePortal({ api, user }) {
               <DataTable
                 columns={['Device', 'Reason', 'Status', 'Created', 'Actions']}
                 rows={myRequests.filter(r => r.status === 'PENDING').map(r => [
-                  <div>
+                  <div key="device">
                     <strong>{r.asset_name || r.requested_device_type || r.asset_miczon_id || 'New hardware'}</strong>
-                    {r.specifications && <><br/><small>Specs: {r.specifications}</small></>}
+                    {r.specifications && <><br/><small style={{ color: '#64748b' }}>Specs: {r.specifications}</small></>}
                   </div>,
-                  r.reason_for_request || r.remarks || 'No reason provided',
-                  <StatusBadge status={r.status} />,
-                  new Date(r.created_at).toLocaleDateString(),
-                  <div className="row-actions">
-                    <Button type="button" variant="ghost" size="sm" title="Edit Request" onClick={() => {
+                  <div key="reason" style={{ maxWidth: '300px', wordBreak: 'break-word', overflowWrap: 'break-word', color: '#475569', fontSize: '13px' }}>
+                    {r.reason_for_request || r.remarks || 'No reason provided'}
+                  </div>,
+                  <StatusBadge key="status" status={r.status} />,
+                  <span key="created" style={{ whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleDateString()}</span>,
+                  <div key="actions" className="row-actions" style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'nowrap' }}>
+                    <Button type="button" variant="ghost" size="sm" title="Edit Request" style={{ padding: '6px 10px' }} onClick={() => {
                       setEditingRequestId(r.id);
                       setRequestForm({
                         requested_device_type: r.requested_device_type || 'Laptop',
@@ -2100,8 +2854,8 @@ function EmployeePortal({ api, user }) {
                     }}>
                       <Icon name="edit" />
                     </Button>
-                    <Button type="button" variant="ghost" size="sm" className="text-danger" title="Delete Request" onClick={() => deleteRequest(r.id)}>
-                      <Icon name="trash" />
+                    <Button type="button" variant="ghost" size="sm" className="text-danger" title="Delete Request" style={{ padding: '6px 10px', color: '#dc2626' }} onClick={() => deleteRequest(r.id)}>
+                      <Icon name="cross" />
                     </Button>
                   </div>
                 ])}

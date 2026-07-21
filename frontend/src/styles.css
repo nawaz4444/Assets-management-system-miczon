@@ -719,6 +719,7 @@ h3 {
   cursor: pointer;
   font-weight: 700;
   padding: 9px 14px;
+  white-space: nowrap;
 }
 
 .button:hover {
@@ -838,6 +839,7 @@ th {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 td {
@@ -867,6 +869,7 @@ th {
   font-weight: 800;
   padding: 4px 10px;
   text-transform: capitalize;
+  white-space: nowrap;
 }
 
 .status-badge.assigned,
@@ -1483,9 +1486,29 @@ input[type="checkbox"] {
   .sidebar,
   .page-header,
   .notice,
-  .dialog-root,
+  .modal-toolbar,
+  .dialog-header,
+  .dialog-footer,
   .panel:not(.qr-print-surface) {
     display: none !important;
+  }
+
+  .dialog-root {
+    position: static !important;
+    background: transparent !important;
+  }
+
+  .dialog-backdrop {
+    display: none !important;
+  }
+
+  .dialog-content.qr-labels-dialog {
+    position: static !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    background: transparent !important;
   }
 
   .app-shell {
@@ -1499,23 +1522,27 @@ input[type="checkbox"] {
 
   .qr-print-surface {
     display: block !important;
-    border: 0;
-    box-shadow: none;
-    margin: 0;
-    padding: 0;
+    border: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   .qr-label-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8mm;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6mm !important;
   }
 
-  .qr-label {
+  .qr-label,
+  .asset-print-label {
     break-inside: avoid;
-    min-height: 48mm;
-    border-color: #000000;
-    border-radius: 0;
-    padding: 6mm;
+    border: 1px solid #000000 !important;
+    border-radius: 4px !important;
+    padding: 4mm !important;
+    text-align: center !important;
   }
 
   .asset-tag-print-only {
@@ -1524,12 +1551,5 @@ input[type="checkbox"] {
     align-items: flex-start;
     justify-content: center;
     padding-top: 8mm;
-  }
-
-  .asset-print-label {
-    width: 58mm;
-    border-color: #000000;
-    border-radius: 0;
-    padding: 6mm;
   }
 }

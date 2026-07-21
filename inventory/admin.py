@@ -6,7 +6,8 @@ from .models import (
 
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'floor')
+    list_display = ('name', 'floor', 'manager')
+    search_fields = ('name', 'manager__name')
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):

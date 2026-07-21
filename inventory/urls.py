@@ -26,6 +26,7 @@ urlpatterns = [
     path('scan/<str:miczon_id>/', ScanAssetView.as_view(), name='scan-asset'),
     # 2. Add the Upload Path explicitly:
     path('upload/', UploadAssetsView.as_view(), name='upload-assets'),
+    path('admin/dashboard-stats/', ReportsViewSet.as_view({'get': 'dashboard_stats'}), name='admin-dashboard-stats'),
     
     # 2. Add the Router paths (assets, employees, etc.)
     path('', include(router.urls)),

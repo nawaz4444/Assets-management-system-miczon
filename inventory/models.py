@@ -5,6 +5,7 @@ from datetime import date
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
     floor = models.CharField(max_length=50, blank=True, null=True)
+    manager = models.ForeignKey('Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='managed_departments')
     def __str__(self): return self.name
 
 class Employee(models.Model):

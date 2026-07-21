@@ -10,6 +10,7 @@ from .models import Asset, Employee, Department, AssetHistory, InspectionLog
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
+    manager_name = serializers.CharField(source='manager.name', read_only=True)
     class Meta:
         model = Department
         fields = '__all__'
@@ -17,14 +18,22 @@ class DepartmentSerializer(serializers.ModelSerializer):
 class EmployeeSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
     assigned_assets_count = serializers.IntegerField(read_only=True)
+    is_manager = serializers.SerializerMethodField()
+
+    def get_is_manager(self, obj):
+        return obj.managed_departments.exists()
+
     class Meta:
         model = Employee
-        fields = ['id', 'name', 'employee_id', 'email', 'department', 'department_name', 'assigned_assets_count']
+        fields = ['id', 'name', 'employee_id', 'email', 'department', 'department_name', 'assigned_assets_count', 'is_manager']
 
 class AssetHistorySerializer(serializers.ModelSerializer):
+    from_employee_name = serializers.CharField(source='from_employee.name', read_only=True)
+    to_employee_name = serializers.CharField(source='to_employee.name', read_only=True)
+
     class Meta:
         model = AssetHistory
-        fields = ['action', 'date', 'remarks', 'from_employee', 'to_employee']
+        fields = '__all__'
 
 class InspectionLogSerializer(serializers.ModelSerializer):
     asset_miczon_id = serializers.CharField(source='asset.miczon_id', read_only=True)
@@ -37,64 +46,50 @@ class InspectionLogSerializer(serializers.ModelSerializer):
 # --- ASSET SERIALIZERS: List vs Detail Pattern ---
 
 class AssetListSerializer(serializers.ModelSerializer):
-    """
-    Lightweight serializer for list/table views.
-    Only includes essential fields to minimize JSON payload.
-    """
     custodian_name = serializers.CharField(source='custodian.name', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
-    active_assignment_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Asset
-        fields = [
-            'id', 'miczon_id', 'name', 'category', 'specifications',
-            'current_status', 'custodian', 'custodian_name', 
-            'department', 'department_name',
-            'maintenance_vendor', 'sent_to_repair_date', 'expected_return_date', 'is_overdue_repair',
-            'active_assignment_id'
-        ]
+        fields = ['id', 'miczon_id', 'name', 'category', 'specifications', 'current_status', 'custodian', 'custodian_name', 'department', 'department_name']
 
-    def get_active_assignment_id(self, obj):
-        # OPTIMIZATION: Use pre-fetched data (python-side filtering)
-        for assignment in obj.assignments.all():
-            if assignment.status == 'ASSIGNED':
-                return assignment.id
-        return None
-
-class AssetDetailSerializer(AssetListSerializer):
+class AssetDetailSerializer(serializers.ModelSerializer):
     """
-    Full serializer for detail/retrieve views.
-    Inherits from AssetListSerializer and adds heavy fields.
+    Full detail serializer for Single Asset View / Drawer.
+    Includes nested relations, history, and status properties.
     """
+    custodian_name = serializers.CharField(source='custodian.name', read_only=True)
+    department_name = serializers.CharField(source='department.name', read_only=True)
     history = AssetHistorySerializer(many=True, read_only=True)
     latest_inspection = serializers.SerializerMethodField()
-    active_assignment_id = serializers.SerializerMethodField()
+    last_inspection_date = serializers.SerializerMethodField()
+    is_overdue_repair = serializers.ReadOnlyField()
 
-    class Meta(AssetListSerializer.Meta):
-        fields = AssetListSerializer.Meta.fields + [
-            'specifications', 'remarks', 'last_inspection_date', 
-            'history', 'latest_inspection', 'active_assignment_id'
-        ]
+    class Meta:
+        model = Asset
+        fields = '__all__'
 
     def get_latest_inspection(self, obj):
-        # OPTIMIZATION: Use pre-fetched data (python-side filtering)
-        logs = list(obj.inspectionlog_set.all())
-        if not logs:
-            return None
-        logs.sort(key=lambda x: (x.date, x.id), reverse=True)
-        return InspectionLogSerializer(logs[0]).data
-
-    def get_active_assignment_id(self, obj):
-        # OPTIMIZATION: Use pre-fetched data (python-side filtering)
-        for assignment in obj.assignments.all():
-            if assignment.status == 'ASSIGNED':
-                return assignment.id
+        latest = HealthCheckResponse.objects.filter(asset=obj).order_by('-submitted_at').first()
+        if latest:
+            return HealthCheckResponseSerializer(latest).data
         return None
 
+    def get_last_inspection_date(self, obj):
+        if obj.last_inspection_date:
+            return obj.last_inspection_date
+        latest = HealthCheckResponse.objects.filter(asset=obj).order_by('-submitted_at').first()
+        if latest and latest.submitted_at:
+            return latest.submitted_at.date()
+        return None
 
-# Backward compatibility alias (deprecated, use AssetDetailSerializer)
-AssetSerializer = AssetDetailSerializer
+class AssetSerializer(serializers.ModelSerializer):
+    custodian_name = serializers.CharField(source='custodian.name', read_only=True)
+    department_name = serializers.CharField(source='department.name', read_only=True)
+
+    class Meta:
+        model = Asset
+        fields = '__all__'
 
 from .models import AssetAssignment
 class AssetAssignmentSerializer(serializers.ModelSerializer):
@@ -141,11 +136,17 @@ class UserSerializer(serializers.ModelSerializer):
             profile = Employee.objects.filter(q).first()
 
         if profile:
+            managed_depts = list(profile.managed_departments.values('id', 'name'))
+            is_manager = len(managed_depts) > 0
+            role = 'ADMIN' if obj.is_superuser else ('MANAGER' if is_manager else 'EMPLOYEE')
             return {
                 'id': profile.id,
                 'name': profile.name,
                 'employee_id': profile.employee_id,
-                'department': profile.department_id
+                'department': profile.department_id,
+                'is_manager': is_manager,
+                'managed_departments': managed_depts,
+                'role': role
             }
         return None
 from .models import AssetActionRequest

@@ -68,6 +68,37 @@ def _get_employee_requester(user):
     elif user.username: q |= Q(name__iexact=user.username)
     return Employee.objects.filter(q).first()
 
+def _is_manager(user):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    emp = _get_employee_requester(user)
+    return bool(emp and emp.managed_departments.exists())
+
+def _get_managed_department_ids(user):
+    if not user or not user.is_authenticated:
+        return []
+    if user.is_superuser:
+        return list(Department.objects.values_list('id', flat=True))
+    emp = _get_employee_requester(user)
+    if not emp:
+        return []
+    return list(emp.managed_departments.values_list('id', flat=True))
+
+def _get_team_employee_ids(user):
+    if not user or not user.is_authenticated:
+        return []
+    emp = _get_employee_requester(user)
+    self_id = [emp.id] if emp else []
+    if user.is_superuser:
+        return list(Employee.objects.values_list('id', flat=True))
+    dept_ids = _get_managed_department_ids(user)
+    if not dept_ids:
+        return self_id
+    team_ids = list(Employee.objects.filter(department_id__in=dept_ids).values_list('id', flat=True))
+    return list(set(self_id + team_ids))
+
 def clean_import_value(value, default=''):
     if pd.isna(value):
         return default
@@ -301,10 +332,20 @@ class AssetViewSet(viewsets.ModelViewSet):
                 Q(category__icontains=search)
             )
         
-        # OWNER RESTRICTION: Non-superusers only see assets assigned to them
+        # OWNER / MANAGER RESTRICTION
         if not self.request.user.is_superuser:
-            emp_filter = get_employee_filter(self.request.user, prefix='custodian__')
-            queryset = queryset.filter(emp_filter)
+            dept_ids = _get_managed_department_ids(self.request.user)
+            team_ids = _get_team_employee_ids(self.request.user)
+            if dept_ids or team_ids:
+                emp_filter = get_employee_filter(self.request.user, prefix='custodian__')
+                queryset = queryset.filter(
+                    Q(department_id__in=dept_ids) |
+                    Q(custodian_id__in=team_ids) |
+                    emp_filter
+                )
+            else:
+                emp_filter = get_employee_filter(self.request.user, prefix='custodian__')
+                queryset = queryset.filter(emp_filter)
             
         return queryset
 
@@ -745,10 +786,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 Q(email__icontains=search)
             )
             
-        # Security: Employees only see their own profile
+        # Security: Employees / Managers accessibility
         if not self.request.user.is_superuser:
-            emp_filter = get_employee_filter(self.request.user)
-            queryset = queryset.filter(emp_filter)
+            team_ids = _get_team_employee_ids(self.request.user)
+            if team_ids:
+                emp_filter = get_employee_filter(self.request.user)
+                queryset = queryset.filter(Q(id__in=team_ids) | emp_filter)
+            else:
+                emp_filter = get_employee_filter(self.request.user)
+                queryset = queryset.filter(emp_filter)
             
         return queryset
 
@@ -901,8 +947,17 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(status=status)
         
         if not self.request.user.is_superuser:
-            emp_filter = get_employee_filter(self.request.user, prefix='requester__')
-            queryset = queryset.filter(emp_filter)
+            team_ids = _get_team_employee_ids(self.request.user)
+            if team_ids:
+                emp_filter = get_employee_filter(self.request.user, prefix='requester__')
+                queryset = queryset.filter(
+                    Q(requester_id__in=team_ids) |
+                    Q(target_employee_id__in=team_ids) |
+                    emp_filter
+                )
+            else:
+                emp_filter = get_employee_filter(self.request.user, prefix='requester__')
+                queryset = queryset.filter(emp_filter)
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -921,8 +976,11 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             serializer.save(requester=requester, status='PENDING')
             return Response(serializer.data, status=201)
 
-        if not request.user.is_superuser:
-            return Response({"error": "Employees cannot create requests for another requester."}, status=403)
+        requested_emp_id = request.data.get('requester')
+        if requested_emp_id and not request.user.is_superuser:
+            team_ids = _get_team_employee_ids(request.user)
+            if int(requested_emp_id) not in team_ids:
+                return Response({"error": "You do not have permission to submit requests for this employee."}, status=403)
 
         return super().create(request, *args, **kwargs)
 
@@ -1131,8 +1189,11 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         employee = _get_employee_requester(request.user)
 
-        if request.user.is_superuser and request.query_params.get('employee'):
-            employee = Employee.objects.filter(id=request.query_params.get('employee')).first()
+        requested_emp_param = request.query_params.get('employee')
+        if requested_emp_param:
+            team_ids = _get_team_employee_ids(request.user)
+            if request.user.is_superuser or int(requested_emp_param) in team_ids:
+                employee = Employee.objects.filter(id=requested_emp_param).first()
 
         if not employee:
             return Response([])
@@ -1159,8 +1220,12 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(session_id=session)
 
         if not self.request.user.is_superuser:
-            employee = _get_employee_requester(self.request.user)
-            queryset = queryset.filter(employee=employee)
+            team_ids = _get_team_employee_ids(self.request.user)
+            if team_ids:
+                queryset = queryset.filter(employee_id__in=team_ids)
+            else:
+                employee = _get_employee_requester(self.request.user)
+                queryset = queryset.filter(employee=employee)
 
         return queryset
 
@@ -1183,13 +1248,25 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         serializer.save(employee=employee)
+        if asset_id:
+            Asset.objects.filter(id=asset_id).update(last_inspection_date=timezone.now().date())
         return Response(serializer.data, status=201)
 
     @action(detail=False, methods=['post'], url_path='bulk-submit')
     def bulk_submit(self, request):
-        employee = _get_employee_requester(request.user)
-        if not employee:
-            return Response({"error": "Employee profile not found for user."}, status=400)
+        target_emp_id = request.data.get('employee')
+        if target_emp_id:
+            team_ids = _get_team_employee_ids(request.user)
+            if request.user.is_superuser or int(target_emp_id) in team_ids:
+                employee = Employee.objects.filter(id=target_emp_id).first()
+                if not employee:
+                    return Response({"error": "Target employee profile not found."}, status=404)
+            else:
+                return Response({"error": "You do not have permission to submit inspections for this employee."}, status=403)
+        else:
+            employee = _get_employee_requester(request.user)
+            if not employee:
+                return Response({"error": "Employee profile not found for user."}, status=400)
 
         session_id = request.data.get('session')
         responses = request.data.get('responses') or []
@@ -1233,6 +1310,8 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
                 serializer = self.get_serializer(existing_response, data=data)
                 serializer.is_valid(raise_exception=True)
                 health_response = serializer.save(employee=employee)
+                if response.get('asset'):
+                    Asset.objects.filter(id=response.get('asset')).update(last_inspection_date=timezone.now().date())
                 saved_responses.append(health_response)
 
         serializer = self.get_serializer(saved_responses, many=True)
