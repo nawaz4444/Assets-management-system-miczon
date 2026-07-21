@@ -1695,7 +1695,7 @@ class ReportsViewSet(viewsets.ViewSet):
             },
             "pending_by_employee": sorted(pending_by_employee.values(), key=lambda row: (-row["pending_count"], row["employee_name"])),
             "department_summary": sorted(department_summary.values(), key=lambda row: row["department"]),
-            "responses": HealthCheckResponseSerializer(response_qs.order_by('-submitted_at')[:100], many=True).data,
+            "responses": HealthCheckResponseSerializer(response_qs.order_by('-submitted_at'), many=True).data,
         })
 
     @action(detail=False, methods=['get'], url_path='export-health-responses')

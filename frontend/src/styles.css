@@ -998,6 +998,12 @@ th {
   width: min(1120px, 100%);
 }
 
+.dialog-content.inspection-report-dialog {
+  width: min(1280px, 96vw);
+  max-height: calc(100vh - 40px);
+  padding: 26px;
+}
+
 .dialog-header {
   margin-bottom: 18px;
 }

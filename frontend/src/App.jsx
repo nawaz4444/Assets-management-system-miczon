@@ -2136,6 +2136,14 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
   const [adminPendingAssets, setAdminPendingAssets] = useState([]);
   const [adminHealthForm, setAdminHealthForm] = useState({});
 
+  // Inspection Report Dialog State
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [modalSessionId, setModalSessionId] = useState('');
+  const [modalResponses, setModalResponses] = useState([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalSearch, setModalSearch] = useState('');
+  const [modalDeptFilter, setModalDeptFilter] = useState('');
+
   const load = useCallback(() => {
     const reportPath = selectedSession ? `/reports/health-compliance/?session=${selectedSession}` : '/reports/health-compliance/';
     Promise.all([fetchAll(api, '/health-checks/'), api.get(reportPath)]).then(([sessionRows, reportRes]) => {
@@ -2150,6 +2158,24 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const openReportModal = () => {
+    const targetSession = selectedSession || (sessions[0]?.id ? String(sessions[0].id) : '');
+    setModalSessionId(targetSession);
+    setModalSearch('');
+    setModalDeptFilter('');
+    setReportModalOpen(true);
+  };
+
+  useEffect(() => {
+    if (reportModalOpen && modalSessionId) {
+      setModalLoading(true);
+      api.get(`/reports/health-compliance/?session=${modalSessionId}`)
+        .then((res) => setModalResponses(res.data?.responses || []))
+        .catch(() => setNotice('Unable to load inspection responses.'))
+        .finally(() => setModalLoading(false));
+    }
+  }, [api, reportModalOpen, modalSessionId]);
 
   const trigger = async () => {
     const res = await api.post('/health-checks/trigger-global/');
@@ -2207,6 +2233,34 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
       load();
     } catch (err) {
       setNotice(err.response?.data?.error || 'Unable to save health check responses.');
+    }
+  };
+
+  const downloadExcelModal = async () => {
+    if (!modalSessionId) return;
+    try {
+      const params = new URLSearchParams({
+        session: modalSessionId,
+        type: 'all',
+      });
+      if (modalSearch.trim()) params.set('search', modalSearch.trim());
+      if (modalDeptFilter) params.set('department', modalDeptFilter);
+
+      const response = await api.get(`/reports/export-health-responses/?${params.toString()}`, {
+        responseType: 'blob',
+      });
+      const contentDisposition = response.headers['content-disposition'];
+      const fileName = contentDisposition?.match(/filename="?([^"]+)"?/)?.[1] || `health_report_session_${modalSessionId}.xlsx`;
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice('Failed to download excel report.');
     }
   };
 
@@ -2295,6 +2349,20 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
     response.performance_rating,
   ]));
 
+  const filteredModalResponses = modalResponses.filter((resp) => {
+    if (modalDeptFilter && resp.department !== modalDeptFilter) return false;
+    if (modalSearch.trim()) {
+      const q = modalSearch.toLowerCase();
+      const match = (resp.employee_name || '').toLowerCase().includes(q) ||
+                    (resp.employee_code || '').toLowerCase().includes(q) ||
+                    (resp.asset_name || '').toLowerCase().includes(q) ||
+                    (resp.asset_miczon_id || '').toLowerCase().includes(q) ||
+                    (resp.comments || '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    return true;
+  });
+
   const openReportView = (view) => {
     setActiveReportView(view);
   };
@@ -2306,16 +2374,16 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
   return (
     <>
       <PageHeader eyebrow="Monthly Inspection" title="Monthly inspection report">
-        {isAdmin && (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <Button type="button" variant="outline" onClick={downloadExcel} disabled={!selectedSession}>
-              Download Excel
-            </Button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <Button type="button" variant="outline" onClick={openReportModal}>
+            📊 Inspection Report & Download
+          </Button>
+          {isAdmin && (
             <Button type="button" variant="primary" onClick={trigger}>
               Start Monthly Inspection
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
@@ -2561,6 +2629,178 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
                 </div>
               </form>
             )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Download Excel & Completed Inspection History Modal */}
+      {reportModalOpen && (
+        <Dialog open={reportModalOpen}>
+          <DialogContent className="inspection-report-dialog">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
+              <div>
+                <h2 style={{ margin: '0 0 4px', fontSize: '20px', color: '#0f172a', fontWeight: '800' }}>
+                  Completed Asset Inspection Report
+                </h2>
+                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                  Select an inspection session from history to view completed asset inspection records, ratings, employee comments, and download the Excel report.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportModalOpen(false)}
+                aria-label="Close dialog"
+                style={{
+                  border: 'none',
+                  background: '#f1f5f9',
+                  color: '#64748b',
+                  fontSize: '18px',
+                  fontWeight: 'bold',
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '999px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  lineHeight: '1',
+                  transition: 'all 0.15s ease',
+                  flexShrink: 0,
+                  marginLeft: '12px'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#991b1b'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Filter Controls Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', margin: '20px 0', alignItems: 'flex-end' }}>
+              <Field label="Inspection History Session">
+                <Select value={modalSessionId} onChange={(e) => setModalSessionId(e.target.value)}>
+                  {sessions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title} ({new Date(s.created_at).toLocaleDateString()}) — {s.status}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Department">
+                <Select value={modalDeptFilter} onChange={(e) => setModalDeptFilter(e.target.value)}>
+                  <option value="">All Departments</option>
+                  {reportDepartments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field label="Search Records">
+                <input
+                  type="search"
+                  placeholder="Employee, asset ID, comment..."
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                />
+              </Field>
+
+              <div>
+                <Button type="button" variant="primary" style={{ width: '100%', height: '42px' }} onClick={downloadExcelModal}>
+                  📥 Download Excel Report
+                </Button>
+              </div>
+            </div>
+
+            {/* Completed Records Summary Banner */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '12px 18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '18px' }}>
+              <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '600' }}>
+                Showing <strong style={{ color: '#0f766e', fontSize: '15px' }}>{filteredModalResponses.length}</strong> completed asset inspection record(s)
+              </span>
+              <small style={{ color: '#64748b', fontWeight: '600' }}>
+                {modalSessionId ? `Session ID: ${modalSessionId}` : ''}
+              </small>
+            </div>
+
+            {/* Tabular View (Completed Asset Inspection Records Only) */}
+            <div style={{ maxHeight: '520px', overflowY: 'auto', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              {modalLoading ? (
+                <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '15px' }}>Loading inspection records...</div>
+              ) : (
+                <DataTable
+                  columns={['Employee', 'Department', 'Asset & Miczon ID', 'Employee Inspection Comment', 'Rating', 'Conditions', 'Inspection Date']}
+                  rows={filteredModalResponses.map((resp) => [
+                    <div key="emp" className="employee-cell">
+                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{resp.employee_name}</strong>
+                      <small style={{ color: '#64748b' }}>{resp.employee_code || resp.email || 'No ID'}</small>
+                    </div>,
+                    <span key="dept" style={{ fontWeight: '600', color: '#334155' }}>{resp.department || 'Unassigned'}</span>,
+                    <div key="asset">
+                      <strong style={{ fontSize: '14px', color: '#0f172a' }}>{resp.asset_name}</strong>
+                      <small style={{ display: 'block', color: '#0f766e', fontWeight: '700' }}>{resp.asset_miczon_id}</small>
+                    </div>,
+                    <div key="comment" style={{ minWidth: '240px', maxWidth: '340px' }}>
+                      {resp.comments ? (
+                        <div style={{
+                          background: '#f0fdf4',
+                          borderLeft: '3px solid #0f766e',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          color: '#064e3b',
+                          lineHeight: '1.4',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                        }}>
+                          💬 "{resp.comments}"
+                        </div>
+                      ) : (
+                        <div style={{
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          color: '#94a3b8',
+                          fontStyle: 'italic',
+                          display: 'inline-block'
+                        }}>
+                          No comments
+                        </div>
+                      )}
+                    </div>,
+                    <div key="rating" style={{ whiteSpace: 'nowrap' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        background: Number(resp.performance_rating) >= 4 ? '#dcfce7' : (Number(resp.performance_rating) === 3 ? '#fef3c7' : '#fee2e2'),
+                        color: Number(resp.performance_rating) >= 4 ? '#166534' : (Number(resp.performance_rating) === 3 ? '#92400e' : '#991b1b')
+                      }}>
+                        {resp.performance_rating} / 5 ⭐
+                      </span>
+                    </div>,
+                    <div key="cond" style={{ fontSize: '12px', display: 'grid', gap: '3px', whiteSpace: 'nowrap' }}>
+                      <div>Screen: <strong style={{ color: '#334155' }}>{resp.screen_condition}</strong></div>
+                      <div>Battery: <strong style={{ color: '#334155' }}>{resp.battery_life}</strong></div>
+                    </div>,
+                    <span key="date" style={{ color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      {new Date(resp.submitted_at).toLocaleDateString()}
+                    </span>,
+                  ])}
+                  empty="No completed asset inspection records found for this selection."
+                />
+              )}
+            </div>
+
+            <div className="dialog-footer" style={{ marginTop: '20px' }}>
+              <Button type="button" variant="ghost" onClick={() => setReportModalOpen(false)}>
+                Close
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       )}
