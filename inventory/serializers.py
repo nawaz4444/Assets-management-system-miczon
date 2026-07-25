@@ -179,6 +179,9 @@ from .models import HealthCheckSession, HealthCheckResponse
 
 class HealthCheckResponseSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.name', read_only=True)
+    employee_code = serializers.CharField(source='employee.employee_id', read_only=True, default='')
+    email = serializers.CharField(source='employee.email', read_only=True, default='')
+    department = serializers.SerializerMethodField()
     asset_name = serializers.CharField(source='asset.name', read_only=True)
     asset_miczon_id = serializers.CharField(source='asset.miczon_id', read_only=True)
     asset_category = serializers.CharField(source='asset.category', read_only=True)
@@ -187,6 +190,13 @@ class HealthCheckResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = HealthCheckResponse
         fields = '__all__'
+
+    def get_department(self, obj):
+        if obj.employee and obj.employee.department:
+            return obj.employee.department.name
+        if obj.asset and obj.asset.department:
+            return obj.asset.department.name
+        return "Unassigned"
 
     def validate_performance_rating(self, value):
         if value < 1 or value > 5:

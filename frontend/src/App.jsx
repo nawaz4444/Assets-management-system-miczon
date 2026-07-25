@@ -2304,6 +2304,7 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
   const reportDepartments = Array.from(new Set([
     ...departmentRows.map((row) => row.department).filter(Boolean),
     ...pendingRows.map((row) => row.department).filter(Boolean),
+    ...modalResponses.map((row) => row.department).filter(Boolean),
   ])).sort((a, b) => a.localeCompare(b));
 
   useEffect(() => {

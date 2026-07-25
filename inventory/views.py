@@ -1177,7 +1177,7 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='responses')
     def responses(self, request, pk=None):
         session = self.get_object()
-        responses = HealthCheckResponse.objects.filter(session=session).select_related('employee', 'asset')
+        responses = HealthCheckResponse.objects.filter(session=session).select_related('employee', 'employee__department', 'asset', 'asset__department')
         if not request.user.is_superuser:
             employee = _get_employee_requester(request.user)
             responses = responses.filter(employee=employee)
@@ -1207,7 +1207,7 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 class HealthCheckResponseViewSet(viewsets.ModelViewSet):
-    queryset = HealthCheckResponse.objects.all().select_related('session', 'employee', 'asset').order_by('-submitted_at')
+    queryset = HealthCheckResponse.objects.all().select_related('session', 'employee', 'employee__department', 'asset', 'asset__department').order_by('-submitted_at')
     serializer_class = HealthCheckResponseSerializer
 
     def get_queryset(self):
@@ -1416,7 +1416,7 @@ class ReportsViewSet(viewsets.ViewSet):
             return response.employee.department.name
         if response.asset and response.asset.department:
             return response.asset.department.name
-        return ""
+        return "Unassigned"
 
     def _health_response_rows(self, responses):
         rows = []
