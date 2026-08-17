@@ -105,8 +105,13 @@ WSGI_APPLICATION = 'inventory_system.wsgi.application'
 # Uses PostgreSQL when DB_HOST env-var is set (Docker / prod),
 # otherwise falls back to SQLite for local dev without Docker.
 # ──────────────────────────────────────────────────────────────
+_use_sqlite = os.getenv('USE_SQLITE', 'false').lower() in ('true', '1', 'yes')
 _db_host = os.getenv('DB_HOST', '')
-if _db_host:
+
+# If DB_HOST is 'db' (docker container name) and we're running on host OS outside docker, fallback to SQLite
+_is_docker_host = _db_host == 'db' and not os.path.exists('/.dockerenv')
+
+if _db_host and not _is_docker_host and not _use_sqlite:
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
@@ -205,6 +210,7 @@ SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_ADAPTER = 'inventory.allauth_adapters.CustomAccountAdapter'
+SOCIALACCOUNT_ADAPTER = 'inventory.allauth_adapters.CustomSocialAccountAdapter'
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {

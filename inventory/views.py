@@ -5,19 +5,24 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import FileResponse, HttpResponse
 from .models import (
     Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog,
-    AssetActionRequest, HealthCheckSession, HealthCheckResponse
+    AssetActionRequest, HealthCheckSession, HealthCheckResponse, SuperCategory
 )
 from .serializers import (
     AssetSerializer, EmployeeSerializer, DepartmentSerializer, 
     AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer, 
     AssetDetailSerializer, UserSerializer, AssetActionRequestSerializer,
-    HealthCheckSessionSerializer, HealthCheckResponseSerializer
+    HealthCheckSessionSerializer, HealthCheckResponseSerializer, SuperCategorySerializer
 )
 from rest_framework.decorators import action
 from django.db import transaction
 from django.db.models import Count, Q
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
+
+class SuperCategoryViewSet(viewsets.ModelViewSet):
+    queryset = SuperCategory.objects.all().order_by('id')
+    serializer_class = SuperCategorySerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 from io import BytesIO
 from datetime import date
 from django.utils import timezone
@@ -313,6 +318,7 @@ class AssetViewSet(viewsets.ModelViewSet):
         department = self.request.query_params.get('department')
         status = self.request.query_params.get('status')
         category = self.request.query_params.get('category')
+        super_category = self.request.query_params.get('super_category')
         search = self.request.query_params.get('search')
         
         if custodian:
@@ -323,6 +329,11 @@ class AssetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(current_status=status)
         if category:
             queryset = queryset.filter(category__iexact=category)
+        if super_category and str(super_category).lower() != 'all':
+            if str(super_category).isdigit():
+                queryset = queryset.filter(super_category_id=super_category)
+            else:
+                queryset = queryset.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
         if search:
             # Search across multiple fields
             queryset = queryset.filter(
@@ -333,7 +344,7 @@ class AssetViewSet(viewsets.ModelViewSet):
             )
         
         # OWNER / MANAGER RESTRICTION
-        if not self.request.user.is_superuser:
+        if not (self.request.user.is_superuser or self.request.user.is_staff):
             dept_ids = _get_managed_department_ids(self.request.user)
             team_ids = _get_team_employee_ids(self.request.user)
             if dept_ids or team_ids:
@@ -1138,6 +1149,13 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset().annotate(response_count=Count('responses'))
+        super_category = self.request.query_params.get('super_category')
+        if super_category:
+            if str(super_category).isdigit():
+                queryset = queryset.filter(super_category_id=super_category)
+            else:
+                queryset = queryset.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
+
         if self.request.user.is_superuser:
             return queryset
 
@@ -1153,12 +1171,29 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
         if not request.user.is_superuser:
             return Response({"error": "Only admins can start monthly inspections."}, status=403)
 
-        title = request.data.get('title') or f"Monthly Hardware Inspection {timezone.now().date()}"
-        session = HealthCheckSession.objects.create(title=title, triggered_by=request.user)
+        super_cat_id_or_code = request.data.get('super_category')
+        super_cat_obj = None
+        if super_cat_id_or_code:
+            if str(super_cat_id_or_code).isdigit():
+                super_cat_obj = SuperCategory.objects.filter(id=super_cat_id_or_code).first()
+            else:
+                super_cat_obj = SuperCategory.objects.filter(Q(code__iexact=super_cat_id_or_code) | Q(name__iexact=super_cat_id_or_code)).first()
+        
+        if not super_cat_obj:
+            super_cat_obj = SuperCategory.objects.filter(code='it_assets').first()
+
+        cat_prefix = super_cat_obj.name if super_cat_obj else "Hardware"
+        title = request.data.get('title') or f"Monthly {cat_prefix} Inspection {timezone.now().date()}"
+        session = HealthCheckSession.objects.create(title=title, super_category=super_cat_obj, triggered_by=request.user)
         serializer = self.get_serializer(session)
-        assigned_assets = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False).count()
+
+        assigned_qs = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False)
+        if super_cat_obj:
+            assigned_qs = assigned_qs.filter(super_category=super_cat_obj)
+        assigned_assets = assigned_qs.count()
+
         return Response({
-            "status": "Monthly inspection started",
+            "status": f"Monthly inspection started for {cat_prefix}",
             "assigned_assets": assigned_assets,
             "session": serializer.data,
         }, status=201)
@@ -1203,6 +1238,8 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
             employee=employee
         ).values_list('asset_id', flat=True)
         assets = Asset.objects.filter(custodian=employee).exclude(id__in=responded_assets)
+        if session.super_category:
+            assets = assets.filter(super_category=session.super_category)
         serializer = AssetListSerializer(assets, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -1546,7 +1583,14 @@ class ReportsViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='dashboard-stats')
     def dashboard_stats(self, request):
         queryset = Asset.objects.all()
-        if not request.user.is_superuser:
+        super_category = request.query_params.get('super_category')
+        if super_category and str(super_category).lower() != 'all':
+            if str(super_category).isdigit():
+                queryset = queryset.filter(super_category_id=super_category)
+            else:
+                queryset = queryset.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
+
+        if not (request.user.is_superuser or request.user.is_staff):
             emp_filter = get_employee_filter(request.user, prefix='custodian__')
             queryset = queryset.filter(emp_filter)
 
@@ -1561,7 +1605,14 @@ class ReportsViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):
         assets = Asset.objects.all()
-        if not request.user.is_superuser:
+        super_category = request.query_params.get('super_category')
+        if super_category and str(super_category).lower() != 'all':
+            if str(super_category).isdigit():
+                assets = assets.filter(super_category_id=super_category)
+            else:
+                assets = assets.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
+
+        if not (request.user.is_superuser or request.user.is_staff):
             emp_filter = get_employee_filter(request.user, prefix='custodian__')
             assets = assets.filter(emp_filter)
 
@@ -1569,7 +1620,15 @@ class ReportsViewSet(viewsets.ViewSet):
         active_requests = AssetActionRequest.objects.filter(status='PENDING')
         pending_health_checks = HealthCheckSession.objects.filter(status='OPEN')
 
-        if not request.user.is_superuser:
+        if super_category and str(super_category).lower() != 'all':
+            if str(super_category).isdigit():
+                active_requests = active_requests.filter(Q(super_category_id=super_category) | Q(asset__super_category_id=super_category))
+                pending_health_checks = pending_health_checks.filter(super_category_id=super_category)
+            else:
+                active_requests = active_requests.filter(Q(super_category__code__iexact=super_category) | Q(asset__super_category__code__iexact=super_category))
+                pending_health_checks = pending_health_checks.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
+
+        if not (request.user.is_superuser or request.user.is_staff):
             employee = _get_employee_requester(request.user)
             active_requests = active_requests.filter(requester=employee)
             if employee:
@@ -1611,10 +1670,17 @@ class ReportsViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'], url_path='health-compliance')
     def health_compliance(self, request):
         sessions = HealthCheckSession.objects.all().annotate(response_count=Count('responses')).order_by('-created_at')
+        super_category = request.query_params.get('super_category')
+        if super_category and str(super_category).lower() != 'all':
+            if str(super_category).isdigit():
+                sessions = sessions.filter(super_category_id=super_category)
+            else:
+                sessions = sessions.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
+
         session_id = request.query_params.get('session')
         session = sessions.filter(id=session_id).first() if session_id else sessions.filter(status='OPEN').first()
-        if not session:
-            session = sessions.first()
+        if not session and not session_id and not super_category:
+            session = HealthCheckSession.objects.all().order_by('-created_at').first()
 
         if not session:
             return Response({
@@ -1633,7 +1699,10 @@ class ReportsViewSet(viewsets.ViewSet):
             })
 
         target_assets = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False).select_related('custodian', 'department', 'custodian__department')
-        if not request.user.is_superuser:
+        if session and session.super_category:
+            target_assets = target_assets.filter(super_category=session.super_category)
+
+        if not (request.user.is_superuser or request.user.is_staff):
             employee = _get_employee_requester(request.user)
             target_assets = target_assets.filter(custodian=employee) if employee else target_assets.none()
         target_assets = list(target_assets)

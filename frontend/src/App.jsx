@@ -10,7 +10,44 @@ import { API_BASE, BACKEND_BASE } from './utils/config';
 import './styles.css';
 
 export const UserContext = createContext(null);
+export const SuperCategoryContext = createContext({
+  superCategories: [],
+  activeSuperCategory: null,
+  setActiveSuperCategory: () => {},
+});
 export { BACKEND_BASE };
+
+function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
+  if (!superCategories || superCategories.length === 0) return null;
+
+  return (
+    <div className={`super-category-selector ${className}`.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+      <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <Icon name="layers" /> Category:
+      </span>
+      <select
+        value={activeSuperCategory?.code || 'it_assets'}
+        onChange={(e) => {
+          const val = e.target.value;
+          if (val === 'all') {
+            onSelect({ id: 'all', code: 'all', name: 'All Categories' });
+          } else {
+            const found = superCategories.find((cat) => cat.code === val || String(cat.id) === val);
+            if (found) onSelect(found);
+          }
+        }}
+        style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 10px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', outline: 'none' }}
+      >
+        <option value="all">All Categories</option>
+        {superCategories.map((cat) => (
+          <option key={cat.id} value={cat.code}>
+            {cat.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: 'grid' },
@@ -25,6 +62,7 @@ const navItems = [
 const emptyAsset = {
   miczon_id: '',
   name: '',
+  super_category: '',
   category: '',
   department: '',
   current_status: 'AVAILABLE',
@@ -47,10 +85,10 @@ const assetStatuses = [
   { value: 'RETIRED', label: 'Retired' },
 ];
 
-const healthInspectionFields = [
+const itInspectionFields = [
   {
     name: 'screen_condition',
-    label: 'Screen condition',
+    label: 'Screen Condition',
     defaultValue: 'GOOD',
     options: [
       { value: 'EXCELLENT', label: 'Excellent' },
@@ -63,7 +101,7 @@ const healthInspectionFields = [
   },
   {
     name: 'battery_life',
-    label: 'Battery life',
+    label: 'Battery Life',
     defaultValue: 'GOOD',
     options: [
       { value: 'EXCELLENT', label: 'Excellent' },
@@ -127,6 +165,173 @@ const healthInspectionFields = [
     ],
   },
 ];
+
+const furnitureInspectionFields = [
+  {
+    name: 'surface_finish',
+    label: 'Surface Finish & Scratches',
+    defaultValue: 'EXCELLENT',
+    options: [
+      { value: 'EXCELLENT', label: 'Excellent (No Scratches)' },
+      { value: 'GOOD_MINOR_SCRATCHES', label: 'Good (Minor Scratches)' },
+      { value: 'STAINED_DISCOLORED', label: 'Stained / Discolored' },
+      { value: 'SEVERELY_DAMAGED', label: 'Severely Damaged / Chipped' },
+    ],
+  },
+  {
+    name: 'structural_stability',
+    label: 'Structural Stability & Joints',
+    defaultValue: 'SOLID_STABLE',
+    options: [
+      { value: 'SOLID_STABLE', label: 'Solid & Stable' },
+      { value: 'MINOR_WOBBLE', label: 'Minor Wobble' },
+      { value: 'LOOSE_JOINTS_SCREWS', label: 'Loose Joints / Screws' },
+      { value: 'UNSTABLE_REPAIR_NEEDED', label: 'Unstable / Repair Needed' },
+    ],
+  },
+  {
+    name: 'drawers_locks',
+    label: 'Drawers, Slides & Locks',
+    defaultValue: 'SMOOTH_FUNCTIONAL',
+    options: [
+      { value: 'SMOOTH_FUNCTIONAL', label: 'Smooth / Fully Functional' },
+      { value: 'STIFF_STICKY', label: 'Stiff / Hard to Open' },
+      { value: 'LOCK_MALFUNCTIONING', label: 'Lock Malfunctioning' },
+      { value: 'NOT_APPLICABLE', label: 'Not Applicable (N/A)' },
+    ],
+  },
+  {
+    name: 'upholstery_padding',
+    label: 'Upholstery & Fabric Condition',
+    defaultValue: 'INTACT_CLEAN',
+    options: [
+      { value: 'INTACT_CLEAN', label: 'Intact & Clean' },
+      { value: 'MINOR_WEAR_FADE', label: 'Minor Wear / Fading' },
+      { value: 'TORN_STAINED', label: 'Torn / Stained Padding' },
+      { value: 'NOT_APPLICABLE', label: 'Not Applicable (N/A)' },
+    ],
+  },
+  {
+    name: 'legs_castors_base',
+    label: 'Legs, Castors & Base Support',
+    defaultValue: 'ALL_INTACT',
+    options: [
+      { value: 'ALL_INTACT', label: 'All Intact & Smooth' },
+      { value: 'MISSING_CAPS_GLIDES', label: 'Missing Caps / Glides' },
+      { value: 'DAMAGED_WHEELS', label: 'Damaged Wheels / Castors' },
+      { value: 'BROKEN_BASE', label: 'Broken Base / Leg' },
+    ],
+  },
+  {
+    name: 'ergonomic_adjustment',
+    label: 'Height & Tilt Adjustment',
+    defaultValue: 'SMOOTH_MECHANISM',
+    options: [
+      { value: 'SMOOTH_MECHANISM', label: 'Smooth Adjustment' },
+      { value: 'STIFF_ADJUSTMENT', label: 'Stiff / Hard to Adjust' },
+      { value: 'STUCK_BROKEN', label: 'Stuck / Broken Mechanism' },
+      { value: 'NOT_APPLICABLE', label: 'Fixed Height (N/A)' },
+    ],
+  },
+  {
+    name: 'asset_tag_status',
+    label: 'Asset Tag Status',
+    defaultValue: 'INTACT_SCANNABLE',
+    options: [
+      { value: 'INTACT_SCANNABLE', label: 'Intact & Scannable' },
+      { value: 'FADED_PEELING', label: 'Faded/Peeling' },
+      { value: 'MISSING', label: 'Missing' },
+    ],
+  },
+];
+
+const appliancesInspectionFields = [
+  {
+    name: 'cooling_heating_perf',
+    label: 'Thermal / Performance Output',
+    defaultValue: 'OPTIMAL_TEMP',
+    options: [
+      { value: 'OPTIMAL_TEMP', label: 'Optimal Temperature' },
+      { value: 'SLOW_PERFORMANCE', label: 'Slow Cooling / Heating' },
+      { value: 'INADEQUATE_TEMP', label: 'Inadequate Output' },
+      { value: 'NOT_WORKING', label: 'Not Working / No Output' },
+    ],
+  },
+  {
+    name: 'compressor_motor_status',
+    label: 'Motor / Compressor & Fan Status',
+    defaultValue: 'QUIET_SMOOTH',
+    options: [
+      { value: 'QUIET_SMOOTH', label: 'Quiet & Smooth Operation' },
+      { value: 'EXCESSIVE_NOISE', label: 'Excessive Noise / Vibration' },
+      { value: 'INTERMITTENT_FAULT', label: 'Intermittent Fault' },
+      { value: 'MOTOR_FAILED', label: 'Motor / Compressor Failed' },
+    ],
+  },
+  {
+    name: 'power_cord_plug',
+    label: 'Power Cord & Electrical Safety',
+    defaultValue: 'INTACT_SAFE',
+    options: [
+      { value: 'INTACT_SAFE', label: 'Intact & Safe' },
+      { value: 'FRAYED_WIRE', label: 'Frayed / Worn Cable' },
+      { value: 'DAMAGED_PLUG', label: 'Damaged Plug' },
+      { value: 'SAFETY_HAZARD', label: 'Safety Hazard (Exposed Wire)' },
+    ],
+  },
+  {
+    name: 'filter_ventilation',
+    label: 'Air Filter & Vent Condition',
+    defaultValue: 'CLEAN_CLEAR',
+    options: [
+      { value: 'CLEAN_CLEAR', label: 'Clean & Clear' },
+      { value: 'DUSTY_NEEDS_CLEANING', label: 'Dusty / Needs Cleaning' },
+      { value: 'CLOGGED_FILTER', label: 'Clogged Filter' },
+      { value: 'DAMAGED_VENT', label: 'Damaged Vent / Grill' },
+    ],
+  },
+  {
+    name: 'refrigerant_leak_check',
+    label: 'Gas / Water Leakage Check',
+    defaultValue: 'NO_LEAKS',
+    options: [
+      { value: 'NO_LEAKS', label: 'No Leaks Detected' },
+      { value: 'MINOR_WATER_DRIP', label: 'Minor Water Drip' },
+      { value: 'GAS_LEAK_SUSPECTED', label: 'Refrigerant/Gas Leak Suspected' },
+      { value: 'MAJOR_LEAK', label: 'Major Leakage' },
+    ],
+  },
+  {
+    name: 'control_panel_remote',
+    label: 'Control Panel & Thermostat',
+    defaultValue: 'ALL_FUNCTIONAL',
+    options: [
+      { value: 'ALL_FUNCTIONAL', label: 'All Controls Functional' },
+      { value: 'UNRESPONSIVE_DISPLAY', label: 'Unresponsive Display' },
+      { value: 'THERMOSTAT_ERROR', label: 'Thermostat Error' },
+      { value: 'BROKEN_SWITCHES', label: 'Broken Switches / Remote' },
+    ],
+  },
+  {
+    name: 'asset_tag_status',
+    label: 'Asset Tag Status',
+    defaultValue: 'INTACT_SCANNABLE',
+    options: [
+      { value: 'INTACT_SCANNABLE', label: 'Intact & Scannable' },
+      { value: 'FADED_PEELING', label: 'Faded/Peeling' },
+      { value: 'MISSING', label: 'Missing' },
+    ],
+  },
+];
+
+function getInspectionFields(asset, sessionCategoryCode) {
+  const code = String(asset?.super_category_code || sessionCategoryCode || 'it_assets').toLowerCase();
+  if (code.includes('furniture')) return furnitureInspectionFields;
+  if (code.includes('appliance')) return appliancesInspectionFields;
+  return itInspectionFields;
+}
+
+const healthInspectionFields = itInspectionFields;
 
 const ratingOptions = [1, 2, 3, 4, 5];
 
@@ -215,93 +420,117 @@ function AppShell({ token, handleLogout }) {
   const { user } = useContext(UserContext);
   const api = useApi(token);
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <Link className="brand" to={user?.is_superuser ? '/' : '/portal'}>
-          <span className="brand-mark">IT</span>
-          <span>
-            <strong>AssetZone</strong>
-            <small>Hardware Inventory</small>
-          </span>
-        </Link>
+  const [superCategories, setSuperCategories] = useState([]);
+  const [activeSuperCategory, setActiveSuperCategory] = useState(null);
 
-        <nav className="nav-list" aria-label="Primary navigation">
-          {navItems.filter(item => {
-            if (user?.is_superuser) return true;
-            if (user?.employee_details?.is_manager) {
-              return ['/portal', '/inventory', '/requests', '/health-checks'].includes(item.path);
-            }
-            return item.path === '/portal';
-          }).map((item) => {
-            if (item.external) {
+  useEffect(() => {
+    api.get('/super-categories/')
+      .then((res) => {
+        const list = normalizeList(res.data);
+        setSuperCategories(list);
+        if (list.length > 0) {
+          const defaultCat = list.find((c) => c.code === 'it_assets') || list[0];
+          setActiveSuperCategory(defaultCat);
+        }
+      })
+      .catch(() => {});
+  }, [api]);
+
+  const superCatContextValue = useMemo(() => ({
+    superCategories,
+    activeSuperCategory,
+    setActiveSuperCategory,
+  }), [superCategories, activeSuperCategory]);
+
+  return (
+    <SuperCategoryContext.Provider value={superCatContextValue}>
+      <div className="app-shell">
+        <aside className="sidebar">
+          <Link className="brand" to={user?.is_superuser ? '/' : '/portal'}>
+            <span className="brand-mark">IT</span>
+            <span>
+              <strong>AssetZone</strong>
+              <small>{activeSuperCategory?.name || 'Hardware Inventory'}</small>
+            </span>
+          </Link>
+
+          <nav className="nav-list" aria-label="Primary navigation">
+            {navItems.filter(item => {
+              if (user?.is_superuser) return true;
+              if (user?.employee_details?.is_manager) {
+                return ['/portal', '/inventory', '/requests', '/health-checks'].includes(item.path);
+              }
+              return item.path === '/portal';
+            }).map((item) => {
+              if (item.external) {
+                return (
+                  <a key={item.path} className="nav-item" href={item.path}>
+                    <Icon name={item.icon} />
+                    <span>{item.label}</span>
+                  </a>
+                );
+              }
               return (
-                <a key={item.path} className="nav-item" href={item.path}>
+                <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
                   <Icon name={item.icon} />
                   <span>{item.label}</span>
-                </a>
+                </Link>
               );
-            }
-            return (
-              <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
-                <Icon name={item.icon} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+            })}
+          </nav>
 
-        <div className="sidebar-footer">
-          <div className="user-pill">
-            <span className="avatar">{user?.email?.[0]?.toUpperCase() || 'U'}</span>
-            <span>
-              <strong>{user?.employee_details?.name || user?.email || 'Signed in'}</strong>
-              <small>
-                {user?.is_superuser
-                  ? 'Administrator'
-                  : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee')}
-              </small>
-            </span>
+          <div className="sidebar-footer">
+            <div className="user-pill">
+              <span className="avatar">{user?.email?.[0]?.toUpperCase() || 'U'}</span>
+              <span>
+                <strong>{user?.employee_details?.name || user?.email || 'Signed in'}</strong>
+                <small>
+                  {user?.is_superuser
+                    ? 'Administrator'
+                    : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee')}
+                </small>
+              </span>
+            </div>
+            <Button type="button" variant="ghost" className="full" onClick={handleLogout}>Sign out</Button>
           </div>
-          <Button type="button" variant="ghost" className="full" onClick={handleLogout}>Sign out</Button>
-        </div>
-      </aside>
+        </aside>
 
-      <main className="workspace">
-        {user?.is_superuser ? (
-          <Routes>
-            <Route path="/" element={<Dashboard api={api} isAdmin={true} />} />
-            <Route path="/inventory" element={<InventoryPage api={api} isAdmin={true} />} />
-            <Route path="/inventory/add" element={<InventoryPage api={api} isAdmin={true} />} />
-            <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={true} />} />
-            <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
-            <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
-            <Route path="/requests" element={<RequestManager api={api} isAdmin={true} user={user} />} />
-            <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} user={user} />} />
-            <Route path="/stock" element={<StockDashboard api={api} />} />
-            <Route path="/stock/products" element={<StockProducts api={api} />} />
-            <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
-            <Route path="/stock/reports" element={<StockReports api={api} />} />
-            <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        ) : user?.employee_details?.is_manager ? (
-          <Routes>
-            <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
-            <Route path="/inventory" element={<InventoryPage api={api} isAdmin={false} isManager={true} />} />
-            <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
-            <Route path="/requests" element={<RequestManager api={api} isAdmin={false} isManager={true} user={user} />} />
-            <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={false} isManager={true} user={user} />} />
-            <Route path="*" element={<Navigate to="/portal" replace />} />
-          </Routes>
-        ) : (
-          <Routes>
-            <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
-            <Route path="*" element={<Navigate to="/portal" replace />} />
-          </Routes>
-        )}
-      </main>
-    </div>
+        <main className="workspace">
+          {user?.is_superuser ? (
+            <Routes>
+              <Route path="/" element={<Dashboard api={api} isAdmin={true} />} />
+              <Route path="/inventory" element={<InventoryPage api={api} isAdmin={true} />} />
+              <Route path="/inventory/add" element={<InventoryPage api={api} isAdmin={true} />} />
+              <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={true} />} />
+              <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
+              <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
+              <Route path="/requests" element={<RequestManager api={api} isAdmin={true} user={user} />} />
+              <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} user={user} />} />
+              <Route path="/stock" element={<StockDashboard api={api} />} />
+              <Route path="/stock/products" element={<StockProducts api={api} />} />
+              <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
+              <Route path="/stock/reports" element={<StockReports api={api} />} />
+              <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          ) : user?.employee_details?.is_manager ? (
+            <Routes>
+              <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+              <Route path="/inventory" element={<InventoryPage api={api} isAdmin={false} isManager={true} />} />
+              <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
+              <Route path="/requests" element={<RequestManager api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="*" element={<Navigate to="/portal" replace />} />
+            </Routes>
+          ) : (
+            <Routes>
+              <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+              <Route path="*" element={<Navigate to="/portal" replace />} />
+            </Routes>
+          )}
+        </main>
+      </div>
+    </SuperCategoryContext.Provider>
   );
 }
 
@@ -359,27 +588,38 @@ function MetricCard({ label, value, to, tone = 'slate', subtext }) {
 }
 
 function Dashboard({ api, isAdmin }) {
+  const { superCategories, activeSuperCategory, setActiveSuperCategory } = useContext(SuperCategoryContext);
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState('');
 
+  const catCode = activeSuperCategory?.code || 'it_assets';
+  const catName = activeSuperCategory?.name || 'IT Assets';
+
   useEffect(() => {
-    api.get('/reports/summary/')
+    if (!catCode) return;
+    api.get(`/reports/summary/?super_category=${encodeURIComponent(catCode)}`)
       .then((res) => setSummary(res.data))
       .catch(() => setError('Unable to load dashboard summary.'));
-  }, [api]);
+  }, [api, catCode]);
 
   const metrics = [
-    { label: 'Total Devices', value: summary?.total_devices, to: '/inventory', tone: 'blue' },
-    { label: 'Assigned Devices', value: summary?.assigned, to: '/inventory?status=ASSIGNED', tone: 'green' },
-    { label: 'Unassigned Devices', value: summary?.available, to: '/inventory?status=AVAILABLE', tone: 'slate' },
-    { label: 'Repair Devices', value: summary?.repair, to: '/inventory?status=BROKEN', tone: 'red' },
-    { label: 'Active Requests', value: summary?.active_requests, to: '/requests', tone: 'amber' },
-    { label: 'Pending Health Checks', value: summary?.pending_health_checks, to: '/health-checks', tone: 'violet' },
+    { label: `Total ${catName}`, value: summary?.total_devices, to: `/inventory?super_category=${catCode}`, tone: 'blue' },
+    { label: `Assigned ${catName}`, value: summary?.assigned, to: `/inventory?super_category=${catCode}&status=ASSIGNED`, tone: 'green' },
+    { label: `Unassigned ${catName}`, value: summary?.available, to: `/inventory?super_category=${catCode}&status=AVAILABLE`, tone: 'slate' },
+    { label: `Repair ${catName}`, value: summary?.repair, to: `/inventory?super_category=${catCode}&status=BROKEN`, tone: 'red' },
+    { label: 'Active Requests', value: summary?.active_requests, to: `/requests?super_category=${catCode}`, tone: 'amber' },
+    { label: 'Pending Health Checks', value: summary?.pending_health_checks, to: `/health-checks?super_category=${catCode}`, tone: 'violet' },
   ];
 
   return (
     <>
-      <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Employee Dashboard'} title="Birds-eye inventory view" />
+      <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Employee Dashboard'} title={`${catName} Overview`}>
+        <SuperCategorySelector
+          superCategories={superCategories}
+          activeSuperCategory={activeSuperCategory}
+          onSelect={setActiveSuperCategory}
+        />
+      </PageHeader>
       {error && <Notice tone="error">{error}</Notice>}
       <div className="metric-grid">
         {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
@@ -391,10 +631,15 @@ function Dashboard({ api, isAdmin }) {
 function InventoryPage({ api, isAdmin }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { superCategories, activeSuperCategory, setActiveSuperCategory } = useContext(SuperCategoryContext);
   const [assets, setAssets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   
+  const paramSuperCategory = new URLSearchParams(location.search).get('super_category');
+  const activeCode = paramSuperCategory || activeSuperCategory?.code || 'it_assets';
+  const activeCatObj = superCategories.find((c) => c.code === activeCode) || activeSuperCategory;
+
   // Search and Filter State
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -443,6 +688,7 @@ function InventoryPage({ api, isAdmin }) {
       page: String(page),
       page_size: String(inventoryPageSize) 
     });
+    if (activeCode) params.set('super_category', activeCode);
     if (debouncedSearch) params.set('search', debouncedSearch);
     if (statusFilter) params.set('status', statusFilter);
     if (departmentFilter) params.set('department', departmentFilter);
@@ -452,9 +698,9 @@ function InventoryPage({ api, isAdmin }) {
         setAssets(normalizeList(res.data));
         setTotalCount(res.data.count || 0);
       })
-      .catch(() => setNotice('Unable to load hardware inventory.'))
+      .catch(() => setNotice('Unable to load inventory.'))
       .finally(() => setLoading(false));
-  }, [api, debouncedSearch, statusFilter, departmentFilter, page]);
+  }, [api, activeCode, debouncedSearch, statusFilter, departmentFilter, page]);
 
   useEffect(() => {
     loadAssets();
@@ -497,6 +743,7 @@ function InventoryPage({ api, isAdmin }) {
     event.preventDefault();
     const payload = {
       ...form,
+      super_category: form.super_category || activeCatObj?.id || null,
       custodian: form.custodian || null,
       department: form.department || null,
       current_status: form.custodian ? 'ASSIGNED' : form.current_status,
@@ -505,15 +752,15 @@ function InventoryPage({ api, isAdmin }) {
     try {
       if (editingId) {
         await api.patch(`/assets/${editingId}/`, payload);
-        setNotice('Hardware updated.');
+        setNotice('Asset updated.');
       } else {
         await api.post('/assets/', payload);
-        setNotice(isAdmin ? 'Hardware added.' : 'Add hardware request submitted.');
+        setNotice(isAdmin ? 'Asset added.' : 'Add asset request submitted.');
       }
       closeAssetDialog();
       loadAssets();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save hardware.');
+      setNotice(err.response?.data?.error || 'Unable to save asset.');
     }
   };
 
@@ -522,6 +769,7 @@ function InventoryPage({ api, isAdmin }) {
     setForm({
       miczon_id: asset.miczon_id || '',
       name: asset.name || '',
+      super_category: asset.super_category || '',
       category: asset.category || '',
       department: asset.department || '',
       current_status: asset.current_status || 'AVAILABLE',
@@ -619,6 +867,7 @@ function InventoryPage({ api, isAdmin }) {
   const handleExport = async () => {
     try {
       const params = new URLSearchParams();
+      if (activeCode) params.set('super_category', activeCode);
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (statusFilter) params.set('status', statusFilter);
       if (departmentFilter) params.set('department', departmentFilter);
@@ -641,11 +890,23 @@ function InventoryPage({ api, isAdmin }) {
 
   return (
     <>
-      <PageHeader eyebrow="Inventory Management" title="Hardware register">
+      <PageHeader eyebrow={`${activeCatObj?.name || 'Inventory'} Register`} title={`${activeCatObj?.name || 'All'} Assets`}>
+        <SuperCategorySelector
+          superCategories={superCategories}
+          activeSuperCategory={activeSuperCategory}
+          onSelect={(sc) => {
+            setActiveSuperCategory(sc);
+            navigate(`/inventory?super_category=${sc.code}`);
+          }}
+        />
         <Button type="button" variant="outline" onClick={handleExport}>Download Excel</Button>
         {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Assets</Button>}
         <Button type="button" variant="outline" onClick={() => setQrLabelsDialogOpen(true)}>QR Labels</Button>
-        <Button type="button" variant="primary" onClick={() => setDialogOpen(true)}>Add Asset</Button>
+        <Button type="button" variant="primary" onClick={() => {
+          setEditingId(null);
+          setForm({ ...emptyAsset, super_category: activeCatObj?.id || '' });
+          setDialogOpen(true);
+        }}>Add {activeCatObj?.name?.replace(/s$/i, '') || 'Asset'}</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
@@ -659,7 +920,7 @@ function InventoryPage({ api, isAdmin }) {
         )}
         <div className="panel-heading inventory-heading">
           <div>
-            <h2>All Hardware</h2>
+            <h2>All {activeCatObj?.name || 'Assets'}</h2>
             <p className="panel-subtitle">
               {totalCount} item{totalCount === 1 ? '' : 's'} total
             </p>
@@ -678,15 +939,18 @@ function InventoryPage({ api, isAdmin }) {
           <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); setStatusFilter(''); setPage(1); }}>Reset</Button>
         </div>
         <DataTable
-          columns={['Miczon ID', 'Device', 'Category', 'Department', 'Status', 'Assigned User', 'Actions']}
+          columns={['Miczon ID', 'Device', 'Super Category', 'Category', 'Department', 'Status', 'Assigned User', 'Actions']}
           rows={assets.map((asset) => [
             asset.miczon_id,
             asset.name,
+            <span key="sc" style={{ fontWeight: '600', color: '#0f766e', background: '#ccfbf1', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>
+              {asset.super_category_name || 'IT Assets'}
+            </span>,
             asset.category || 'Uncategorized',
             asset.department_name || 'No department',
-            <StatusBadge status={asset.current_status} />,
+            <StatusBadge key="sb" status={asset.current_status} />,
             asset.custodian_name || 'Unassigned',
-            <div className="row-actions">
+            <div key="act" className="row-actions">
               <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/inventory/asset/${asset.id}`)}>View</Button>
             </div>,
           ])}
@@ -719,11 +983,20 @@ function InventoryPage({ api, isAdmin }) {
 
       <Dialog open={dialogOpen}>
         <DialogContent>
-          <DialogHeader title={editingId ? 'Edit Asset' : 'Add Asset'} description="Register hardware with the fields used by the asset workflow." />
+          <DialogHeader title={editingId ? 'Edit Asset' : 'Add Asset'} description="Register item with fields used by the asset workflow." />
           <form className="dialog-form" onSubmit={submitAsset}>
             <Field label="Miczon ID"><input required value={form.miczon_id} onChange={(e) => setForm({ ...form, miczon_id: e.target.value })} /></Field>
             <Field label="Device Name"><input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-            <Field label="Category"><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} /></Field>
+            <Field label="Super Category">
+              <Select value={form.super_category || activeCatObj?.id || ''} onChange={(e) => setForm({ ...form, super_category: e.target.value })}>
+                {superCategories.map((sc) => (
+                  <option key={sc.id} value={sc.id}>
+                    {sc.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Category / Sub-type"><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="e.g. Laptop, Chair, AC, etc." /></Field>
             <Field label="Department">
               <Select value={form.department || ''} onChange={(e) => setForm({ ...form, department: e.target.value })}>
                 <option value="">No department</option>
@@ -2124,6 +2397,10 @@ function RequestManager({ api, isAdmin, isManager, user }) {
 
 function HealthChecks({ api, isAdmin, isManager, user }) {
   const canInspectTeam = isAdmin || isManager || Boolean(user?.employee_details?.is_manager);
+  const { superCategories, activeSuperCategory, setActiveSuperCategory } = useContext(SuperCategoryContext);
+  const activeCode = activeSuperCategory?.code || 'it_assets';
+  const activeCatName = activeSuperCategory?.name || 'IT Assets';
+
   const [sessions, setSessions] = useState([]);
   const [report, setReport] = useState(null);
   const [selectedSession, setSelectedSession] = useState('');
@@ -2145,15 +2422,20 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
   const [modalDeptFilter, setModalDeptFilter] = useState('');
 
   const load = useCallback(() => {
-    const reportPath = selectedSession ? `/reports/health-compliance/?session=${selectedSession}` : '/reports/health-compliance/';
-    Promise.all([fetchAll(api, '/health-checks/'), api.get(reportPath)]).then(([sessionRows, reportRes]) => {
+    const reportPath = selectedSession 
+      ? `/reports/health-compliance/?session=${selectedSession}&super_category=${activeCode}` 
+      : `/reports/health-compliance/?super_category=${activeCode}`;
+    Promise.all([
+      fetchAll(api, `/health-checks/?super_category=${activeCode}`), 
+      api.get(reportPath)
+    ]).then(([sessionRows, reportRes]) => {
       setSessions(sessionRows);
       setReport(reportRes.data);
       if (!selectedSession && reportRes.data.session?.id) {
         setSelectedSession(String(reportRes.data.session.id));
       }
     });
-  }, [api, selectedSession]);
+  }, [api, selectedSession, activeCode]);
 
   useEffect(() => {
     load();
@@ -2178,8 +2460,10 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
   }, [api, reportModalOpen, modalSessionId]);
 
   const trigger = async () => {
-    const res = await api.post('/health-checks/trigger-global/');
-    setNotice(`Monthly inspection started for ${res.data.assigned_assets || res.data.target_assets || 0} hardware item(s).`);
+    const res = await api.post('/health-checks/trigger-global/', {
+      super_category: activeSuperCategory?.id || activeCode
+    });
+    setNotice(`Monthly inspection started for ${activeCatName} (${res.data.assigned_assets || 0} item(s)).`);
     setSelectedSession(String(res.data.session?.id || ''));
   };
 
@@ -2208,9 +2492,10 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
 
     const empId = adminInspectEmployee.employee_id || adminInspectEmployee.id;
     const responses = adminPendingAssets.map((asset) => {
+      const fields = getInspectionFields(asset, activeCode);
       const values = adminHealthForm[asset.id] || {};
       const inspectionValues = Object.fromEntries(
-        healthInspectionFields.map((field) => [field.name, values[field.name] || field.defaultValue])
+        fields.map((field) => [field.name, values[field.name] || field.defaultValue])
       );
       return {
         asset: asset.id,
@@ -2374,14 +2659,19 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
 
   return (
     <>
-      <PageHeader eyebrow="Monthly Inspection" title="Monthly inspection report">
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <PageHeader eyebrow={`Monthly ${activeCatName} Inspection`} title={`${activeCatName} Inspection Report`}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <SuperCategorySelector
+            superCategories={superCategories}
+            activeSuperCategory={activeSuperCategory}
+            onSelect={setActiveSuperCategory}
+          />
           <Button type="button" variant="outline" onClick={openReportModal}>
             📊 Inspection Report & Download
           </Button>
           {isAdmin && (
             <Button type="button" variant="primary" onClick={trigger}>
-              Start Monthly Inspection
+              Start {activeCatName} Inspection
             </Button>
           )}
         </div>
@@ -2594,7 +2884,7 @@ function HealthChecks({ api, isAdmin, isManager, user }) {
                           <div><h3>{asset.name}</h3><p>{asset.miczon_id}</p></div>
                         </div>
                         <div className="health-control-grid">
-                          {healthInspectionFields.map((field) => (
+                          {getInspectionFields(asset, activeCode).map((field) => (
                             <Field key={field.name} label={field.label}>
                               <Select
                                 value={values[field.name] || field.defaultValue}
@@ -2907,10 +3197,12 @@ function EmployeePortal({ api, user }) {
     event.preventDefault();
     if (!activeSession || pendingAssets.length === 0) return;
 
+    const activeSessionObj = sessions.find((s) => String(s.id) === String(activeSession));
     const responses = pendingAssets.map((asset) => {
+      const fields = getInspectionFields(asset, activeSessionObj?.super_category_code);
       const values = healthForm[asset.id] || {};
       const inspectionValues = Object.fromEntries(
-        healthInspectionFields.map((field) => [field.name, values[field.name] || field.defaultValue])
+        fields.map((field) => [field.name, values[field.name] || field.defaultValue])
       );
       return {
         asset: asset.id,
@@ -2995,7 +3287,7 @@ function EmployeePortal({ api, user }) {
                         <div><h3>{asset.name}</h3><p>{asset.miczon_id}</p></div>
                       </div>
                       <div className="health-control-grid">
-                        {healthInspectionFields.map((field) => (
+                        {getInspectionFields(asset, sessions.find((s) => String(s.id) === String(activeSession))?.super_category_code).map((field) => (
                           <Field key={field.name} label={field.label}>
                             <Select value={values[field.name] || field.defaultValue} onChange={(e) => updateHealthField(asset.id, field.name, e.target.value)}>
                               {field.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
