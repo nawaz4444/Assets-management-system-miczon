@@ -18,6 +18,9 @@ from django.db import transaction
 from django.db.models import Count, Q
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SuperCategoryViewSet(viewsets.ModelViewSet):
     queryset = SuperCategory.objects.all().order_by('id')
@@ -30,6 +33,16 @@ from rest_framework.pagination import PageNumberPagination
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import re
+
+# --- PERMISSIONS ---
+class IsAdminUserOrReadOnly(permissions.BasePermission):
+    """Any authenticated user may read; only superusers may create/update/delete."""
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return bool(request.user.is_superuser)
 
 # --- PAGINATION ---
 class StandardResultsSetPagination(PageNumberPagination):
@@ -251,7 +264,7 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         # Intercept Return (PATCH to assignment status)
-        print(f"DEBUG: Update Assignment - User: {request.user.username}, IsSuper: {request.user.is_superuser}, Data: {request.data}")
+        logger.debug("Update Assignment - User: %s, IsSuper: %s", request.user.username, request.user.is_superuser)
         if not request.user.is_superuser:
             if request.data.get('status') == 'RETURNED':
                  # Redirect to approval flow for Return
@@ -301,7 +314,7 @@ class AssetViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # OPTIMIZATION: Use select_related and prefetch_related to prevent N+1 queries
-        queryset = Asset.objects.all().select_related('custodian', 'department')
+        queryset = Asset.objects.all().select_related('custodian', 'department', 'super_category')
         
         # Prefetch assignments for list views (needed for active_assignment_id)
         if self.action in ['list', 'retrieve']:
@@ -780,6 +793,7 @@ class AssetViewSet(viewsets.ModelViewSet):
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.all()
     serializer_class = EmployeeSerializer
+    permission_classes = [IsAdminUserOrReadOnly]
 
     def get_queryset(self):
         queryset = Employee.objects.all().annotate(
@@ -946,6 +960,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 class DepartmentViewSet(viewsets.ModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
+    permission_classes = [IsAdminUserOrReadOnly]
 
 class AssetActionRequestViewSet(viewsets.ModelViewSet):
     queryset = AssetActionRequest.objects.all().order_by('-created_at')
@@ -1598,7 +1613,7 @@ class ReportsViewSet(viewsets.ViewSet):
             total_assets=Count('id'),
             total_assigned=Count('id', filter=Q(current_status='ASSIGNED')),
             total_unassigned=Count('id', filter=Q(current_status='AVAILABLE')),
-            total_repair=Count('id', filter=Q(current_status='BROKEN') | Q(current_status='IN_REPAIR'))
+            total_repair=Count('id', filter=Q(current_status='BROKEN'))
         )
         return Response(stats)
 
@@ -1645,7 +1660,7 @@ class ReportsViewSet(viewsets.ViewSet):
             "accessories": assets.filter(category__icontains='accessor').count(),
             "assigned": assets.filter(current_status='ASSIGNED').count(),
             "available": assets.filter(current_status='AVAILABLE').count(),
-            "repair": assets.filter(Q(current_status='BROKEN') | Q(current_status='IN_REPAIR')).count(),
+            "repair": assets.filter(current_status='BROKEN').count(),
             "active_requests": active_requests.count(),
             "pending_health_checks": pending_health_checks.count(),
             "category_breakdown": list(category_rows),
@@ -1847,9 +1862,12 @@ class ReportsViewSet(viewsets.ViewSet):
 # --- EXCEL UPLOAD LOGIC ---
 class UploadAssetsView(APIView):
     parser_classes = (MultiPartParser, FormParser)
+    permission_classes = [permissions.IsAdminUser]
 
     def post(self, request, *args, **kwargs):
-        file_obj = request.FILES['file']
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({"status": "error", "message": "Please upload an Excel or CSV file."}, status=400)
         try:
             # 1. Read File
             if file_obj.name.endswith('.csv'):
@@ -1858,7 +1876,7 @@ class UploadAssetsView(APIView):
                 df = pd.read_excel(file_obj)
 
             df.columns = [str(c).strip().lower() for c in df.columns]
-            print("LOWERCASE COLUMNS:", df.columns.tolist())
+            logger.debug("Upload columns: %s", df.columns.tolist())
 
             count = 0
             for index, row in df.iterrows():
@@ -1906,7 +1924,5 @@ class UploadAssetsView(APIView):
             return Response({"status": "success", "message": f"Successfully imported {count} assets!"})
 
         except Exception as e:
-            print("--------------------------------------------------")
-            print("CRITICAL UPLOAD ERROR:", e)
-            print("--------------------------------------------------")
+            logger.exception("Critical upload error")
             return Response({"status": "error", "message": f"Error: {str(e)}"}, status=400)

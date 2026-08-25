@@ -11,14 +11,17 @@ from allauth.socialaccount.models import SocialApp
 def run_setup():
     print("🚀 Running Docker Setup...")
 
-    # 1. Ensure Superuser exists
-    admin_user = os.getenv('DJANGO_SUPERUSER_USERNAME', 'admin')
-    admin_email = os.getenv('DJANGO_SUPERUSER_EMAIL', 'admin@example.com')
-    admin_password = os.getenv('DJANGO_SUPERUSER_PASSWORD', 'admin123')
+    # 1. Ensure Superuser exists (credentials MUST be provided via environment).
+    admin_user = os.getenv('DJANGO_SUPERUSER_USERNAME')
+    admin_email = os.getenv('DJANGO_SUPERUSER_EMAIL')
+    admin_password = os.getenv('DJANGO_SUPERUSER_PASSWORD')
 
-    if not User.objects.filter(username=admin_user).exists():
+    if not (admin_user and admin_password):
+        print("⚠️  Skipping superuser creation: set DJANGO_SUPERUSER_USERNAME and "
+              "DJANGO_SUPERUSER_PASSWORD (and optionally DJANGO_SUPERUSER_EMAIL) to bootstrap one.")
+    elif not User.objects.filter(username=admin_user).exists():
         print(f"👤 Creating superuser: {admin_user}")
-        User.objects.create_superuser(admin_user, admin_email, admin_password)
+        User.objects.create_superuser(admin_user, admin_email or '', admin_password)
     else:
         print(f"👤 Superuser {admin_user} already exists.")
 

@@ -178,7 +178,14 @@ STORAGES = {
     },
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS: allow all origins only in DEBUG; use an explicit allow-list in production.
+_cors_origins = os.getenv('CORS_ALLOWED_ORIGINS', '')
+CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins.split(',') if o.strip()]
+if DEBUG and not CORS_ALLOWED_ORIGINS:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
 
 SITE_ID = 1
 
@@ -199,12 +206,9 @@ ACCOUNT_LOGIN_METHODS = {'email'}
 # (Keeps defaults sensible without relying on deprecated settings.)
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 
-# allauth settings
-ACCOUNT_EMAIL_VERIFICATION = 'none'
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_EMAIL_REQUIRED = True
+# allauth settings — login method & required signup fields are declared above via
+# ACCOUNT_LOGIN_METHODS / ACCOUNT_SIGNUP_FIELDS (the current, non-deprecated keys).
 ACCOUNT_UNIQUE_EMAIL = True
-ACCOUNT_USERNAME_REQUIRED = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
