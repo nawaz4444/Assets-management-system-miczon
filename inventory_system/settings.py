@@ -105,8 +105,13 @@ WSGI_APPLICATION = 'inventory_system.wsgi.application'
 # Uses PostgreSQL when DB_HOST env-var is set (Docker / prod),
 # otherwise falls back to SQLite for local dev without Docker.
 # ──────────────────────────────────────────────────────────────
+_use_sqlite = os.getenv('USE_SQLITE', 'false').lower() in ('true', '1', 'yes')
 _db_host = os.getenv('DB_HOST', '')
-if _db_host:
+
+# If DB_HOST is 'db' (docker container name) and we're running on host OS outside docker, fallback to SQLite
+_is_docker_host = _db_host == 'db' and not os.path.exists('/.dockerenv')
+
+if _db_host and not _is_docker_host and not _use_sqlite:
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
@@ -173,7 +178,14 @@ STORAGES = {
     },
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS: allow all origins only in DEBUG; use an explicit allow-list in production.
+_cors_origins = os.getenv('CORS_ALLOWED_ORIGINS', '')
+CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins.split(',') if o.strip()]
+if DEBUG and not CORS_ALLOWED_ORIGINS:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
 
 SITE_ID = 1
 
@@ -194,17 +206,15 @@ ACCOUNT_LOGIN_METHODS = {'email'}
 # (Keeps defaults sensible without relying on deprecated settings.)
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 
-# allauth settings
-ACCOUNT_EMAIL_VERIFICATION = 'none'
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_EMAIL_REQUIRED = True
+# allauth settings — login method & required signup fields are declared above via
+# ACCOUNT_LOGIN_METHODS / ACCOUNT_SIGNUP_FIELDS (the current, non-deprecated keys).
 ACCOUNT_UNIQUE_EMAIL = True
-ACCOUNT_USERNAME_REQUIRED = False
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_QUERY_EMAIL = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
 ACCOUNT_ADAPTER = 'inventory.allauth_adapters.CustomAccountAdapter'
+SOCIALACCOUNT_ADAPTER = 'inventory.allauth_adapters.CustomSocialAccountAdapter'
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {

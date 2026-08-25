@@ -19,6 +19,9 @@ staticfiles/
 media/
 *.log
 
+# Data dumps / fixtures with real records (keep out of version control)
+data.json
+
 # ── Environment secrets ───────────────────────────────────────
 .env
 

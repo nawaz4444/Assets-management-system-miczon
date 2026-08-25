@@ -2,6 +2,19 @@ from django.db import models
 from django.utils import timezone
 from datetime import date
 
+class SuperCategory(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    code = models.SlugField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = "Super Categories"
+        ordering = ['id']
+
+    def __str__(self):
+        return self.name
+
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
     floor = models.CharField(max_length=50, blank=True, null=True)
@@ -26,6 +39,7 @@ class Asset(models.Model):
     # --- COLUMNS MATCHING YOUR EXCEL FILE ---
     miczon_id = models.CharField(max_length=50, unique=True, verbose_name="Miczon ID")
     name = models.CharField(max_length=100, verbose_name="Device Name")
+    super_category = models.ForeignKey(SuperCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets')
     category = models.CharField(max_length=100, blank=True, verbose_name="Categary")
     specifications = models.TextField(blank=True)
     
@@ -77,6 +91,7 @@ class HealthCheckSession(models.Model):
     ]
 
     title = models.CharField(max_length=150, default='Monthly Hardware Inspection')
+    super_category = models.ForeignKey(SuperCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='health_sessions')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
     triggered_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -133,14 +148,34 @@ class HealthCheckResponse(models.Model):
     session = models.ForeignKey(HealthCheckSession, on_delete=models.CASCADE, related_name='responses')
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='health_check_responses')
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='health_trail')
-    screen_condition = models.CharField(max_length=30, choices=SCREEN_CHOICES)
-    battery_life = models.CharField(max_length=30, choices=BATTERY_CHOICES)
-    physical_condition = models.CharField(max_length=40, choices=PHYSICAL_CONDITION_CHOICES, default='GOOD_MINOR_WEAR')
-    power_boot_status = models.CharField(max_length=40, choices=POWER_BOOT_STATUS_CHOICES, default='BOOTS_NORMALLY')
-    ports_connectors = models.CharField(max_length=40, choices=PORTS_CONNECTORS_CHOICES, default='ALL_FUNCTIONAL')
-    network_functionality = models.CharField(max_length=40, choices=NETWORK_FUNCTIONALITY_CHOICES, default='CONNECTS_NORMALLY')
-    asset_tag_status = models.CharField(max_length=40, choices=ASSET_TAG_STATUS_CHOICES, default='INTACT_SCANNABLE')
-    performance_rating = models.PositiveSmallIntegerField()
+
+    # IT Assets inspection fields
+    screen_condition = models.CharField(max_length=50, blank=True, null=True, choices=SCREEN_CHOICES)
+    battery_life = models.CharField(max_length=50, blank=True, null=True, choices=BATTERY_CHOICES)
+    physical_condition = models.CharField(max_length=50, blank=True, null=True, choices=PHYSICAL_CONDITION_CHOICES, default='GOOD_MINOR_WEAR')
+    power_boot_status = models.CharField(max_length=50, blank=True, null=True, choices=POWER_BOOT_STATUS_CHOICES, default='BOOTS_NORMALLY')
+    ports_connectors = models.CharField(max_length=50, blank=True, null=True, choices=PORTS_CONNECTORS_CHOICES, default='ALL_FUNCTIONAL')
+    network_functionality = models.CharField(max_length=50, blank=True, null=True, choices=NETWORK_FUNCTIONALITY_CHOICES, default='CONNECTS_NORMALLY')
+
+    # Furniture inspection fields
+    surface_finish = models.CharField(max_length=50, blank=True, null=True, default='EXCELLENT')
+    structural_stability = models.CharField(max_length=50, blank=True, null=True, default='SOLID_STABLE')
+    drawers_locks = models.CharField(max_length=50, blank=True, null=True, default='SMOOTH_FUNCTIONAL')
+    upholstery_padding = models.CharField(max_length=50, blank=True, null=True, default='INTACT_CLEAN')
+    legs_castors_base = models.CharField(max_length=50, blank=True, null=True, default='ALL_INTACT')
+    ergonomic_adjustment = models.CharField(max_length=50, blank=True, null=True, default='SMOOTH_MECHANISM')
+
+    # Appliances inspection fields
+    cooling_heating_perf = models.CharField(max_length=50, blank=True, null=True, default='OPTIMAL_TEMP')
+    compressor_motor_status = models.CharField(max_length=50, blank=True, null=True, default='QUIET_SMOOTH')
+    power_cord_plug = models.CharField(max_length=50, blank=True, null=True, default='INTACT_SAFE')
+    filter_ventilation = models.CharField(max_length=50, blank=True, null=True, default='CLEAN_CLEAR')
+    refrigerant_leak_check = models.CharField(max_length=50, blank=True, null=True, default='NO_LEAKS')
+    control_panel_remote = models.CharField(max_length=50, blank=True, null=True, default='ALL_FUNCTIONAL')
+
+    # Universal inspection fields
+    asset_tag_status = models.CharField(max_length=50, choices=ASSET_TAG_STATUS_CHOICES, default='INTACT_SCANNABLE')
+    performance_rating = models.PositiveSmallIntegerField(default=4)
     comments = models.TextField(blank=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
 
@@ -218,6 +253,7 @@ class AssetActionRequest(models.Model):
 
     # Made optional since ADD requests won't have an asset initially.
     asset = models.ForeignKey(Asset, on_delete=models.CASCADE, null=True, blank=True)
+    super_category = models.ForeignKey(SuperCategory, on_delete=models.SET_NULL, null=True, blank=True, related_name='requests')
     requester = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='requests_made')
     action_type = models.CharField(max_length=20, choices=ACTION_TYPES)
     

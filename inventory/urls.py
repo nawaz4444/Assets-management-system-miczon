@@ -4,11 +4,12 @@ from .views import (
     AssetViewSet, EmployeeViewSet, DepartmentViewSet, UploadAssetsView, 
     AssetAssignmentViewSet, InspectionLogViewSet, ReportsViewSet, CurrentUserView,
     AssetActionRequestViewSet, HealthCheckSessionViewSet, HealthCheckResponseViewSet,
-    ScanAssetView
+    ScanAssetView, SuperCategoryViewSet
 )
 
 # Create a router and register our viewsets with it.
 router = DefaultRouter()
+router.register(r'super-categories', SuperCategoryViewSet)
 router.register(r'assets', AssetViewSet)
 router.register(r'employees', EmployeeViewSet)
 router.register(r'departments', DepartmentViewSet)

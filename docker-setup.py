@@ -11,14 +11,17 @@ from allauth.socialaccount.models import SocialApp
 def run_setup():
     print("🚀 Running Docker Setup...")
 
-    # 1. Ensure Superuser exists
-    admin_user = os.getenv('DJANGO_SUPERUSER_USERNAME', 'admin')
-    admin_email = os.getenv('DJANGO_SUPERUSER_EMAIL', 'admin@example.com')
-    admin_password = os.getenv('DJANGO_SUPERUSER_PASSWORD', 'admin123')
+    # 1. Ensure Superuser exists (credentials MUST be provided via environment).
+    admin_user = os.getenv('DJANGO_SUPERUSER_USERNAME')
+    admin_email = os.getenv('DJANGO_SUPERUSER_EMAIL')
+    admin_password = os.getenv('DJANGO_SUPERUSER_PASSWORD')
 
-    if not User.objects.filter(username=admin_user).exists():
+    if not (admin_user and admin_password):
+        print("⚠️  Skipping superuser creation: set DJANGO_SUPERUSER_USERNAME and "
+              "DJANGO_SUPERUSER_PASSWORD (and optionally DJANGO_SUPERUSER_EMAIL) to bootstrap one.")
+    elif not User.objects.filter(username=admin_user).exists():
         print(f"👤 Creating superuser: {admin_user}")
-        User.objects.create_superuser(admin_user, admin_email, admin_password)
+        User.objects.create_superuser(admin_user, admin_email or '', admin_password)
     else:
         print(f"👤 Superuser {admin_user} already exists.")
 
@@ -30,21 +33,25 @@ def run_setup():
     site.save()
     print(f"🌐 Site configured: {site.domain}")
 
-    # 3. Ensure Google SocialApp exists (prevents ExistError)
-    # Note: User must update ClientID/Secret via /admin or .env later
-    google_app, created = SocialApp.objects.get_or_create(
-        provider='google',
-        defaults={
-            'name': 'Google Login',
-            'client_id': os.getenv('GOOGLE_CLIENT_ID', 'placeholder-client-id'),
-            'secret': os.getenv('GOOGLE_CLIENT_SECRET', 'placeholder-secret'),
-        }
-    )
-    if created:
-        google_app.sites.add(site)
-        print("🔑 Google SocialApp created (Placeholder). Update in Admin panel.")
-    else:
+    # 3. Ensure single Google SocialApp exists (prevents MultipleObjectsReturned Error)
+    google_apps = list(SocialApp.objects.filter(provider='google'))
+    if len(google_apps) > 1:
+        for app in google_apps[1:]:
+            app.delete()
+        google_app = google_apps[0]
+        print("🔑 Cleaned up duplicate Google SocialApps.")
+    elif len(google_apps) == 1:
+        google_app = google_apps[0]
         print("🔑 Google SocialApp already exists.")
+    else:
+        google_app = SocialApp.objects.create(
+            provider='google',
+            name='Google Login',
+            client_id=os.getenv('GOOGLE_CLIENT_ID', 'placeholder-client-id'),
+            secret=os.getenv('GOOGLE_CLIENT_SECRET', 'placeholder-secret'),
+        )
+        google_app.sites.add(site)
+        print("🔑 Google SocialApp created.")
 
     print("✅ Setup Complete!")
 

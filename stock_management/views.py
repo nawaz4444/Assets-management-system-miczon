@@ -6,6 +6,16 @@ from django.utils import timezone
 from .models import StockCategory, StockProduct, StockTransaction
 from .serializers import StockCategorySerializer, StockProductSerializer, StockTransactionSerializer
 
+
+class IsAdminUserOrReadOnly(permissions.BasePermission):
+    """Any authenticated user may read; only superusers may create/update/delete."""
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return bool(request.user.is_superuser)
+
 # Seed database definitions for consistency on first load
 PRODUCTS_DB = [
     {
@@ -61,12 +71,12 @@ PRODUCTS_DB = [
 class StockCategoryViewSet(viewsets.ModelViewSet):
     queryset = StockCategory.objects.all().order_by('name')
     serializer_class = StockCategorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserOrReadOnly]
 
 class StockProductViewSet(viewsets.ModelViewSet):
     queryset = StockProduct.objects.all().order_by('name')
     serializer_class = StockProductSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserOrReadOnly]
 
     def get_queryset(self):
         # Auto-seed sample categories and products if empty
@@ -85,7 +95,7 @@ class StockProductViewSet(viewsets.ModelViewSet):
 class StockTransactionViewSet(viewsets.ModelViewSet):
     queryset = StockTransaction.objects.all().select_related('product').order_by('-date')
     serializer_class = StockTransactionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminUserOrReadOnly]
 
     def perform_create(self, serializer):
         with transaction.atomic():
@@ -177,10 +187,13 @@ class StockTransactionViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['POST'])
     def bulk_in(self, request):
         date_str = request.data.get('date')
+        supplier = (request.data.get('supplier') or '').strip()
         transactions_data = request.data.get('transactions', [])
 
         if not date_str or not transactions_data:
             return Response({"error": "Missing date or transaction data"}, status=400)
+
+        details_str = supplier or 'Bulk Inbound Registry'
 
         with transaction.atomic():
             for item in transactions_data:
@@ -201,7 +214,7 @@ class StockTransactionViewSet(viewsets.ModelViewSet):
                         date=date_str,
                         product=prod,
                         type='IN',
-                        details='Bulk Inbound Registry',
+                        details=details_str,
                         qty=qty,
                         unit=unit
                     )

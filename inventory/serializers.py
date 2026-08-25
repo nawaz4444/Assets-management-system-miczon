@@ -1,13 +1,10 @@
 from rest_framework import serializers
-from .models import Asset, Employee, Department, AssetHistory, InspectionLog
+from .models import Asset, Employee, Department, AssetHistory, InspectionLog, SuperCategory
 
-
-
-
-
-
-
-
+class SuperCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SuperCategory
+        fields = '__all__'
 
 class DepartmentSerializer(serializers.ModelSerializer):
     manager_name = serializers.CharField(source='manager.name', read_only=True)
@@ -48,10 +45,12 @@ class InspectionLogSerializer(serializers.ModelSerializer):
 class AssetListSerializer(serializers.ModelSerializer):
     custodian_name = serializers.CharField(source='custodian.name', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
+    super_category_name = serializers.CharField(source='super_category.name', read_only=True)
+    super_category_code = serializers.CharField(source='super_category.code', read_only=True)
 
     class Meta:
         model = Asset
-        fields = ['id', 'miczon_id', 'name', 'category', 'specifications', 'current_status', 'custodian', 'custodian_name', 'department', 'department_name']
+        fields = ['id', 'miczon_id', 'name', 'super_category', 'super_category_name', 'super_category_code', 'category', 'specifications', 'current_status', 'custodian', 'custodian_name', 'department', 'department_name']
 
 class AssetDetailSerializer(serializers.ModelSerializer):
     """
@@ -60,6 +59,8 @@ class AssetDetailSerializer(serializers.ModelSerializer):
     """
     custodian_name = serializers.CharField(source='custodian.name', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
+    super_category_name = serializers.CharField(source='super_category.name', read_only=True)
+    super_category_code = serializers.CharField(source='super_category.code', read_only=True)
     history = AssetHistorySerializer(many=True, read_only=True)
     latest_inspection = serializers.SerializerMethodField()
     last_inspection_date = serializers.SerializerMethodField()
@@ -86,6 +87,8 @@ class AssetDetailSerializer(serializers.ModelSerializer):
 class AssetSerializer(serializers.ModelSerializer):
     custodian_name = serializers.CharField(source='custodian.name', read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
+    super_category_name = serializers.CharField(source='super_category.name', read_only=True)
+    super_category_code = serializers.CharField(source='super_category.code', read_only=True)
 
     class Meta:
         model = Asset
@@ -205,6 +208,8 @@ class HealthCheckResponseSerializer(serializers.ModelSerializer):
 
 class HealthCheckSessionSerializer(serializers.ModelSerializer):
     triggered_by_name = serializers.CharField(source='triggered_by.username', read_only=True)
+    super_category_name = serializers.CharField(source='super_category.name', read_only=True)
+    super_category_code = serializers.CharField(source='super_category.code', read_only=True)
     response_count = serializers.IntegerField(read_only=True)
     pending_count = serializers.IntegerField(read_only=True)
 
