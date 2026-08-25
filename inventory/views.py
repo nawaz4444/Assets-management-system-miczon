@@ -1633,25 +1633,60 @@ class ReportsViewSet(viewsets.ViewSet):
 
         category_rows = assets.values('category').annotate(count=Count('id')).order_by('category')
         active_requests = AssetActionRequest.objects.filter(status='PENDING')
-        pending_health_checks = HealthCheckSession.objects.filter(status='OPEN')
+        open_sessions = HealthCheckSession.objects.filter(status='OPEN')
 
         if super_category and str(super_category).lower() != 'all':
             if str(super_category).isdigit():
-                active_requests = active_requests.filter(Q(super_category_id=super_category) | Q(asset__super_category_id=super_category))
-                pending_health_checks = pending_health_checks.filter(super_category_id=super_category)
+                # Include requests where super_category matches directly, OR via linked asset,
+                # OR where neither is set (e.g. ADD requests with no asset yet)
+                active_requests = active_requests.filter(
+                    Q(super_category_id=super_category) |
+                    Q(asset__super_category_id=super_category) |
+                    Q(super_category__isnull=True, asset__isnull=True)
+                )
+                open_sessions = open_sessions.filter(super_category_id=super_category)
             else:
-                active_requests = active_requests.filter(Q(super_category__code__iexact=super_category) | Q(asset__super_category__code__iexact=super_category))
-                pending_health_checks = pending_health_checks.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
+                super_cat_obj = SuperCategory.objects.filter(
+                    Q(code__iexact=super_category) | Q(name__iexact=super_category)
+                ).first()
+                active_requests = active_requests.filter(
+                    Q(super_category__code__iexact=super_category) |
+                    Q(asset__super_category__code__iexact=super_category) |
+                    Q(super_category__isnull=True, asset__isnull=True)
+                )
+                if super_cat_obj:
+                    open_sessions = open_sessions.filter(super_category=super_cat_obj)
+
+        # Pending health checks = number of assigned assets not yet responded to in any open session
+        if open_sessions.exists():
+            open_session_ids = list(open_sessions.values_list('id', flat=True))
+            target_assets_qs = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False)
+            if super_category and str(super_category).lower() != 'all' and not str(super_category).isdigit():
+                super_cat_obj = SuperCategory.objects.filter(
+                    Q(code__iexact=super_category) | Q(name__iexact=super_category)
+                ).first()
+                if super_cat_obj:
+                    target_assets_qs = target_assets_qs.filter(super_category=super_cat_obj)
+            elif super_category and str(super_category).isdigit():
+                target_assets_qs = target_assets_qs.filter(super_category_id=super_category)
+
+            if not (request.user.is_superuser or request.user.is_staff):
+                employee = _get_employee_requester(request.user)
+                if employee:
+                    target_assets_qs = target_assets_qs.filter(custodian=employee)
+                else:
+                    target_assets_qs = target_assets_qs.none()
+
+            responded_asset_ids = HealthCheckResponse.objects.filter(
+                session_id__in=open_session_ids
+            ).values_list('asset_id', flat=True).distinct()
+            pending_asset_count = target_assets_qs.exclude(id__in=responded_asset_ids).count()
+        else:
+            pending_asset_count = 0
 
         if not (request.user.is_superuser or request.user.is_staff):
             employee = _get_employee_requester(request.user)
             active_requests = active_requests.filter(requester=employee)
-            if employee:
-                assigned_assets = Asset.objects.filter(custodian=employee)
-                submitted = HealthCheckResponse.objects.filter(employee=employee, asset__in=assigned_assets).values('session_id')
-                pending_health_checks = pending_health_checks.exclude(id__in=submitted)
-            else:
-                pending_health_checks = pending_health_checks.none()
 
         return Response({
             "total_devices": assets.count(),
@@ -1662,7 +1697,7 @@ class ReportsViewSet(viewsets.ViewSet):
             "available": assets.filter(current_status='AVAILABLE').count(),
             "repair": assets.filter(current_status='BROKEN').count(),
             "active_requests": active_requests.count(),
-            "pending_health_checks": pending_health_checks.count(),
+            "pending_health_checks": pending_asset_count,
             "category_breakdown": list(category_rows),
         })
 
