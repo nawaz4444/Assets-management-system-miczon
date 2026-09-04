@@ -7,6 +7,8 @@ class StockCategorySerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 class StockProductSerializer(serializers.ModelSerializer):
+    qty = serializers.IntegerField(read_only=True)
+    reorder = serializers.IntegerField(min_value=0, default=10)
     category_name = serializers.CharField(source='category.name', read_only=True)
     status = serializers.SerializerMethodField()
 
@@ -22,6 +24,7 @@ class StockProductSerializer(serializers.ModelSerializer):
         return 'In Stock'
 
 class StockTransactionSerializer(serializers.ModelSerializer):
+    qty = serializers.IntegerField(min_value=1)
     product_code = serializers.CharField(source='product.code', read_only=True)
     product_name = serializers.CharField(source='product.name', read_only=True)
     product_category = serializers.CharField(source='product.category.name', read_only=True)

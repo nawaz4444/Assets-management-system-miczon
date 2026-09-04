@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from datetime import date
 
@@ -63,6 +63,29 @@ class Asset(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def save(self, *args, **kwargs):
+        # Keep every write path (including imports/admin) consistent with the ledger.
+        with transaction.atomic():
+            if self.pk:
+                type(self).objects.select_for_update().filter(pk=self.pk).exists()
+            if self.current_status == 'BROKEN':
+                self.custodian = None
+            elif self.custodian_id:
+                self.current_status = 'ASSIGNED'
+            elif self.current_status == 'ASSIGNED':
+                self.current_status = 'AVAILABLE'
+            if kwargs.get('update_fields'):
+                kwargs['update_fields'] = set(kwargs['update_fields']) | {'custodian', 'current_status'}
+            super().save(*args, **kwargs)
+            active = self.assignments.filter(status='ASSIGNED')
+            retained = active.filter(employee_id=self.custodian_id).first() if self.custodian_id else None
+            active.exclude(pk=retained.pk if retained else None).update(
+                status='RETURNED', returned_date=date.today(), returned_by='Asset update',
+                condition='Broken' if self.current_status == 'BROKEN' else 'Good',
+            )
+            if self.custodian_id and not retained:
+                AssetAssignment.objects.create(asset=self, employee=self.custodian)
+
     @property
     def is_overdue_repair(self):
         if self.current_status == 'BROKEN' and self.expected_return_date:
@@ -100,6 +123,13 @@ class HealthCheckSession(models.Model):
     triggered_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    targets_snapshot = models.JSONField(null=True, blank=True, editable=False)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and self.targets_snapshot is None:
+            from .services import snapshot_targets
+            self.targets_snapshot = snapshot_targets(self.super_category_id)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.title} ({self.created_at:%Y-%m-%d})"
@@ -212,6 +242,9 @@ class AssetAssignment(models.Model):
     returned_by = models.CharField(max_length=100, blank=True)
     condition = models.CharField(max_length=100, blank=True) # Good, Damaged, etc.
 
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['asset'], condition=models.Q(status='ASSIGNED'), name='one_active_assignment_per_asset')]
+
     def mark_returned(self, returned_by=None, condition='Good'):
         self.returned_date = date.today()
         self.status = 'RETURNED'
@@ -220,23 +253,22 @@ class AssetAssignment(models.Model):
         self.save()
 
     def save(self, *args, **kwargs):
-        # 1. Update Parent Asset Status
-        if self.status == 'ASSIGNED':
-            self.asset.custodian = self.employee
-            self.asset.current_status = 'ASSIGNED'
-        elif self.status == 'RETURNED':
-            # Only clear custodian if this is the ACTIVE assignment being returned
-            if self.asset.custodian == self.employee:
-                self.asset.custodian = None
-                # Check condition: if repair is needed, set status to BROKEN
-                condition_lower = (self.condition or '').lower()
-                if 'repair' in condition_lower or 'broken' in condition_lower or 'damaged' in condition_lower:
-                    self.asset.current_status = 'BROKEN'
-                else:
-                    self.asset.current_status = 'AVAILABLE'
-        
-        self.asset.save()
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            asset = Asset.objects.select_for_update().get(pk=self.asset_id)
+            was_active = bool(self.pk and type(self).objects.filter(pk=self.pk, status='ASSIGNED').exists())
+            if self.status == 'ASSIGNED':
+                type(self).objects.filter(asset=asset, status='ASSIGNED').exclude(pk=self.pk).update(
+                    status='RETURNED', returned_date=date.today(), returned_by='Transfer', condition='Good')
+                asset.custodian = self.employee
+                asset.current_status = 'ASSIGNED'
+                Asset.objects.filter(pk=asset.pk).update(custodian=self.employee, current_status='ASSIGNED')
+            elif was_active and asset.custodian_id == self.employee_id:
+                broken = any(word in (self.condition or '').lower() for word in ('repair', 'broken', 'damaged'))
+                asset.custodian = None
+                asset.current_status = 'BROKEN' if broken else 'AVAILABLE'
+                Asset.objects.filter(pk=asset.pk).update(custodian=None, current_status=asset.current_status)
+            self.asset = asset
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.asset.miczon_id} -> {self.employee.name} ({self.status})"
@@ -282,6 +314,7 @@ class AssetActionRequest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
     processed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True)
+    submitted_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='submitted_asset_requests')
 
     def __str__(self):
         asset_id = self.asset.miczon_id if self.asset else "New Asset"

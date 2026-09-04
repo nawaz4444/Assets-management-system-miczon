@@ -3,14 +3,15 @@ import axios from 'axios';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 import { UserContext, SuperCategoryContext } from '../lib/contexts';
-import { useApi, normalizeList, toApiPath, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
+import { useApi, normalizeList, apiError, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
+import { localDate } from '../utils/dates';
 import {
   navItems, emptyAsset, emptyEmployee, assetStatuses,
   getInspectionFields, ratingOptions, inventoryPageSize,
 } from '../lib/constants';
 import {
   Icon, Button, Select, Dialog, DialogContent, PageHeader, MetricCard,
-  DialogHeader, Field, Notice, StatusBadge, DataTable,
+  DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
 
@@ -23,6 +24,7 @@ export function SuperCategorySelector({ superCategories, activeSuperCategory, on
         <Icon name="layers" /> Category:
       </span>
       <select
+        aria-label="Asset super category"
         value={activeSuperCategory?.code || 'it_assets'}
         onChange={(e) => {
           const val = e.target.value;
@@ -145,7 +147,7 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
               <Route path="/requests" element={<RequestManager api={api} isAdmin={true} user={user} />} />
-              <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} user={user} />} />
+              <Route path="/health-checks" element={<HealthChecks key={activeSuperCategory?.code} api={api} isAdmin={true} user={user} />} />
               <Route path="/stock" element={<StockDashboard api={api} />} />
               <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
@@ -159,12 +161,15 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/inventory" element={<InventoryPage api={api} isAdmin={false} isManager={true} />} />
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
               <Route path="/requests" element={<RequestManager api={api} isAdmin={false} isManager={true} user={user} />} />
-              <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/health-checks" element={<HealthChecks key={activeSuperCategory?.code} api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           ) : (
             <Routes>
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+              <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
+              <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           )}
@@ -380,37 +385,10 @@ export function InventoryPage({ api, isAdmin }) {
       closeAssetDialog();
       loadAssets();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save asset.');
+      setNotice(apiError(err, 'Unable to save asset.'));
     }
   };
 
-  const editAsset = (asset) => {
-    setEditingId(asset.id);
-    setForm({
-      miczon_id: asset.miczon_id || '',
-      name: asset.name || '',
-      super_category: asset.super_category || '',
-      category: asset.category || '',
-      department: asset.department || '',
-      current_status: asset.current_status || 'AVAILABLE',
-      custodian: asset.custodian || '',
-      purchase_date: asset.purchase_date || '',
-      purchase_price: asset.purchase_price ?? '',
-      specifications: asset.specifications || '',
-      remarks: asset.remarks || '',
-    });
-    setDialogOpen(true);
-  };
-
-  const removeAsset = async (asset) => {
-    if (!window.confirm(`Remove ${asset.name}?`)) return;
-    try {
-      await api.delete(`/assets/${asset.id}/`);
-      loadAssets();
-    } catch {
-      alert('Unable to remove this asset. Please try again.');
-    }
-  };
 
   const selectImportFile = (file) => {
     if (!file) return;
@@ -449,6 +427,7 @@ export function InventoryPage({ api, isAdmin }) {
 
     const payload = new FormData();
     payload.append('file', importFile);
+    if (activeCode !== 'all') payload.append('super_category', activeCode);
     setImportLoading(true);
     setImportStatus(null);
 
@@ -502,7 +481,7 @@ export function InventoryPage({ api, isAdmin }) {
       const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `inventory_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      link.download = `inventory_export_${localDate()}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -516,7 +495,7 @@ export function InventoryPage({ api, isAdmin }) {
 
   return (
     <>
-      <PageHeader eyebrow={`${activeCatObj?.name || 'Inventory'} Register`} title={`${activeCatObj?.name || 'All'} Assets`}>
+      <PageHeader eyebrow="Inventory Register" title={activeCode === 'all' ? 'All Assets' : activeCatObj?.name || 'Assets'}>
         <SuperCategorySelector
           superCategories={superCategories}
           activeSuperCategory={activeSuperCategory}
@@ -532,7 +511,7 @@ export function InventoryPage({ api, isAdmin }) {
           setEditingId(null);
           setForm({ ...emptyAsset, super_category: activeCatObj?.id || '' });
           setDialogOpen(true);
-        }}>Add {activeCatObj?.name?.replace(/s$/i, '') || 'Asset'}</Button>
+        }}>Add Asset</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
@@ -546,14 +525,14 @@ export function InventoryPage({ api, isAdmin }) {
         )}
         <div className="panel-heading inventory-heading">
           <div>
-            <h2>All {activeCatObj?.name || 'Assets'}</h2>
+            <h2>{activeCode === 'all' ? 'All Assets' : activeCatObj?.name || 'Assets'}</h2>
             <p className="panel-subtitle">
               {totalCount} item{totalCount === 1 ? '' : 's'} total
             </p>
           </div>
         </div>
         <div className="filter-bar">
-          <input className="search" placeholder="Search Miczon ID, device, custodian..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input aria-label="Search inventory" className="search" placeholder="Search Miczon ID, device, custodian..." value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={departmentFilter} onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}>
             <option value="">All Departments</option>
             {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -570,7 +549,7 @@ export function InventoryPage({ api, isAdmin }) {
             asset.miczon_id,
             asset.name,
             <span key="sc" style={{ fontWeight: '600', color: '#0f766e', background: '#ccfbf1', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>
-              {asset.super_category_name || 'IT Assets'}
+              {asset.super_category_name || 'Uncategorized'}
             </span>,
             asset.category || 'Uncategorized',
             asset.department_name || 'No department',
@@ -835,7 +814,7 @@ export function AssetDetailPage({ api, isAdmin }) {
       setDialogOpen(false);
       api.get(`/assets/${assetId}/`).then((res) => setAsset(res.data));
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save hardware.');
+      setNotice(apiError(err, 'Unable to save hardware.'));
     }
   };
 
@@ -846,7 +825,7 @@ export function AssetDetailPage({ api, isAdmin }) {
     <>
       <PageHeader eyebrow="Asset Detail" title={asset.name}>
         <Button type="button" variant="ghost" onClick={() => navigate('/inventory')}>Back</Button>
-        <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>
+        {isAdmin && <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>}
         {isAdmin && <Button type="button" variant="danger" onClick={removeAsset}>Remove</Button>}
         <Button type="button" variant="primary" onClick={() => window.print()}>Print Asset Tag</Button>
       </PageHeader>
@@ -955,14 +934,7 @@ export function AssetDetailPage({ api, isAdmin }) {
                   {asset.latest_inspection.performance_rating} / 5 ⭐
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: '#64748b' }}>Screen Condition:</span>
-                <strong>{asset.latest_inspection.screen_condition || 'N/A'}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: '#64748b' }}>Battery Health:</span>
-                <strong>{asset.latest_inspection.battery_life || 'N/A'}</strong>
-              </div>
+              <InspectionFindings response={asset.latest_inspection} />
               {asset.latest_inspection.comments && (
                 <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
                   <small style={{ color: '#64748b', display: 'block' }}>Comments:</small>
@@ -1540,7 +1512,7 @@ export function EmployeeDirectory({ api, isAdmin }) {
       {notice && <Notice>{notice}</Notice>}
       <section className="panel">
         <div className="employee-filter-bar">
-          <input className="search" placeholder="Search name or employee ID..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input aria-label="Search employees" className="search" placeholder="Search name or employee ID..." value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
             <option value="">All Departments</option>
             {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -1573,7 +1545,7 @@ export function EmployeeDirectory({ api, isAdmin }) {
           <DataTable
             columns={['Select', 'Device', 'Serial', 'Type', 'Status']}
             rows={assets.map((asset) => [
-              <input type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => setSelectedAssetIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id])} />,
+              <input aria-label={`Select ${asset.name} (${asset.miczon_id})`} type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => setSelectedAssetIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id])} />,
               asset.name,
               asset.miczon_id,
               asset.category || 'Uncategorized',
@@ -1720,7 +1692,7 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
       });
       setCreateModalOpen(true);
     } catch (err) {
-      setNotice('Unable to fetch employee list.');
+      setNotice(apiError(err, 'Unable to fetch employee list.'));
     }
   };
 
@@ -1748,8 +1720,12 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
   };
 
   const processRequest = async (id, action, customRemarks) => {
-    const admin_remarks = customRemarks !== undefined ? customRemarks : window.prompt(`Optional remarks for ${action}:`);
-    if (admin_remarks === null) return;
+    if (customRemarks === undefined) {
+      setSelectedRequest(requests.find(req => req.id === id));
+      setAdminRemarkInput('');
+      return;
+    }
+    const admin_remarks = customRemarks;
     
     try {
       await api.post(`/requests/${id}/${action}/`, { admin_remarks: admin_remarks || `Processed via Request Manager.` });
@@ -1831,7 +1807,7 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
           <input
             className="search"
             type="search"
-            placeholder="Search requester, device..."
+            aria-label="Search requests" placeholder="Search requester, device..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: '260px' }}
@@ -1846,7 +1822,7 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
           rows={filteredRequests.map((req) => [
             <div key="requester" className="employee-cell">
               <strong>{req.requester_name || 'Employee'}</strong>
-              <small>{req.target_employee_name ? `Target: ${req.target_employee_name}` : 'Self request'}</small>
+              <small>{req.submitted_by_name ? `Submitted by: ${req.submitted_by_name}` : 'Submitter not recorded'}</small>
             </div>,
             <div key="device">
               <span className="status-badge" style={{ fontSize: '11px', padding: '2px 8px', marginRight: '6px', textTransform: 'uppercase' }}>
@@ -2125,12 +2101,12 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
     setModalSessionId(targetSession);
     setModalSearch('');
     setModalDeptFilter('');
+    setModalLoading(true);
     setReportModalOpen(true);
   };
 
   useEffect(() => {
     if (reportModalOpen && modalSessionId) {
-      setModalLoading(true);
       api.get(`/reports/health-compliance/?session=${modalSessionId}`)
         .then((res) => setModalResponses(res.data?.responses || []))
         .catch(() => setNotice('Unable to load inspection responses.'))
@@ -2154,7 +2130,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
       setAdminInspectEmployee(emp);
       setAdminHealthForm({});
     } catch (err) {
-      setNotice('Unable to fetch pending assets for employee.');
+      setNotice(apiError(err, 'Unable to fetch pending assets for employee.'));
     }
   };
 
@@ -2196,7 +2172,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
       setAdminHealthForm({});
       load();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save health check responses.');
+      setNotice(apiError(err, 'Unable to save health check responses.'));
     }
   };
 
@@ -2223,40 +2199,11 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (error) {
+    } catch {
       setNotice('Failed to download excel report.');
     }
   };
 
-  const downloadExcel = async () => {
-    if (!selectedSession) return;
-    try {
-      const exportType = activeReportView || 'all';
-      const params = new URLSearchParams({
-        session: selectedSession,
-        type: exportType,
-      });
-      if (reportSearch.trim()) params.set('search', reportSearch.trim());
-      if (reportDepartment && exportType !== 'critical') params.set('department', reportDepartment);
-
-      const response = await api.get(`/reports/export-health-responses/?${params.toString()}`, {
-        responseType: 'blob',
-      });
-      const contentDisposition = response.headers['content-disposition'];
-      const fileName = contentDisposition?.match(/filename="?([^"]+)"?/)?.[1] || `health_report_${exportType.replaceAll('-', '_')}_${selectedSession}.xlsx`;
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Download failed', error);
-      setNotice('Failed to download excel report.');
-    }
-  };
 
   const summary = report?.summary || {};
   const pendingRows = report?.pending_by_employee || [];
@@ -2270,11 +2217,6 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
     ...pendingRows.map((row) => row.department).filter(Boolean),
     ...modalResponses.map((row) => row.department).filter(Boolean),
   ])).sort((a, b) => a.localeCompare(b));
-
-  useEffect(() => {
-    setReportSearch('');
-    setReportDepartment('');
-  }, [activeReportView, selectedSession]);
 
   const matchesSearch = (values) => {
     const needle = reportSearch.trim().toLowerCase();
@@ -2364,7 +2306,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
         </div>
         <div className="report-period-control">
           <span>Inspection period</span>
-          <Select value={selectedSession} onChange={(event) => setSelectedSession(event.target.value)} disabled={sessions.length === 0}>
+          <Select aria-label="Inspection session" value={selectedSession} onChange={(event) => { setSelectedSession(event.target.value); setReportSearch(''); setReportDepartment(''); }} disabled={sessions.length === 0}>
             {sessions.length === 0 ? (
               <option value="">No sessions</option>
             ) : sessions.map((session) => (
@@ -2409,7 +2351,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
           <input
             className="search"
             type="search"
-            placeholder="Search employee, asset, ID, department..."
+            aria-label="Search inspection report" placeholder="Search employee, asset, ID, department..."
             value={reportSearch}
             onChange={(event) => setReportSearch(event.target.value)}
           />
@@ -2527,12 +2469,11 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
             <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
           </div>
           <DataTable
-            columns={['Asset', 'Employee', 'Screen', 'Battery', 'Rating']}
+            columns={['Asset', 'Employee', 'Inspection Findings', 'Rating']}
             rows={filteredCriticalRows.map((response) => [
               `${response.asset_name} (${response.asset_miczon_id})`,
               response.employee_name,
-              response.screen_condition,
-              response.battery_life,
+              <InspectionFindings response={response} />,
               <strong className="text-danger">{response.performance_rating}/5</strong>,
             ])}
             empty="No critical alerts for this inspection."
@@ -2540,7 +2481,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
         </section>
       )}
 
-      {isAdmin && adminInspectEmployee && (
+      {canInspectTeam && adminInspectEmployee && (
         <Dialog open={!!adminInspectEmployee}>
           <DialogContent className="inspection-dialog">
             <DialogHeader
@@ -2754,8 +2695,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
                       </span>
                     </div>,
                     <div key="cond" style={{ fontSize: '12px', display: 'grid', gap: '3px', whiteSpace: 'nowrap' }}>
-                      <div>Screen: <strong style={{ color: '#334155' }}>{resp.screen_condition}</strong></div>
-                      <div>Battery: <strong style={{ color: '#334155' }}>{resp.battery_life}</strong></div>
+                      <InspectionFindings response={resp} />
                     </div>,
                     <span key="date" style={{ color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>
                       {new Date(resp.submitted_at).toLocaleDateString()}
@@ -2820,7 +2760,9 @@ export function EmployeePortal({ api, user }) {
   }, [api, employee, activeSession]);
 
   useEffect(() => {
-    loadPortal();
+    // This effect synchronizes the portal with remote API data.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPortal().catch(err => setNotice(apiError(err, 'Unable to load your gear and inspections.')));
   }, [loadPortal]);
 
   const submitRequest = async (event) => {
@@ -2898,7 +2840,7 @@ export function EmployeePortal({ api, user }) {
       setInspectionDialogOpen(false);
       loadPortal();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save health check responses.');
+      setNotice(apiError(err, 'Unable to save health check responses.'));
     }
   };
 
@@ -2907,13 +2849,20 @@ export function EmployeePortal({ api, user }) {
   return (
     <>
       <PageHeader eyebrow="Employee Portal" title="My gear and requests">
-        <Button type="button" variant="ghost" disabled={!employee || !activeSession} onClick={() => setInspectionDialogOpen(true)}>
+        <Field label="Open inspection">
+          <Select value={activeSession} disabled={!sessions.length} onChange={event => { setPendingAssets([]); setHealthForm({}); setActiveSession(event.target.value); }}>
+            {!sessions.length && <option value="">No open inspections</option>}
+            {sessions.map(session => <option key={session.id} value={session.id}>{session.title}</option>)}
+          </Select>
+        </Field>
+        <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length} onClick={() => setInspectionDialogOpen(true)}>
           Start Inspection
         </Button>
         <Button type="button" variant="primary" disabled={!employee} onClick={() => { setRequestsListDialogOpen(true); setShowRequestForm(false); }}>My Requests</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
       {employee && activeSession && pendingAssets.length > 0 && <Notice tone="error">Monthly inspection required: {pendingAssets.length} assigned item(s) still need a health check.</Notice>}
+      {employee && activeSession && pendingAssets.length === 0 && <Notice>No outstanding items for this inspection. You can choose another open inspection above.</Notice>}
       {notice && <Notice>{notice}</Notice>}
 
       <section className="panel portal-gear-panel">

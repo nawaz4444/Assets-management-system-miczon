@@ -1,4 +1,4 @@
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 class SuperCategoryViewSet(viewsets.ModelViewSet):
     queryset = SuperCategory.objects.all().order_by('id')
     serializer_class = SuperCategorySerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    def get_permissions(self):
+        return [IsAdminUserOrReadOnly()]
 from io import BytesIO
 from datetime import date
 from django.utils import timezone
@@ -34,6 +35,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import re
 from decimal import Decimal, InvalidOperation
+from .services import employee_for_user, session_assets, inspection_fields
 
 # --- PERMISSIONS ---
 class IsAdminUserOrReadOnly(permissions.BasePermission):
@@ -53,39 +55,15 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 # --- UTILS ---
 def get_employee_filter(user, prefix=''):
-    """
-    Returns a Q object to filter by the current user's employee profile.
-    Matches by linked user, email, or full name.
-    """
+    """Build an ownership filter from the explicit User/Employee link."""
     if user.is_superuser:
         return Q()
-    
-    # 1. Match by direct linked user field
-    q = Q(**{f"{prefix}user": user})
-    
-    # 2. Match by email
-    if user.email:
-        q |= Q(**{f"{prefix}email": user.email})
-    
-    # 3. Match by full name
-    full_name = f"{user.first_name} {user.last_name}".strip()
-    if full_name:
-        q |= Q(**{f"{prefix}name__iexact": full_name})
-    elif user.username:
-        q |= Q(**{f"{prefix}name__iexact": user.username})
-        
-    return q
+    employee = employee_for_user(user)
+    key = f"{prefix}pk" if prefix else 'pk'
+    return Q(**{key: employee.pk if employee else None}) & Q(**{f"{key}__isnull": False})
 
 def _get_employee_requester(user):
-    """Helper to get Employee profile for a User"""
-    from .models import Employee
-    # Use existing logic to find the employee profile
-    q = Q(user=user)
-    if user.email: q |= Q(email=user.email)
-    full_name = f"{user.first_name} {user.last_name}".strip()
-    if full_name: q |= Q(name__iexact=full_name)
-    elif user.username: q |= Q(name__iexact=user.username)
-    return Employee.objects.filter(q).first()
+    return employee_for_user(user)
 
 def _is_manager(user):
     if not user or not user.is_authenticated:
@@ -170,6 +148,7 @@ def build_asset_import_template():
     headers = [
         'Miczon ID',
         'Device Name',
+        'Super Category',
         'Category',
         'Department',
         'Custodian',
@@ -271,8 +250,10 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
             from .models import AssetActionRequest, Asset
             
             # Use same logic to find employee requester profile
-            asset_id = request.data.get('asset')
-            employee_id = request.data.get('employee')
+            asset_id = serializers.IntegerField(min_value=1).run_validation(request.data.get('asset'))
+            employee_id = serializers.IntegerField(min_value=1).run_validation(request.data.get('employee'))
+            if employee_id not in _get_team_employee_ids(request.user):
+                return Response({'error': 'You cannot assign assets to this employee.'}, status=403)
             
             # Redirect to approval flow
             requester = _get_employee_requester(request.user)
@@ -283,8 +264,11 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
                 asset = Asset.objects.get(id=asset_id)
             except Asset.DoesNotExist:
                 return Response({"error": "Asset not found"}, status=400)
+            if asset.custodian_id and asset.custodian_id not in _get_team_employee_ids(request.user):
+                return Response({'error': 'This asset belongs to another employee.'}, status=403)
                 
             AssetActionRequest.objects.create(
+                submitted_by=request.user,
                 asset=asset,
                 requester=requester,
                 action_type='ASSIGN',
@@ -306,6 +290,7 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
                  requester = _get_employee_requester(request.user)
                  
                  AssetActionRequest.objects.create(
+                     submitted_by=request.user,
                      asset=asset,
                      requester=requester,
                      action_type='RETURN',
@@ -318,7 +303,10 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         return self.update(request, *args, **kwargs)
 
-class InspectionLogViewSet(viewsets.ModelViewSet):
+    def destroy(self, request, *args, **kwargs):
+        return Response({"error": "Assignment history cannot be deleted. Return the asset instead."}, status=403)
+
+class InspectionLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = InspectionLog.objects.all().order_by('-date')
     serializer_class = InspectionLogSerializer
 
@@ -334,7 +322,7 @@ class AssetViewSet(viewsets.ModelViewSet):
     queryset = Asset.objects.all().order_by('-created_at')
     serializer_class = AssetDetailSerializer  # Default for create/update
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.DjangoModelPermissions]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_serializer_class(self):
         """
@@ -408,6 +396,8 @@ class AssetViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         if not request.user.is_superuser:
+            if not _is_manager(request.user):
+                return Response({"error": "Only managers may request new assets."}, status=403)
             miczon_id = request.data.get('miczon_id')
             if not miczon_id:
                 return Response({"error": "Miczon ID is required"}, status=400)
@@ -419,7 +409,13 @@ class AssetViewSet(viewsets.ModelViewSet):
             if not requester:
                 return Response({"error": "Employee profile not found for user. Please contact admin to link your user account to an employee profile."}, status=400)
             
+            proposed_asset = self.get_serializer(data=request.data)
+            proposed_asset.is_valid(raise_exception=True)
+            custodian = proposed_asset.validated_data.get('custodian')
+            if custodian and custodian.pk not in _get_team_employee_ids(request.user):
+                return Response({'error': 'The custodian must belong to your team.'}, status=403)
             AssetActionRequest.objects.create(
+                submitted_by=request.user,
                 requester=requester,
                 action_type='ADD',
                 asset_data=request.data,
@@ -515,7 +511,7 @@ class AssetViewSet(viewsets.ModelViewSet):
             return Response({"success": False, "message": "Please upload an Excel file."}, status=400)
 
         try:
-            df = pd.read_excel(file_obj)
+            df = pd.read_csv(file_obj) if file_obj.name.lower().endswith('.csv') else pd.read_excel(file_obj)
         except Exception as exc:
             return Response({"success": False, "message": f"Unable to read Excel file: {exc}"}, status=400)
 
@@ -580,8 +576,17 @@ class AssetViewSet(viewsets.ModelViewSet):
             )
 
             # Prepare staging data
+            category_value = get_import_value(row, 'super category', 'super_category') or request.data.get('super_category') or 'it_assets'
+            category_q = Q(pk=int(category_value)) if str(category_value).isdigit() else (Q(code__iexact=category_value) | Q(name__iexact=category_value))
+            super_category = SuperCategory.objects.filter(category_q).first()
+            if not super_category:
+                row_errors.append('Select a valid Super Category')
+            imported_status = get_import_value(row, 'status', default='AVAILABLE').upper().replace(' ', '_')
+            if imported_status not in dict(Asset.STATUS_CHOICES):
+                row_errors.append('Status must be AVAILABLE, ASSIGNED, or BROKEN')
             row_data = {
                 "excel_row": excel_row_number,
+                "super_category": super_category.pk if super_category else None,
                 "miczon_id": miczon_id,
                 "name": device_name,
                 "category": get_import_value(row, 'category', 'categary'),
@@ -630,10 +635,21 @@ class AssetViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 for row in rows:
+                    check = AssetDetailSerializer(data={
+                        'miczon_id': row.get('miczon_id'), 'name': row.get('name'),
+                        'super_category': row.get('super_category'), 'category': row.get('category', ''),
+                        'custodian': row.get('custodian_id'), 'department': row.get('department_id'),
+                        'current_status': row.get('status', 'AVAILABLE'),
+                        'purchase_date': row.get('purchase_date'), 'purchase_price': row.get('purchase_price'),
+                    }, instance=Asset.objects.filter(miczon_id=row.get('miczon_id')).first())
+                    check.is_valid(raise_exception=True)
+                    if not check.validated_data.get('super_category'):
+                        raise serializers.ValidationError({'super_category': 'Required for every imported asset.'})
                     asset, created = Asset.objects.update_or_create(
                         miczon_id=row['miczon_id'],
                         defaults={
                             'name': row['name'],
+                            'super_category_id': row.get('super_category'),
                             'category': row.get('category'),
                             'department_id': row.get('department_id'),
                             'custodian_id': row.get('custodian_id'),
@@ -661,8 +677,11 @@ class AssetViewSet(viewsets.ModelViewSet):
                 "created": created_count,
                 "updated": updated_count
             })
-        except Exception as e:
-            return Response({"success": False, "message": f"Critical Commit Error: {str(e)}"}, status=500)
+        except serializers.ValidationError:
+            raise
+        except Exception:
+            logger.exception('Asset import failed')
+            return Response({'success': False, 'message': 'Import failed; no rows were committed.'}, status=400)
 
     @action(detail=False, methods=['get'], url_path='export')
     def export(self, request):
@@ -673,7 +692,7 @@ class AssetViewSet(viewsets.ModelViewSet):
         sheet.title = 'Inventory'
 
         headers = [
-            'Miczon ID', 'Device Name', 'Category', 'Status',
+            'Miczon ID', 'Device Name', 'Super Category', 'Category', 'Status',
             'Department', 'Custodian', 'Employee ID',
             'Purchase Date', 'Purchase Price (PKR)',
             'Maintenance Vendor', 'Sent to Repair', 'Expected Return',
@@ -690,6 +709,7 @@ class AssetViewSet(viewsets.ModelViewSet):
             sheet.append([
                 asset.miczon_id,
                 asset.name,
+                asset.super_category.code if asset.super_category else '',
                 asset.category,
                 asset.current_status,
                 asset.department.name if asset.department else 'N/A',
@@ -814,6 +834,8 @@ class AssetViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def return_from_repair(self, request, pk=None):
+        if not request.user.is_superuser:
+            return Response({'error': 'Only administrators can complete repairs.'}, status=403)
         asset = self.get_object()
         condition = request.data.get('condition', 'Good')
         remarks = request.data.get('remarks', 'Returned from repair')
@@ -927,6 +949,12 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                     skipped_rows.append(f"Row {excel_row_number}: Missing Employee ID")
                     continue
 
+            employee_email = get_import_value(row, 'email', 'employee email')
+            try:
+                serializers.EmailField(allow_blank=True).run_validation(employee_email)
+            except serializers.ValidationError:
+                skipped_rows.append(f"Row {excel_row_number}: Invalid email address")
+                continue
             department = None
             department_name = get_import_value(row, 'department')
             if department_name:
@@ -970,12 +998,17 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='unassign-all')
+    @transaction.atomic
     def unassign_all(self, request, pk=None):
         if not request.user.is_superuser:
             return Response({"error": "Only admins can run employee offboarding."}, status=403)
 
         employee = self.get_object()
-        active_assignments = AssetAssignment.objects.filter(employee=employee, status='ASSIGNED').select_related('asset')
+        ids = set(serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False).run_validation(request.data.get('asset_ids')))
+        selected_assets = list(Asset.objects.select_for_update().filter(pk__in=ids, custodian=employee))
+        if len(selected_assets) != len(ids):
+            return Response({'error': 'Every selected asset must belong to this employee. Refresh and try again.'}, status=400)
+        active_assignments = AssetAssignment.objects.filter(employee=employee, asset_id__in=ids, status='ASSIGNED').select_related('asset')
         returned_count = 0
 
         for assignment in active_assignments:
@@ -989,7 +1022,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             )
             returned_count += 1
 
-        remaining_assets = Asset.objects.filter(custodian=employee)
+        remaining_assets = Asset.objects.filter(custodian=employee, pk__in=ids)
         for asset in remaining_assets:
             asset.custodian = None
             asset.current_status = 'AVAILABLE'
@@ -1013,6 +1046,21 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 class AssetActionRequestViewSet(viewsets.ModelViewSet):
     queryset = AssetActionRequest.objects.all().order_by('-created_at')
     serializer_class = AssetActionRequestSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(status='PENDING', submitted_by=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        if self.get_object().status != 'PENDING':
+            return Response({'error': 'Processed requests cannot be edited.'}, status=403)
+        if {'status', 'processed_by', 'processed_at', 'admin_remarks', 'submitted_by'} & set(request.data):
+            return Response({'error': 'Use the approval or rejection action to process a request.'}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if self.get_object().status != 'PENDING':
+            return Response({'error': 'Processed requests cannot be deleted.'}, status=403)
+        return super().destroy(request, *args, **kwargs)
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1047,28 +1095,30 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             data['status'] = 'PENDING'
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
-            serializer.save(requester=requester, status='PENDING')
+            serializer.save(requester=requester, status='PENDING', submitted_by=request.user)
             return Response(serializer.data, status=201)
 
         requested_emp_id = request.data.get('requester')
         if requested_emp_id and not request.user.is_superuser:
             team_ids = _get_team_employee_ids(request.user)
-            if int(requested_emp_id) not in team_ids:
+            requested_emp_id = serializers.IntegerField(min_value=1).run_validation(requested_emp_id)
+            if requested_emp_id not in team_ids:
                 return Response({"error": "You do not have permission to submit requests for this employee."}, status=403)
 
         return super().create(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def approve(self, request, pk=None):
         if not request.user.is_superuser:
             return Response({"error": "Only admins can approve requests"}, status=403)
         
-        req = self.get_object()
+        req = AssetActionRequest.objects.select_for_update().get(pk=self.get_object().pk)
         if req.status != 'PENDING':
             return Response({"error": "Request is already processed"}, status=400)
         
         admin_remarks = request.data.get('admin_remarks', '')
-        asset = req.asset
+        asset = Asset.objects.select_for_update().get(pk=req.asset_id) if req.asset_id else None
         
         # --- PERFORM THE ACTION ---
         try:
@@ -1082,24 +1132,14 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
                 if Asset.objects.filter(miczon_id=miczon_id).exists():
                     return Response({"error": f"Asset with Miczon ID {miczon_id} already exists"}, status=400)
 
-                department_id = data.get('department')
-                department = Department.objects.filter(id=department_id).first() if department_id else None
-                
-                new_asset = Asset.objects.create(
-                    miczon_id=miczon_id,
-                    name=data.get('name', 'Unknown Asset'),
-                    category=data.get('category', ''),
-                    specifications=data.get('specifications', ''),
-                    department=department,
-                    current_status=data.get('current_status', 'AVAILABLE'),
-                    remarks=data.get('remarks', f"Created via approval by {request.user.username}"),
-                    # Add extra fields if they exist in data
-                    purchase_date=data.get('purchase_date') or None,
-                    purchase_price=data.get('purchase_price') if data.get('purchase_price') not in (None, '') else None,
-                    maintenance_vendor=data.get('maintenance_vendor', ''),
-                    sent_to_repair_date=data.get('sent_to_repair_date'),
-                    expected_return_date=data.get('expected_return_date'),
-                )
+                payload = dict(data)
+                payload['super_category'] = payload.get('super_category') or req.super_category_id or SuperCategory.objects.get(code='it_assets').pk
+                for field in ('custodian', 'department', 'purchase_date', 'purchase_price', 'sent_to_repair_date', 'expected_return_date'):
+                    if payload.get(field) == '':
+                        payload[field] = None
+                proposed_asset = AssetDetailSerializer(data=payload)
+                proposed_asset.is_valid(raise_exception=True)
+                new_asset = proposed_asset.save()
                 req.asset = new_asset
                 asset = new_asset
                 
@@ -1179,7 +1219,9 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
                     remarks=f"Repair Approved. Vendor: {req.vendor}. Info: {req.remarks}"
                 )
         except Exception as e:
-            return Response({"error": f"Failed to process approval: {str(e)}"}, status=500)
+            transaction.set_rollback(True)
+            logger.exception('Approval failed')
+            return Response({"error": "Approval failed; no changes were applied."}, status=400)
 
         # Update Request Status
         req.status = 'APPROVED'
@@ -1191,11 +1233,12 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         return Response({"status": "Request approved and action performed"})
 
     @action(detail=True, methods=['post'])
+    @transaction.atomic
     def reject(self, request, pk=None):
         if not request.user.is_superuser:
             return Response({"error": "Only admins can reject requests"}, status=403)
         
-        req = self.get_object()
+        req = AssetActionRequest.objects.select_for_update().get(pk=self.get_object().pk)
         if req.status != 'PENDING':
             return Response({"error": "Request is already processed"}, status=400)
             
@@ -1212,10 +1255,24 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
     queryset = HealthCheckSession.objects.all().order_by('-created_at')
     serializer_class = HealthCheckSessionSerializer
 
+    def get_permissions(self):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'trigger_global', 'close'):
+            return [IsAdminUserOrReadOnly()]
+        return [permissions.IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        serializer.save(triggered_by=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        return Response({'error': 'Inspection sessions are immutable. Use Close to finish a session.'}, status=405)
+
+    def destroy(self, request, *args, **kwargs):
+        return Response({'error': 'Inspection history cannot be deleted.'}, status=405)
+
     def get_queryset(self):
         queryset = super().get_queryset().annotate(response_count=Count('responses'))
         super_category = self.request.query_params.get('super_category')
-        if super_category:
+        if super_category and str(super_category).lower() != 'all':
             if str(super_category).isdigit():
                 queryset = queryset.filter(super_category_id=super_category)
             else:
@@ -1228,7 +1285,7 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
         if not employee:
             return queryset.none()
 
-        submitted_sessions = HealthCheckResponse.objects.filter(employee=employee).values('session_id')
+        submitted_sessions = HealthCheckResponse.objects.filter(employee_id__in=_get_team_employee_ids(self.request.user)).values('session_id')
         return queryset.filter(Q(status='OPEN') | Q(id__in=submitted_sessions)).distinct()
 
     @action(detail=False, methods=['post'], url_path='trigger-global')
@@ -1244,7 +1301,9 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
             else:
                 super_cat_obj = SuperCategory.objects.filter(Q(code__iexact=super_cat_id_or_code) | Q(name__iexact=super_cat_id_or_code)).first()
         
-        if not super_cat_obj:
+        if super_cat_id_or_code and str(super_cat_id_or_code).lower() != 'all' and not super_cat_obj:
+            return Response({'error': 'Unknown inspection category.'}, status=400)
+        if not super_cat_obj and str(super_cat_id_or_code).lower() != 'all':
             super_cat_obj = SuperCategory.objects.filter(code='it_assets').first()
 
         cat_prefix = super_cat_obj.name if super_cat_obj else "Hardware"
@@ -1279,8 +1338,7 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         responses = HealthCheckResponse.objects.filter(session=session).select_related('employee', 'employee__department', 'asset', 'asset__department')
         if not request.user.is_superuser:
-            employee = _get_employee_requester(request.user)
-            responses = responses.filter(employee=employee)
+            responses = responses.filter(employee_id__in=_get_team_employee_ids(request.user))
         serializer = HealthCheckResponseSerializer(responses, many=True)
         return Response(serializer.data)
 
@@ -1291,9 +1349,12 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
 
         requested_emp_param = request.query_params.get('employee')
         if requested_emp_param:
+            requested_emp_param = serializers.IntegerField(min_value=1).run_validation(requested_emp_param)
             team_ids = _get_team_employee_ids(request.user)
-            if request.user.is_superuser or int(requested_emp_param) in team_ids:
+            if request.user.is_superuser or requested_emp_param in team_ids:
                 employee = Employee.objects.filter(id=requested_emp_param).first()
+            else:
+                return Response({'error': 'You cannot inspect this employee.'}, status=403)
 
         if not employee:
             return Response([])
@@ -1302,13 +1363,12 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
             session=session,
             employee=employee
         ).values_list('asset_id', flat=True)
-        assets = Asset.objects.filter(custodian=employee).exclude(id__in=responded_assets)
-        if session.super_category:
-            assets = assets.filter(super_category=session.super_category)
+        assets = [a for a in session_assets(session) if a.custodian_id == employee.pk and a.pk not in responded_assets]
         serializer = AssetListSerializer(assets, many=True, context={'request': request})
         return Response(serializer.data)
 
 class HealthCheckResponseViewSet(viewsets.ModelViewSet):
+    http_method_names = ['get', 'post', 'head', 'options']
     queryset = HealthCheckResponse.objects.all().select_related('session', 'employee', 'employee__department', 'asset', 'asset__department').order_by('-submitted_at')
     serializer_class = HealthCheckResponseSerializer
 
@@ -1339,13 +1399,14 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         data = request.data.copy()
         data['employee'] = employee.id
         asset_id = data.get('asset')
-        session_id = data.get('session')
+        session_id = serializers.IntegerField(min_value=1).run_validation(data.get('session'))
 
-        if not Asset.objects.filter(id=asset_id, custodian=employee).exists() and not request.user.is_superuser:
-            return Response({"error": "You can only submit checks for hardware assigned to you."}, status=403)
-
-        if not HealthCheckSession.objects.filter(id=session_id, status='OPEN').exists():
+        session = HealthCheckSession.objects.filter(id=session_id, status='OPEN').first()
+        if not session:
             return Response({"error": "This health check session is not open."}, status=400)
+        asset_id = serializers.IntegerField(min_value=1).run_validation(asset_id)
+        if not any(a.pk == asset_id and a.custodian_id == employee.pk for a in session_assets(session)):
+            return Response({'error': 'This asset is not assigned to you for this inspection.'}, status=403)
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -1358,6 +1419,7 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
     def bulk_submit(self, request):
         target_emp_id = request.data.get('employee')
         if target_emp_id:
+            target_emp_id = serializers.IntegerField(min_value=1).run_validation(target_emp_id)
             team_ids = _get_team_employee_ids(request.user)
             if request.user.is_superuser or int(target_emp_id) in team_ids:
                 employee = Employee.objects.filter(id=target_emp_id).first()
@@ -1370,8 +1432,8 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
             if not employee:
                 return Response({"error": "Employee profile not found for user."}, status=400)
 
-        session_id = request.data.get('session')
-        responses = request.data.get('responses') or []
+        session_id = serializers.IntegerField(min_value=1).run_validation(request.data.get('session'))
+        responses = serializers.ListField(child=serializers.DictField(), allow_empty=False).run_validation(request.data.get('responses'))
         if not responses:
             return Response({"error": "No health check responses were provided."}, status=400)
 
@@ -1383,27 +1445,16 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         if len(asset_ids) != len(responses):
             return Response({"error": "Every health check response must include an asset."}, status=400)
 
-        assigned_asset_ids = set(Asset.objects.filter(id__in=asset_ids, custodian=employee).values_list('id', flat=True))
-        if not request.user.is_superuser and assigned_asset_ids != set(asset_ids):
-            return Response({"error": "You can only submit checks for hardware assigned to you."}, status=403)
+        asset_ids = serializers.ListField(child=serializers.IntegerField(min_value=1)).run_validation(asset_ids)
+        assigned_asset_ids = {a.pk for a in session_assets(session) if a.custodian_id == employee.pk}
+        if len(set(asset_ids)) != len(asset_ids) or not set(asset_ids).issubset(assigned_asset_ids):
+            return Response({'error': 'Every asset must belong to this employee in this inspection, without duplicates.'}, status=403)
 
         saved_responses = []
         with transaction.atomic():
             for response in responses:
-                data = {
-                    'session': session.id,
-                    'employee': employee.id,
-                    'asset': response.get('asset'),
-                    'screen_condition': response.get('screen_condition') or 'GOOD',
-                    'battery_life': response.get('battery_life') or 'GOOD',
-                    'physical_condition': response.get('physical_condition') or 'GOOD_MINOR_WEAR',
-                    'power_boot_status': response.get('power_boot_status') or 'BOOTS_NORMALLY',
-                    'ports_connectors': response.get('ports_connectors') or 'ALL_FUNCTIONAL',
-                    'network_functionality': response.get('network_functionality') or 'CONNECTS_NORMALLY',
-                    'asset_tag_status': response.get('asset_tag_status') or 'INTACT_SCANNABLE',
-                    'performance_rating': response.get('performance_rating') or 4,
-                    'comments': response.get('comments') or '',
-                }
+                data = dict(response)
+                data.update(session=session.id, employee=employee.id)
                 existing_response = HealthCheckResponse.objects.filter(
                     session=session,
                     employee=employee,
@@ -1422,6 +1473,7 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
 class ReportsViewSet(viewsets.ViewSet):
     HEALTH_EXPORT_COLUMNS = [
         'Employee Name', 'Employee Code', 'Department', 'Asset Miczon ID', 'Asset Name', 'Category',
+        'Inspection Findings',
         'Screen Condition', 'Battery Life', 'Physical Condition', 'Power/Boot Status',
         'Ports/Connectors', 'Network Functionality', 'Asset Tag Status', 'Performance Rating',
         'Comments', 'Submitted At'
@@ -1440,73 +1492,39 @@ class ReportsViewSet(viewsets.ViewSet):
     def _get_health_session(self, session_id):
         if not session_id:
             return None, Response({"error": "Session ID is required"}, status=400)
+        session_id = serializers.IntegerField(min_value=1).run_validation(session_id)
         session = HealthCheckSession.objects.filter(id=session_id).first()
         if not session:
             return None, Response({"error": "Inspection period was not found."}, status=404)
         return session, None
 
     def _get_health_export_dataset(self, request, session):
-        target_assets = Asset.objects.filter(
-            current_status='ASSIGNED',
-            custodian__isnull=False,
-        ).select_related('custodian', 'custodian__department', 'department').order_by(
-            'custodian__name', 'miczon_id'
-        )
-        target_asset_ids = list(target_assets.values_list('id', flat=True))
-
-        responses = HealthCheckResponse.objects.filter(
-            session=session,
-            asset_id__in=target_asset_ids,
-        ).select_related(
-            'employee', 'employee__department', 'asset', 'asset__department'
-        ).order_by('employee__name', 'asset__miczon_id')
-
+        target_assets = session_assets(session)
+        if not request.user.is_superuser:
+            team = set(_get_team_employee_ids(request.user))
+            target_assets = [a for a in target_assets if a.custodian_id in team]
         department = request.query_params.get('department', '').strip()
+        search = request.query_params.get('search', '').strip().lower()
         if department:
-            target_assets = target_assets.filter(
-                Q(custodian__department__name=department) | Q(department__name=department)
-            )
-            responses = responses.filter(
-                Q(employee__department__name=department) | Q(asset__department__name=department)
-            )
-
-        search = request.query_params.get('search', '').strip()
+            target_assets = [a for a in target_assets if self._department_name_for_asset(a) == department]
         if search:
-            response_search = (
-                Q(asset__name__icontains=search) |
-                Q(asset__miczon_id__icontains=search) |
-                Q(asset__category__icontains=search) |
-                Q(employee__name__icontains=search) |
-                Q(employee__employee_id__icontains=search) |
-                Q(employee__email__icontains=search) |
-                Q(employee__department__name__icontains=search) |
-                Q(asset__department__name__icontains=search) |
-                Q(screen_condition__icontains=search) |
-                Q(battery_life__icontains=search) |
-                Q(comments__icontains=search)
-            )
-            if search.isdigit():
-                response_search |= Q(performance_rating=int(search))
-
-            target_assets = target_assets.filter(
-                Q(name__icontains=search) |
-                Q(miczon_id__icontains=search) |
-                Q(category__icontains=search) |
-                Q(custodian__name__icontains=search) |
-                Q(custodian__employee_id__icontains=search) |
-                Q(custodian__email__icontains=search) |
-                Q(custodian__department__name__icontains=search) |
-                Q(department__name__icontains=search)
-            )
-            responses = responses.filter(response_search)
-
-        target_assets = list(target_assets)
-        responses = list(responses)
-        responded_asset_ids = {response.asset_id for response in responses}
-        pending_assets = [asset for asset in target_assets if asset.id not in responded_asset_ids]
-        return target_assets, responses, pending_assets
+            target_assets = [a for a in target_assets if search in ' '.join([
+                a.name, a.miczon_id, a.category, a.custodian.name, a.custodian.employee_id,
+                self._department_name_for_asset(a)]).lower()]
+        owners = {a.pk: a.custodian_id for a in target_assets}
+        responses = [r for r in HealthCheckResponse.objects.filter(
+            session=session, asset_id__in=owners).select_related(
+                'employee__department', 'asset__department', 'asset__super_category', 'session__super_category')
+            if owners.get(r.asset_id) == r.employee_id]
+        responded_ids = {r.asset_id for r in responses}
+        historical_assets = {asset.pk: asset for asset in target_assets}
+        for response in responses:
+            response.asset = historical_assets[response.asset_id]
+        return target_assets, responses, [a for a in target_assets if a.pk not in responded_ids]
 
     def _department_name_for_asset(self, asset):
+        if hasattr(asset, 'inspection_department'):
+            return asset.inspection_department
         if asset.custodian and asset.custodian.department:
             return asset.custodian.department.name
         if asset.department:
@@ -1514,6 +1532,8 @@ class ReportsViewSet(viewsets.ViewSet):
         return "Unassigned"
 
     def _department_name_for_response(self, response):
+        if hasattr(response.asset, 'inspection_department'):
+            return response.asset.inspection_department
         if response.employee and response.employee.department:
             return response.employee.department.name
         if response.asset and response.asset.department:
@@ -1523,6 +1543,7 @@ class ReportsViewSet(viewsets.ViewSet):
     def _health_response_rows(self, responses):
         rows = []
         for r in responses:
+            relevant_fields = {field['name'] for field in inspection_fields(r.asset, r.session)}
             rows.append({
                 'Employee Name': r.employee.name,
                 'Employee Code': r.employee.employee_id,
@@ -1530,12 +1551,13 @@ class ReportsViewSet(viewsets.ViewSet):
                 'Asset Miczon ID': r.asset.miczon_id,
                 'Asset Name': r.asset.name,
                 'Category': r.asset.category,
-                'Screen Condition': r.get_screen_condition_display(),
-                'Battery Life': r.get_battery_life_display(),
-                'Physical Condition': r.get_physical_condition_display(),
-                'Power/Boot Status': r.get_power_boot_status_display(),
-                'Ports/Connectors': r.get_ports_connectors_display(),
-                'Network Functionality': r.get_network_functionality_display(),
+                'Inspection Findings': '; '.join(f"{f['label']}: {f['options'].get(getattr(r, f['name']), getattr(r, f['name']) or 'Not recorded')}" for f in inspection_fields(r.asset, r.session)),
+                'Screen Condition': r.get_screen_condition_display() if 'screen_condition' in relevant_fields else '',
+                'Battery Life': r.get_battery_life_display() if 'battery_life' in relevant_fields else '',
+                'Physical Condition': r.get_physical_condition_display() if 'physical_condition' in relevant_fields else '',
+                'Power/Boot Status': r.get_power_boot_status_display() if 'power_boot_status' in relevant_fields else '',
+                'Ports/Connectors': r.get_ports_connectors_display() if 'ports_connectors' in relevant_fields else '',
+                'Network Functionality': r.get_network_functionality_display() if 'network_functionality' in relevant_fields else '',
                 'Asset Tag Status': r.get_asset_tag_status_display(),
                 'Performance Rating': r.performance_rating,
                 'Comments': r.comments,
@@ -1798,23 +1820,8 @@ class ReportsViewSet(viewsets.ViewSet):
                 "responses": [],
             })
 
-        target_assets = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False).select_related('custodian', 'department', 'custodian__department')
-        if session and session.super_category:
-            target_assets = target_assets.filter(super_category=session.super_category)
-
-        if not (request.user.is_superuser or request.user.is_staff):
-            employee = _get_employee_requester(request.user)
-            target_assets = target_assets.filter(custodian=employee) if employee else target_assets.none()
-        target_assets = list(target_assets)
-        target_asset_ids = [asset.id for asset in target_assets]
-
-        response_qs = HealthCheckResponse.objects.filter(session=session, asset_id__in=target_asset_ids).select_related('employee', 'employee__department', 'asset', 'asset__department')
-        if not request.user.is_superuser:
-            employee = _get_employee_requester(request.user)
-            response_qs = response_qs.filter(employee=employee) if employee else response_qs.none()
-
-        responded_asset_ids = set(response_qs.values_list('asset_id', flat=True))
-        pending_assets = [asset for asset in target_assets if asset.id not in responded_asset_ids]
+        target_assets, responses, pending_assets = self._get_health_export_dataset(request, session)
+        responded_asset_ids = {response.asset_id for response in responses}
 
         pending_by_employee = {}
         for asset in pending_assets:
@@ -1840,7 +1847,7 @@ class ReportsViewSet(viewsets.ViewSet):
 
         department_summary = {}
         for asset in target_assets:
-            department_name = asset.custodian.department.name if asset.custodian and asset.custodian.department else (asset.department.name if asset.department else "Unassigned")
+            department_name = self._department_name_for_asset(asset)
             row = department_summary.setdefault(department_name, {"department": department_name, "target": 0, "completed": 0, "pending": 0})
             row["target"] += 1
             if asset.id in responded_asset_ids:
@@ -1860,11 +1867,11 @@ class ReportsViewSet(viewsets.ViewSet):
                 "pending_assets": max(total_targets - completed_assets, 0),
                 "pending_employees": len(pending_by_employee),
                 "completion_rate": completion_rate,
-                "critical_alerts": response_qs.filter(performance_rating__lt=3).count(),
+                "critical_alerts": sum(r.performance_rating < 3 for r in responses),
             },
             "pending_by_employee": sorted(pending_by_employee.values(), key=lambda row: (-row["pending_count"], row["employee_name"])),
             "department_summary": sorted(department_summary.values(), key=lambda row: row["department"]),
-            "responses": HealthCheckResponseSerializer(response_qs.order_by('-submitted_at'), many=True).data,
+            "responses": HealthCheckResponseSerializer(responses, many=True).data,
         })
 
     @action(detail=False, methods=['get'], url_path='export-health-responses')
@@ -1950,64 +1957,6 @@ class UploadAssetsView(APIView):
     permission_classes = [permissions.IsAdminUser]
 
     def post(self, request, *args, **kwargs):
-        file_obj = request.FILES.get('file')
-        if not file_obj:
-            return Response({"status": "error", "message": "Please upload an Excel or CSV file."}, status=400)
-        try:
-            # 1. Read File
-            if file_obj.name.endswith('.csv'):
-                df = pd.read_csv(file_obj)
-            else:
-                df = pd.read_excel(file_obj)
-
-            df.columns = [str(c).strip().lower() for c in df.columns]
-            logger.debug("Upload columns: %s", df.columns.tolist())
-
-            count = 0
-            for index, row in df.iterrows():
-                # A. Get Miczon ID (Asset Tag)
-                m_id = str(row.get('miczon id', row.get('mic id', row.get('serial no', '')))).strip()
-                if not m_id or m_id.lower() == 'nan':
-                    continue 
-
-                # B. Handle Department
-                dept_name = str(row.get('department', 'General')).strip()
-                department, _ = Department.objects.get_or_create(name=dept_name)
-
-                # C. Handle Custodian (SAFE METHOD)
-                cust_name = str(row.get('custodian', row.get('user', ''))).strip()
-                custodian = None
-                
-                if cust_name and cust_name.lower() != 'nan':
-                    # 1. Try to find existing employee by name
-                    custodian = Employee.objects.filter(name__iexact=cust_name).first()
-                    
-                    # 2. If not found, create a new one with a RANDOM UNIQUE ID
-                    if not custodian:
-                        unique_emp_id = f"EMP-{uuid.uuid4().hex[:6].upper()}" # e.g., EMP-9A4F12
-                        custodian = Employee.objects.create(
-                            name=cust_name,
-                            employee_id=unique_emp_id,
-                            department=department
-                        )
-
-                # D. Save Asset
-                Asset.objects.update_or_create(
-                    miczon_id=m_id,
-                    defaults={
-                        'name': row.get('device name', row.get('device', 'Unknown Device')),
-                        'category': row.get('category', row.get('categary', '')), 
-                        'specifications': row.get('specifications', row.get('specs', row.get('details', row.get('hardware info', row.get('technical specs', ''))))),
-                        'remarks': row.get('remarks / notes', row.get('remarks', row.get('notes', ''))),
-                        'department': department,
-                        'custodian': custodian,
-                        'current_status': 'ASSIGNED' if custodian else 'AVAILABLE'
-                    }
-                )
-                count += 1
-            
-            return Response({"status": "success", "message": f"Successfully imported {count} assets!"})
-
-        except Exception as e:
-            logger.exception("Critical upload error")
-            return Response({"status": "error", "message": f"Error: {str(e)}"}, status=400)
+        # Legacy upload now uses the same preview/commit workflow as the UI.
+        # Preview performs no writes; commit validated rows via /assets/bulk-commit/.
+        return AssetViewSet().import_assets(request)

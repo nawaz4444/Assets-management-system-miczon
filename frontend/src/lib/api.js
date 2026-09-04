@@ -2,6 +2,13 @@ import { useMemo } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../utils/config';
 
+export function apiError(error, fallback = 'Unable to complete this action.') {
+  const data = error?.response?.data;
+  if (!data || typeof data !== 'object' || data instanceof Blob) return fallback;
+  const flatten = value => Array.isArray(value) ? value.map(flatten).join(' ') : typeof value === 'object' && value !== null ? Object.entries(value).map(([key, item]) => `${key}: ${flatten(item)}`).join(' ') : String(value);
+  return flatten(data.error || data.message || data.detail || data) || fallback;
+}
+
 export function useApi(token) {
   return useMemo(() => {
     const headers = { Authorization: `Token ${token}` };

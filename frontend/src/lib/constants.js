@@ -33,7 +33,6 @@ export const assetStatuses = [
   { value: 'ASSIGNED', label: 'Assigned' },
   { value: 'AVAILABLE', label: 'Available' },
   { value: 'BROKEN', label: 'Repair' },
-  { value: 'RETIRED', label: 'Retired' },
 ];
 
 export const itInspectionFields = [
