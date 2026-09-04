@@ -47,6 +47,10 @@ class Asset(models.Model):
     department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True)
     custodian = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='assets')
     
+    # Acquisition / Financial (shown in inventory)
+    purchase_date = models.DateField(null=True, blank=True, verbose_name="Purchase Date")
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, verbose_name="Purchase Price (PKR)")
+
     # Status & Audit
     current_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AVAILABLE')
     remarks = models.TextField(blank=True)

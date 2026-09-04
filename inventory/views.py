@@ -33,6 +33,7 @@ from rest_framework.pagination import PageNumberPagination
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import re
+from decimal import Decimal, InvalidOperation
 
 # --- PERMISSIONS ---
 class IsAdminUserOrReadOnly(permissions.BasePermission):
@@ -131,6 +132,36 @@ def get_import_value(row, *column_names, default=''):
                 return value
     return default
 
+def get_import_raw(row, *column_names):
+    """Return the first non-empty raw cell value (unstringified) for the given columns."""
+    for column_name in column_names:
+        if column_name in row:
+            value = row.get(column_name)
+            if not pd.isna(value):
+                return value
+    return None
+
+def parse_import_date(value):
+    """Coerce an Excel cell into an ISO date string (YYYY-MM-DD), or None."""
+    if value is None or pd.isna(value):
+        return None
+    parsed = pd.to_datetime(value, errors='coerce', dayfirst=True)
+    if pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
+
+def parse_import_price(value):
+    """Coerce an Excel cell into a Decimal-safe string, or None. Strips currency symbols/commas."""
+    if value is None or pd.isna(value):
+        return None
+    cleaned = re.sub(r'[^0-9.\-]', '', str(value).strip())
+    if cleaned in ('', '-', '.', '-.'):
+        return None
+    try:
+        return str(Decimal(cleaned))
+    except (InvalidOperation, ValueError):
+        return None
+
 def build_asset_import_template():
     workbook = Workbook()
     sheet = workbook.active
@@ -144,6 +175,8 @@ def build_asset_import_template():
         'Custodian',
         'Employee ID',
         'Email',
+        'Purchase Date',
+        'Purchase Price (PKR)',
         'Specifications',
         'Remarks',
         'Status',
@@ -538,6 +571,14 @@ class AssetViewSet(viewsets.ModelViewSet):
                 if dept:
                     resolved_dept_id = dept.id
 
+            # 5. Financial fields (optional)
+            purchase_date = parse_import_date(
+                get_import_raw(row, 'purchase date', 'purchase_date', 'date of purchase')
+            )
+            purchase_price = parse_import_price(
+                get_import_raw(row, 'purchase price (pkr)', 'purchase price', 'purchase_price', 'price', 'cost', 'purchase cost')
+            )
+
             # Prepare staging data
             row_data = {
                 "excel_row": excel_row_number,
@@ -547,6 +588,8 @@ class AssetViewSet(viewsets.ModelViewSet):
                 "custodian_id": resolved_employee.id if resolved_employee else None,
                 "custodian_name": resolved_employee.name if resolved_employee else custodian_name,
                 "department_id": resolved_dept_id,
+                "purchase_date": purchase_date,
+                "purchase_price": purchase_price,
                 "specifications": get_import_value(row, 'specifications', 'specs', 'details'),
                 "remarks": get_import_value(row, 'remarks', 'notes'),
                 "status": get_import_value(row, 'status', default='AVAILABLE').upper().replace(' ', '_')
@@ -595,6 +638,8 @@ class AssetViewSet(viewsets.ModelViewSet):
                             'department_id': row.get('department_id'),
                             'custodian_id': row.get('custodian_id'),
                             'current_status': 'ASSIGNED' if row.get('custodian_id') and row.get('status') != 'BROKEN' else row.get('status', 'AVAILABLE'),
+                            'purchase_date': row.get('purchase_date') or None,
+                            'purchase_price': row.get('purchase_price') if row.get('purchase_price') not in (None, '') else None,
                             'specifications': row.get('specifications', ''),
                             'remarks': row.get('remarks', ''),
                         }
@@ -628,8 +673,9 @@ class AssetViewSet(viewsets.ModelViewSet):
         sheet.title = 'Inventory'
 
         headers = [
-            'Miczon ID', 'Device Name', 'Category', 'Status', 
+            'Miczon ID', 'Device Name', 'Category', 'Status',
             'Department', 'Custodian', 'Employee ID',
+            'Purchase Date', 'Purchase Price (PKR)',
             'Maintenance Vendor', 'Sent to Repair', 'Expected Return',
             'Specifications', 'Remarks'
         ]
@@ -649,6 +695,8 @@ class AssetViewSet(viewsets.ModelViewSet):
                 asset.department.name if asset.department else 'N/A',
                 asset.custodian.name if asset.custodian else 'N/A',
                 asset.custodian.employee_id if asset.custodian else 'N/A',
+                asset.purchase_date.strftime('%Y-%m-%d') if asset.purchase_date else '',
+                float(asset.purchase_price) if asset.purchase_price is not None else '',
                 asset.maintenance_vendor or '',
                 asset.sent_to_repair_date.strftime('%Y-%m-%d') if asset.sent_to_repair_date else '',
                 asset.expected_return_date.strftime('%Y-%m-%d') if asset.expected_return_date else '',
@@ -1046,6 +1094,8 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
                     current_status=data.get('current_status', 'AVAILABLE'),
                     remarks=data.get('remarks', f"Created via approval by {request.user.username}"),
                     # Add extra fields if they exist in data
+                    purchase_date=data.get('purchase_date') or None,
+                    purchase_price=data.get('purchase_price') if data.get('purchase_price') not in (None, '') else None,
                     maintenance_vendor=data.get('maintenance_vendor', ''),
                     sent_to_repair_date=data.get('sent_to_repair_date'),
                     expected_return_date=data.get('expected_return_date'),

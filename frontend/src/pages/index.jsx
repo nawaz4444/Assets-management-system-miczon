@@ -227,14 +227,20 @@ export function InventoryPage({ api, isAdmin }) {
   const activeCode = paramSuperCategory || activeSuperCategory?.code || 'it_assets';
   const activeCatObj = superCategories.find((c) => c.code === activeCode) || activeSuperCategory;
 
+  // Persisted search/filter/page state (survives navigating to an asset detail and back)
+  const FILTERS_KEY = 'inventory:filters';
+  const savedFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(FILTERS_KEY)) || {}; } catch { return {}; }
+  })();
+
   // Search and Filter State
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || '');
-  
+  const [search, setSearch] = useState(savedFilters.search || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(savedFilters.search || '');
+  const [departmentFilter, setDepartmentFilter] = useState(savedFilters.departmentFilter || '');
+  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || savedFilters.statusFilter || '');
+
   // Pagination State
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(savedFilters.page || 1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -254,19 +260,38 @@ export function InventoryPage({ api, isAdmin }) {
   const [stagingSummary, setStagingSummary] = useState(null);
   const [notice, setNotice] = useState('');
 
-  // 1. Debounce Search
+  // 1. Debounce Search. Only reset to page 1 when the search text actually changes
+  // (tracking the previous value keeps a restored page intact on mount, incl. under StrictMode).
+  const prevSearch = useRef(search);
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1); // Reset to page 1 on new search
+      if (prevSearch.current !== search) {
+        setPage(1); // Reset to page 1 on new search
+        prevSearch.current = search;
+      }
     }, 400);
     return () => clearTimeout(timer);
   }, [search]);
 
+  // React to external status changes via the URL (?status=...), but only when the URL value
+  // truly changes — so returning to this page never clobbers the restored/selected status.
+  const prevUrlStatus = useRef(new URLSearchParams(location.search).get('status') || '');
   useEffect(() => {
-    setStatusFilter(new URLSearchParams(location.search).get('status') || '');
-    setPage(1); // Reset to page 1 on external status filter change
+    const urlStatus = new URLSearchParams(location.search).get('status') || '';
+    if (urlStatus !== prevUrlStatus.current) {
+      prevUrlStatus.current = urlStatus;
+      setStatusFilter(urlStatus);
+      setPage(1); // Reset to page 1 on external status filter change
+    }
   }, [location.search]);
+
+  // Persist search/filter/page so it can be restored after leaving and returning to this page
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ search, departmentFilter, statusFilter, page }));
+    } catch { /* sessionStorage unavailable — non-fatal */ }
+  }, [search, departmentFilter, statusFilter, page]);
 
   // 2. Load Assets with Pagination (cancellable to avoid out-of-order responses)
   const loadAssets = useCallback((signal) => {
@@ -339,6 +364,8 @@ export function InventoryPage({ api, isAdmin }) {
       super_category: form.super_category || activeCatObj?.id || null,
       custodian: form.custodian || null,
       department: form.department || null,
+      purchase_date: form.purchase_date || null,
+      purchase_price: form.purchase_price === '' ? null : form.purchase_price,
       current_status: form.custodian ? 'ASSIGNED' : form.current_status,
     };
 
@@ -367,6 +394,8 @@ export function InventoryPage({ api, isAdmin }) {
       department: asset.department || '',
       current_status: asset.current_status || 'AVAILABLE',
       custodian: asset.custodian || '',
+      purchase_date: asset.purchase_date || '',
+      purchase_price: asset.purchase_price ?? '',
       specifications: asset.specifications || '',
       remarks: asset.remarks || '',
     });
@@ -611,6 +640,8 @@ export function InventoryPage({ api, isAdmin }) {
                 {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
               </Select>
             </Field>
+            <Field label="Purchase Date"><input type="date" value={form.purchase_date || ''} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} /></Field>
+            <Field label="Purchase Price (PKR)"><input type="number" min="0" step="0.01" value={form.purchase_price ?? ''} onChange={(e) => setForm({ ...form, purchase_price: e.target.value })} placeholder="e.g. 45000" /></Field>
             <Field label="Specifications"><textarea rows="3" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} /></Field>
             <Field label="Remarks"><textarea rows="3" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field>
             <div className="dialog-footer">
@@ -673,12 +704,16 @@ export function InventoryPage({ api, isAdmin }) {
             <div className="import-staging-view">
               <div style={{ maxHeight: '450px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '1rem' }}>
                 <DataTable
-                  columns={['#', 'Miczon ID', 'Device', 'Reconciled Custodian', 'Status', 'Messages']}
+                  columns={['#', 'Miczon ID', 'Device', 'Purchase', 'Reconciled Custodian', 'Status', 'Messages']}
                   rows={[
                     ...stagingData.map(row => [
                       row.excel_row,
                       <strong>{row.miczon_id}</strong>,
                       row.name,
+                      <span style={{ fontSize: '12px', color: '#334155' }}>
+                        {row.purchase_price != null && row.purchase_price !== '' ? `Rs ${Number(row.purchase_price).toLocaleString()}` : '—'}
+                        {row.purchase_date ? <span style={{ display: 'block', color: '#94a3b8' }}>{row.purchase_date}</span> : null}
+                      </span>,
                       <span className="text-success">{row.custodian_name || 'No custodian'}</span>,
                       <StatusBadge status="Ready" />,
                       <span style={{ fontSize: '12px', color: '#64748b' }}>Validated</span>
@@ -686,6 +721,7 @@ export function InventoryPage({ api, isAdmin }) {
                     ...stagingErrors.map(row => [
                       row.row,
                       <strong className="text-danger">{row.miczon_id || 'N/A'}</strong>,
+                      '-',
                       '-',
                       '-',
                       <StatusBadge status="Error" />,
@@ -764,6 +800,8 @@ export function AssetDetailPage({ api, isAdmin }) {
       department: asset.department || '',
       current_status: asset.current_status || 'AVAILABLE',
       custodian: asset.custodian || '',
+      purchase_date: asset.purchase_date || '',
+      purchase_price: asset.purchase_price ?? '',
       specifications: asset.specifications || '',
       remarks: asset.remarks || '',
     });
@@ -786,6 +824,8 @@ export function AssetDetailPage({ api, isAdmin }) {
       ...form,
       custodian: form.custodian || null,
       department: form.department || null,
+      purchase_date: form.purchase_date || null,
+      purchase_price: form.purchase_price === '' ? null : form.purchase_price,
       current_status: form.custodian ? 'ASSIGNED' : form.current_status,
     };
 
@@ -839,6 +879,14 @@ export function AssetDetailPage({ api, isAdmin }) {
           <div>
             <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Date Registered</span>
             <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.created_at ? new Date(asset.created_at).toLocaleDateString() : '-'}</strong>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Purchase Date</span>
+            <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.purchase_date ? new Date(asset.purchase_date).toLocaleDateString() : '-'}</strong>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Purchase Price</span>
+            <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.purchase_price != null && asset.purchase_price !== '' ? `Rs ${Number(asset.purchase_price).toLocaleString()}` : '-'}</strong>
           </div>
           <div>
             <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Last Inspection</span>
@@ -1003,6 +1051,8 @@ export function AssetDetailPage({ api, isAdmin }) {
                 {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
               </Select>
             </Field>
+            <Field label="Purchase Date"><input type="date" value={form.purchase_date || ''} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} /></Field>
+            <Field label="Purchase Price (PKR)"><input type="number" min="0" step="0.01" value={form.purchase_price ?? ''} onChange={(e) => setForm({ ...form, purchase_price: e.target.value })} placeholder="e.g. 45000" /></Field>
             <Field label="Specifications"><textarea rows="3" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} /></Field>
             <Field label="Remarks"><textarea rows="3" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field>
             <div className="dialog-footer">
@@ -1326,10 +1376,16 @@ export function ScanAssetDialog({ open, onClose, api }) {
 }
 
 export function EmployeeDirectory({ api, isAdmin }) {
+  // Persisted search/filter (survives leaving and returning to this page)
+  const EMP_FILTERS_KEY = 'employees:filters';
+  const savedEmpFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(EMP_FILTERS_KEY)) || {}; } catch { return {}; }
+  })();
+
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [search, setSearch] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [search, setSearch] = useState(savedEmpFilters.search || '');
+  const [departmentFilter, setDepartmentFilter] = useState(savedEmpFilters.departmentFilter || '');
   const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -1358,6 +1414,13 @@ export function EmployeeDirectory({ api, isAdmin }) {
   useEffect(() => {
     fetchAll(api, '/departments/').then(setDepartments);
   }, [api]);
+
+  // Persist search/filter so it can be restored after leaving and returning to this page
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(EMP_FILTERS_KEY, JSON.stringify({ search, departmentFilter }));
+    } catch { /* sessionStorage unavailable — non-fatal */ }
+  }, [search, departmentFilter]);
 
   const loadEmployeeAssets = async (employee) => {
     const res = await api.get(`/employees/${employee.id}/assigned-assets/`);
@@ -1609,12 +1672,19 @@ export function EmployeeDirectory({ api, isAdmin }) {
 
 export function RequestManager({ api, isAdmin, isManager, user }) {
   const isManagerOrAdmin = isAdmin || isManager || Boolean(user?.employee_details?.is_manager);
+
+  // Persisted status/search filter (survives leaving and returning to this page)
+  const REQ_FILTERS_KEY = 'requests:filters';
+  const savedReqFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(REQ_FILTERS_KEY)) || {}; } catch { return {}; }
+  })();
+
   const [requests, setRequests] = useState([]);
   const [notice, setNotice] = useState('');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [adminRemarkInput, setAdminRemarkInput] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState(savedReqFilters.statusFilter || 'ALL');
+  const [searchQuery, setSearchQuery] = useState(savedReqFilters.searchQuery || '');
 
   const [employees, setEmployees] = useState([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -1630,6 +1700,13 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
+
+  // Persist status/search filter so it can be restored after leaving and returning to this page
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(REQ_FILTERS_KEY, JSON.stringify({ statusFilter, searchQuery }));
+    } catch { /* sessionStorage unavailable — non-fatal */ }
+  }, [statusFilter, searchQuery]);
 
   const openAdminCreateModal = async () => {
     try {

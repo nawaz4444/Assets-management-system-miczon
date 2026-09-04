@@ -16,6 +16,8 @@ export const emptyAsset = {
   department: '',
   current_status: 'AVAILABLE',
   custodian: '',
+  purchase_date: '',
+  purchase_price: '',
   specifications: '',
   remarks: '',
 };
