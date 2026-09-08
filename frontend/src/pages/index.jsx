@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, useContext } from 'react';
-import axios from 'axios';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 import { UserContext, SuperCategoryContext } from '../lib/contexts';
 import { useApi, normalizeList, apiError, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
 import { localDate } from '../utils/dates';
+import { latestOpenInspection } from '../utils/inspections';
 import {
   navItems, emptyAsset, emptyEmployee, assetStatuses,
   getInspectionFields, ratingOptions, inventoryPageSize,
@@ -14,6 +14,7 @@ import {
   DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
+import { AccountsPage } from '../accounts/AccountsModule';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
   if (!superCategories || superCategories.length === 0) return null;
@@ -84,6 +85,33 @@ export function AppShell({ token, handleLogout }) {
     setActiveSuperCategory,
   }), [superCategories, activeSuperCategory]);
 
+  const employeeId = user?.employee_details?.id;
+  const warmRoute = useCallback((path) => {
+    const categoryCode = activeSuperCategory?.code || 'it_assets';
+    let requests = [];
+    if (path === '/') requests = [api.get(`/reports/summary/?super_category=${encodeURIComponent(categoryCode)}`)];
+    if (path === '/inventory') requests = [
+      api.get(`/assets/?page=1&page_size=${inventoryPageSize}&super_category=${encodeURIComponent(categoryCode)}`),
+      fetchAll(api, '/employees/'), fetchAll(api, '/departments/'),
+    ];
+    if (path === '/employees') requests = [fetchAll(api, '/employees/?'), fetchAll(api, '/departments/')];
+    if (path === '/requests') requests = [fetchAll(api, '/requests/')];
+    if (path === '/health-checks') requests = [
+      fetchAll(api, `/health-checks/?super_category=${categoryCode}`),
+      api.get(`/reports/health-compliance/?super_category=${categoryCode}`),
+    ];
+    if (path === '/stock') requests = [api.get('/stock/products/summary/')];
+    if (path === '/accounts') requests = [
+      api.get(`/accounts/asset-financials/?page=1&page_size=50`),
+      fetchAll(api, '/departments/'),
+    ];
+    if (path === '/portal' && employeeId) requests = [
+      api.get(`/employees/${employeeId}/assigned-assets/`),
+      fetchAll(api, '/health-checks/'), fetchAll(api, '/requests/'),
+    ];
+    if (requests.length) Promise.allSettled(requests);
+  }, [activeSuperCategory?.code, api, employeeId]);
+
   return (
     <SuperCategoryContext.Provider value={superCatContextValue}>
       <div className="app-shell">
@@ -113,7 +141,14 @@ export function AppShell({ token, handleLogout }) {
                 );
               }
               return (
-                <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
+                <Link
+                  key={item.path}
+                  className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                  to={item.path}
+                  onMouseEnter={() => warmRoute(item.path)}
+                  onFocus={() => warmRoute(item.path)}
+                  onPointerDown={() => warmRoute(item.path)}
+                >
                   <Icon name={item.icon} />
                   <span>{item.label}</span>
                 </Link>
@@ -152,6 +187,7 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
               <Route path="/stock/reports" element={<StockReports api={api} />} />
+              <Route path="/accounts" element={<AccountsPage api={api} />} />
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -298,8 +334,10 @@ export function InventoryPage({ api, isAdmin }) {
     } catch { /* sessionStorage unavailable — non-fatal */ }
   }, [search, departmentFilter, statusFilter, page]);
 
-  // 2. Load Assets with Pagination (cancellable to avoid out-of-order responses)
-  const loadAssets = useCallback((signal) => {
+  // 2. Load assets with pagination; the request id prevents older responses replacing newer filters.
+  const latestAssetRequest = useRef(0);
+  const loadAssets = useCallback(() => {
+    const requestId = ++latestAssetRequest.current;
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
@@ -310,23 +348,22 @@ export function InventoryPage({ api, isAdmin }) {
     if (statusFilter) params.set('status', statusFilter);
     if (departmentFilter) params.set('department', departmentFilter);
 
-    return api.get(`/assets/?${params.toString()}`, { signal })
+    return api.get(`/assets/?${params.toString()}`)
       .then((res) => {
+        if (requestId !== latestAssetRequest.current) return;
         setAssets(normalizeList(res.data));
         setTotalCount(res.data.count || 0);
         setLoading(false);
       })
-      .catch((err) => {
-        if (axios.isCancel(err)) return; // superseded by a newer request
+      .catch(() => {
+        if (requestId !== latestAssetRequest.current) return;
         setNotice('Unable to load inventory.');
         setLoading(false);
       });
   }, [api, activeCode, debouncedSearch, statusFilter, departmentFilter, page]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    loadAssets(controller.signal);
-    return () => controller.abort();
+    loadAssets();
   }, [loadAssets]);
 
   useEffect(() => {
@@ -2734,34 +2771,35 @@ export function EmployeePortal({ api, user }) {
   const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
   const [healthForm, setHealthForm] = useState({});
   const [notice, setNotice] = useState('');
+  const [inspectionLoading, setInspectionLoading] = useState(false);
 
   const loadPortal = useCallback(async () => {
     if (!employee?.id) return;
-    const gearRes = await api.get(`/employees/${employee.id}/assigned-assets/`);
-    const openSessions = (await fetchAll(api, '/health-checks/')).filter((session) => session.status === 'OPEN');
+    const [gearRes, sessionRows, requestsResult] = await Promise.all([
+      api.get(`/employees/${employee.id}/assigned-assets/`),
+      fetchAll(api, '/health-checks/'),
+      fetchAll(api, '/requests/').catch((error) => {
+        console.error('Unable to fetch requests:', error);
+        return null;
+      }),
+    ]);
+    const latestSession = latestOpenInspection(sessionRows);
     setGear(gearRes.data);
-    setSessions(openSessions);
-    
-    try {
-      const requestsData = await fetchAll(api, '/requests/');
-      setMyRequests(requestsData);
-    } catch (e) {
-      console.error('Unable to fetch requests:', e);
-    }
+    setSessions(latestSession ? [latestSession] : []);
+    if (requestsResult) setMyRequests(requestsResult);
 
-    const firstSession = openSessions.some((session) => String(session.id) === String(activeSession)) ? activeSession : openSessions[0]?.id || '';
-    setActiveSession(firstSession);
-    if (firstSession) {
-      const pendingRes = await api.get(`/health-checks/${firstSession}/pending-assets/`);
+    const latestSessionId = latestSession?.id || '';
+    setActiveSession(latestSessionId);
+    if (latestSessionId) {
+      const pendingRes = await api.get(`/health-checks/${latestSessionId}/pending-assets/`);
       setPendingAssets(normalizeList(pendingRes.data));
     } else {
       setPendingAssets([]);
     }
-  }, [api, employee, activeSession]);
+  }, [api, employee]);
 
   useEffect(() => {
     // This effect synchronizes the portal with remote API data.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPortal().catch(err => setNotice(apiError(err, 'Unable to load your gear and inspections.')));
   }, [loadPortal]);
 
@@ -2814,6 +2852,41 @@ export function EmployeePortal({ api, user }) {
     }));
   };
 
+  const startLatestInspection = async () => {
+    if (!employee?.id) return;
+
+    setInspectionLoading(true);
+    try {
+      const latestSession = latestOpenInspection(await fetchAll(api, '/health-checks/'));
+      if (!latestSession) {
+        setSessions([]);
+        setActiveSession('');
+        setPendingAssets([]);
+        setNotice('No open monthly inspection is available.');
+        return;
+      }
+
+      const pendingRes = await api.get(`/health-checks/${latestSession.id}/pending-assets/`);
+      const latestPendingAssets = normalizeList(pendingRes.data);
+      setSessions([latestSession]);
+      setActiveSession(latestSession.id);
+      setPendingAssets(latestPendingAssets);
+      setHealthForm({});
+
+      if (latestPendingAssets.length === 0) {
+        setNotice('You have no outstanding items for the most recent monthly inspection.');
+        return;
+      }
+
+      setNotice('');
+      setInspectionDialogOpen(true);
+    } catch (err) {
+      setNotice(apiError(err, 'Unable to load the latest monthly inspection.'));
+    } finally {
+      setInspectionLoading(false);
+    }
+  };
+
   const submitHealthBatch = async (event) => {
     event.preventDefault();
     if (!activeSession || pendingAssets.length === 0) return;
@@ -2849,20 +2922,15 @@ export function EmployeePortal({ api, user }) {
   return (
     <>
       <PageHeader eyebrow="Employee Portal" title="My gear and requests">
-        <Field label="Open inspection">
-          <Select value={activeSession} disabled={!sessions.length} onChange={event => { setPendingAssets([]); setHealthForm({}); setActiveSession(event.target.value); }}>
-            {!sessions.length && <option value="">No open inspections</option>}
-            {sessions.map(session => <option key={session.id} value={session.id}>{session.title}</option>)}
-          </Select>
-        </Field>
-        <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length} onClick={() => setInspectionDialogOpen(true)}>
-          Start Inspection
+        {employee && activeSession && pendingAssets.length > 0 && (
+          <p className="inspection-required-copy" role="status">Monthly inspection is required</p>
+        )}
+        <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length || inspectionLoading} onClick={startLatestInspection}>
+          {inspectionLoading ? 'Loading Inspection...' : 'Start Inspection'}
         </Button>
         <Button type="button" variant="primary" disabled={!employee} onClick={() => { setRequestsListDialogOpen(true); setShowRequestForm(false); }}>My Requests</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
-      {employee && activeSession && pendingAssets.length > 0 && <Notice tone="error">Monthly inspection required: {pendingAssets.length} assigned item(s) still need a health check.</Notice>}
-      {employee && activeSession && pendingAssets.length === 0 && <Notice>No outstanding items for this inspection. You can choose another open inspection above.</Notice>}
       {notice && <Notice>{notice}</Notice>}
 
       <section className="panel portal-gear-panel">

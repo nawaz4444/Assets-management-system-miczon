@@ -198,3 +198,20 @@ class StockIntegrityRegressionTests(StockBaseTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.qty, 10)
         self.assertFalse(StockTransaction.objects.exists())
+
+    def test_dashboard_summary_and_transaction_type_filter(self):
+        self.client.post('/api/stock/transactions/', {
+            'product': self.product.pk, 'date': '2026-09-04', 'type': 'IN', 'qty': 5,
+        })
+        self.client.post('/api/stock/transactions/', {
+            'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 3,
+        })
+
+        summary = self.client.get('/api/stock/products/summary/')
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.data, {
+            'product_count': 1, 'low_stock_count': 0, 'total_in_qty': 5, 'total_out_qty': 3,
+        })
+        outbound = self.client.get('/api/stock/transactions/?type=OUT')
+        self.assertEqual(len(outbound.data), 1)
+        self.assertEqual(outbound.data[0]['type'], 'OUT')

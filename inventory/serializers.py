@@ -19,6 +19,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
     is_manager = serializers.SerializerMethodField()
 
     def get_is_manager(self, obj):
+        if hasattr(obj, 'is_manager_flag'):
+            return obj.is_manager_flag
         return obj.managed_departments.exists()
 
     class Meta:

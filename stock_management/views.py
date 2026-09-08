@@ -1,5 +1,6 @@
 from collections import defaultdict
 from django.db import transaction
+from django.db.models import Count, F, Q, Sum
 from rest_framework import viewsets, permissions, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -30,15 +31,38 @@ class StockCategoryViewSet(viewsets.ModelViewSet):
 
 
 class StockProductViewSet(viewsets.ModelViewSet):
-    queryset = StockProduct.objects.all().order_by('name')
+    queryset = StockProduct.objects.select_related('category').order_by('name')
     serializer_class = StockProductSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        product_totals = StockProduct.objects.aggregate(
+            product_count=Count('pk'),
+            low_stock_count=Count('pk', filter=Q(qty__lte=F('reorder'))),
+        )
+        movement_totals = {
+            row['type']: row['total']
+            for row in StockTransaction.objects.values('type').annotate(total=Sum('qty'))
+        }
+        return Response({
+            **product_totals,
+            'total_in_qty': movement_totals.get('IN') or 0,
+            'total_out_qty': movement_totals.get('OUT') or 0,
+        })
+
 
 class StockTransactionViewSet(viewsets.ModelViewSet):
-    queryset = StockTransaction.objects.all().select_related('product').order_by('-date', '-pk')
+    queryset = StockTransaction.objects.select_related('product', 'product__category').order_by('-date', '-pk')
     serializer_class = StockTransactionSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        transaction_type = self.request.query_params.get('type')
+        if transaction_type in {'IN', 'OUT'}:
+            queryset = queryset.filter(type=transaction_type)
+        return queryset
 
     def perform_create(self, serializer):
         with transaction.atomic():

@@ -5,6 +5,7 @@ export const navItems = [
   { path: '/employees', label: 'Employees', icon: 'users' },
   { path: '/requests', label: 'Requests', icon: 'inbox' },
   { path: '/health-checks', label: 'Health Checks', icon: 'pulse' },
+  { path: '/accounts', label: 'Accounts', icon: 'coins' },
   { path: '/portal', label: 'Employee Portal', icon: 'user' },
 ];
 

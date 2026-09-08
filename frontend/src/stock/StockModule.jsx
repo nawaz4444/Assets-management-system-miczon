@@ -8,18 +8,13 @@ import {
 } from '../components/ui';
 
 export function StockDashboard({ api }) {
-  const [products, setProducts] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([
-      api.get('/stock/products/'),
-      api.get('/stock/transactions/')
-    ]).then(([prodRes, txRes]) => {
-      setProducts(prodRes.data);
-      setTransactions(txRes.data);
+    api.get('/stock/products/summary/').then((res) => {
+      setSummary(res.data);
     }).catch(() => {
       setError('Unable to load stock dashboard summary.');
     }).finally(() => {
@@ -29,9 +24,9 @@ export function StockDashboard({ api }) {
 
   if (loading) return <div style={{ padding: '24px', color: '#64748b' }}>Loading dashboard data...</div>;
  
-  const lowStockCount = products.filter(p => p.qty <= p.reorder).length;
-  const totalInQty = transactions.filter(t => t.type === 'IN').reduce((acc, t) => acc + t.qty, 0);
-  const totalOutQty = transactions.filter(t => t.type === 'OUT').reduce((acc, t) => acc + t.qty, 0);
+  const lowStockCount = summary?.low_stock_count || 0;
+  const totalInQty = summary?.total_in_qty || 0;
+  const totalOutQty = summary?.total_out_qty || 0;
 
   const adjustmentsValue = (
     <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '10px' }}>
@@ -78,7 +73,7 @@ export function StockDashboard({ api }) {
   );
 
   const metrics = [
-    { label: 'Products', value: products.length, to: '/stock/products', tone: 'blue', subtext: 'Total registered items' },
+    { label: 'Products', value: summary?.product_count || 0, to: '/stock/products', tone: 'blue', subtext: 'Total registered items' },
     { label: 'Adjustments', value: adjustmentsValue, to: '/stock/adjustments', tone: 'green', subtext: 'Stock inbound & outbound' },
     { label: 'Reports', value: alertsValue, to: '/stock/reports', tone: 'amber', subtext: 'Reorder warnings' },
   ];
@@ -776,14 +771,12 @@ function StockBatch({ api, mode }) {
     Promise.all([
       api.get('/stock/products/'),
       api.get('/stock/categories/'),
-      api.get('/stock/transactions/')
+      api.get(`/stock/transactions/?type=${cfg.txType}`)
     ]).then(([prodRes, catRes, txRes]) => {
       setProducts(prodRes.data);
       setCategories(catRes.data.map(c => c.name));
-      const filteredTx = txRes.data.filter(t => t.type === cfg.txType);
-
       const groups = {};
-      filteredTx.forEach(tx => {
+      txRes.data.forEach(tx => {
         const key = `${tx.date}_${tx.details || ''}`;
         if (!groups[key]) {
           groups[key] = {

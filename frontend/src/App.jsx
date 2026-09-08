@@ -45,7 +45,7 @@ function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userId');
-    ['inventory:filters', 'employees:filters', 'requests:filters', 'auth:next'].forEach(key => sessionStorage.removeItem(key));
+    ['inventory:filters', 'employees:filters', 'requests:filters', 'accounts:filters', 'accounts:tab', 'auth:next'].forEach(key => sessionStorage.removeItem(key));
     setToken(null);
     setUser(null);
   }, []);

@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount.providers.google',
     'inventory',
     'stock_management',
+    'accounts',
     'corsheaders',
 ]
 

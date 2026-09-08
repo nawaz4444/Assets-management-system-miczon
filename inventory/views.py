@@ -15,7 +15,7 @@ from .serializers import (
 )
 from rest_framework.decorators import action
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
 import logging
@@ -233,7 +233,7 @@ class ScanAssetView(APIView):
 
 # --- VIEWSETS ---
 class AssetAssignmentViewSet(viewsets.ModelViewSet):
-    queryset = AssetAssignment.objects.all().order_by('-assigned_date')
+    queryset = AssetAssignment.objects.select_related('asset', 'employee').order_by('-assigned_date')
     serializer_class = AssetAssignmentSerializer
 
     def get_queryset(self):
@@ -307,7 +307,7 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
         return Response({"error": "Assignment history cannot be deleted. Return the asset instead."}, status=403)
 
 class InspectionLogViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = InspectionLog.objects.all().order_by('-date')
+    queryset = InspectionLog.objects.select_related('asset').order_by('-date')
     serializer_class = InspectionLogSerializer
 
     def get_queryset(self):
@@ -336,10 +336,6 @@ class AssetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # OPTIMIZATION: Use select_related and prefetch_related to prevent N+1 queries
         queryset = Asset.objects.all().select_related('custodian', 'department', 'super_category')
-        
-        # Prefetch assignments for list views (needed for active_assignment_id)
-        if self.action in ['list', 'retrieve']:
-            queryset = queryset.prefetch_related('assignments')
         
         # Only prefetch heavy relations for detail views
         if self.action == 'retrieve':
@@ -866,8 +862,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUserOrReadOnly]
 
     def get_queryset(self):
-        queryset = Employee.objects.all().annotate(
-            assigned_assets_count=Count('assets', filter=Q(assets__current_status='ASSIGNED'))
+        queryset = Employee.objects.select_related('department').annotate(
+            assigned_assets_count=Count('assets', filter=Q(assets__current_status='ASSIGNED')),
+            is_manager_flag=Exists(Department.objects.filter(manager_id=OuterRef('pk'))),
         )
         department = self.request.query_params.get('department')
         if department:
@@ -993,7 +990,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='assigned-assets')
     def assigned_assets(self, request, pk=None):
         employee = self.get_object()
-        assets = Asset.objects.filter(custodian=employee).select_related('custodian', 'department')
+        assets = Asset.objects.filter(custodian=employee).select_related('custodian', 'department', 'super_category')
         serializer = AssetListSerializer(assets, many=True, context={'request': request})
         return Response(serializer.data)
 
@@ -1039,12 +1036,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return Response({"status": "Employee assets unassigned", "returned_count": returned_count})
 
 class DepartmentViewSet(viewsets.ModelViewSet):
-    queryset = Department.objects.all()
+    queryset = Department.objects.select_related('manager').all()
     serializer_class = DepartmentSerializer
     permission_classes = [IsAdminUserOrReadOnly]
 
 class AssetActionRequestViewSet(viewsets.ModelViewSet):
-    queryset = AssetActionRequest.objects.all().order_by('-created_at')
+    queryset = AssetActionRequest.objects.select_related(
+        'asset', 'requester', 'target_employee', 'processed_by', 'submitted_by',
+    ).order_by('-created_at')
     serializer_class = AssetActionRequestSerializer
 
     def perform_create(self, serializer):
@@ -1252,7 +1251,7 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         return Response({"status": "Request rejected"})
 
 class HealthCheckSessionViewSet(viewsets.ModelViewSet):
-    queryset = HealthCheckSession.objects.all().order_by('-created_at')
+    queryset = HealthCheckSession.objects.select_related('triggered_by', 'super_category').order_by('-created_at')
     serializer_class = HealthCheckSessionSerializer
 
     def get_permissions(self):
@@ -1336,7 +1335,10 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='responses')
     def responses(self, request, pk=None):
         session = self.get_object()
-        responses = HealthCheckResponse.objects.filter(session=session).select_related('employee', 'employee__department', 'asset', 'asset__department')
+        responses = HealthCheckResponse.objects.filter(session=session).select_related(
+            'employee', 'employee__department', 'asset', 'asset__department',
+            'asset__super_category', 'session', 'session__super_category',
+        )
         if not request.user.is_superuser:
             responses = responses.filter(employee_id__in=_get_team_employee_ids(request.user))
         serializer = HealthCheckResponseSerializer(responses, many=True)
@@ -1369,7 +1371,10 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
 
 class HealthCheckResponseViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'head', 'options']
-    queryset = HealthCheckResponse.objects.all().select_related('session', 'employee', 'employee__department', 'asset', 'asset__department').order_by('-submitted_at')
+    queryset = HealthCheckResponse.objects.all().select_related(
+        'session', 'session__super_category', 'employee', 'employee__department',
+        'asset', 'asset__department', 'asset__super_category',
+    ).order_by('-submitted_at')
     serializer_class = HealthCheckResponseSerializer
 
     def get_queryset(self):

@@ -11,6 +11,7 @@ urlpatterns = [
     path('api-token-auth/', obtain_auth_token),
     path('accounts/', include('allauth.urls')),
     path('api/stock/', include('stock_management.urls')),
+    path('api/accounts/', include('accounts.urls')),
 ]
 
 if settings.DEBUG:

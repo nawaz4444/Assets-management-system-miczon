@@ -131,6 +131,18 @@ a {
   border-radius: 4px;
 }
 
+.app-icon-coins::before {
+  inset: 2px 3px 8px 3px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.app-icon-coins::after {
+  inset: 8px 3px 2px 3px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
 .app-icon-layers::before {
   inset: 2px 2px 8px 2px;
   border: 2px solid currentColor;
@@ -1484,6 +1496,7 @@ input[type="checkbox"] {
 .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; }
 .header-actions { flex-wrap: wrap; }
 .header-actions .field { margin: 0; }
+.inspection-required-copy { margin: 0; color: #92400e; font-size: 14px; font-weight: 700; }
 .inspection-findings { margin: 0; font-size: 12px; }
 .inspection-findings > div { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 5px 0; }
 .inspection-findings dt { color: #64748b; }
