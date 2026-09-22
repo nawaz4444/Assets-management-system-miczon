@@ -48,9 +48,10 @@ class StockMathTests(StockBaseTestCase):
         res = self.client.post('/api/stock/transactions/', {
             'date': '2026-08-24', 'product': self.product.id, 'type': 'OUT', 'qty': 999, 'unit': 'pieces',
         })
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.product.refresh_from_db()
-        self.assertEqual(self.product.qty, 0)
+        self.assertEqual(self.product.qty, 10)
+        self.assertFalse(StockTransaction.objects.exists())
 
     def test_delete_in_transaction_reverses_qty(self):
         self.client.force_authenticate(self.admin)
@@ -101,14 +102,116 @@ class BulkEndpointTests(StockBaseTestCase):
 
 
 class StockPermissionTests(StockBaseTestCase):
+    """Stock is a shared consumables module (not asset management): any
+    authenticated user may read AND write — no admin-only restriction."""
+
     def test_regular_user_can_read_products(self):
         self.client.force_authenticate(self.user)
         res = self.client.get('/api/stock/products/')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
-    def test_regular_user_cannot_create_product(self):
+    def test_regular_user_can_create_product(self):
         self.client.force_authenticate(self.user)
         res = self.client.post('/api/stock/products/', {
-            'code': 'CON-HACK', 'name': 'Nope', 'category': self.category.id,
+            'code': 'CON-NEW', 'name': 'New Consumable', 'category': self.category.id,
         })
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+    def test_unauthenticated_user_cannot_access(self):
+        res = self.client.get('/api/stock/products/')
+        self.assertIn(res.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+
+class StockIntegrityRegressionTests(StockBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_authenticate(self.admin)
+
+    def test_negative_and_zero_quantities_rejected(self):
+        for qty in (-1, 0):
+            res = self.client.post('/api/stock/transactions/', {'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': qty})
+            self.assertEqual(res.status_code, 400)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 10)
+
+    def test_unknown_bulk_product_rejects_entire_batch(self):
+        res = self.client.post('/api/stock/transactions/bulk_in/', {'date': '2026-09-04', 'transactions': [
+            {'product_code': self.product.code, 'qty': 3}, {'product_code': 'UNKNOWN', 'qty': 2}]}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 10)
+        self.assertFalse(StockTransaction.objects.exists())
+
+    def test_repeated_product_cannot_oversell_in_one_batch(self):
+        res = self.client.post('/api/stock/transactions/bulk_out/', {'date': '2026-09-04', 'demand_by': 'QA', 'transactions': [
+            {'product_code': self.product.code, 'qty': 6}, {'product_code': self.product.code, 'qty': 6}]}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 10)
+
+    def test_create_reverse_round_trip_preserves_stock(self):
+        res = self.client.post('/api/stock/transactions/', {'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 4})
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(self.client.delete(f"/api/stock/transactions/{res.data['id']}/").status_code, 204)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 10)
+
+    def test_edit_consumed_receipt_is_rejected_without_partial_write(self):
+        tx = StockTransaction.objects.create(product=self.product, date='2026-09-04', type='IN', qty=10)
+        self.product.qty = 2
+        self.product.save()
+        res = self.client.patch(f'/api/stock/transactions/{tx.pk}/', {'qty': 1})
+        self.assertEqual(res.status_code, 400)
+        tx.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertEqual(tx.qty, 10)
+        self.assertEqual(self.product.qty, 2)
+
+    def test_reads_do_not_seed_demo_records(self):
+        StockProduct.objects.all().delete()
+        self.assertEqual(self.client.get('/api/stock/products/').data, [])
+        self.assertEqual(self.client.get('/api/stock/transactions/').data, [])
+
+    def test_product_patch_cannot_bypass_stock_ledger(self):
+        self.client.patch(f'/api/stock/products/{self.product.pk}/', {'qty': -99})
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 10)
+
+    def test_batch_edit_rolls_back_all_rows_when_one_is_invalid(self):
+        ids = []
+        for qty in [2, 3]:
+            result = self.client.post('/api/stock/transactions/', {'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': qty})
+            ids.append(result.data['id'])
+        result = self.client.post('/api/stock/transactions/batch-change/', {'ids': ids, 'transactions': [
+            {'id': ids[0], 'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 1},
+            {'id': ids[1], 'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 20}]}, format='json')
+        self.assertEqual(result.status_code, 400)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 5)
+        self.assertEqual(list(StockTransaction.objects.order_by('pk').values_list('qty', flat=True)), [2, 3])
+
+    def test_batch_delete_balances_combined_transaction_effects(self):
+        receipt = self.client.post('/api/stock/transactions/', {'product': self.product.pk, 'date': '2026-09-04', 'type': 'IN', 'qty': 5}).data['id']
+        issue = self.client.post('/api/stock/transactions/', {'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 12}).data['id']
+        result = self.client.post('/api/stock/transactions/batch-change/', {'ids': [receipt, issue], 'delete': True}, format='json')
+        self.assertEqual(result.status_code, 200)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.qty, 10)
+        self.assertFalse(StockTransaction.objects.exists())
+
+    def test_dashboard_summary_and_transaction_type_filter(self):
+        self.client.post('/api/stock/transactions/', {
+            'product': self.product.pk, 'date': '2026-09-04', 'type': 'IN', 'qty': 5,
+        })
+        self.client.post('/api/stock/transactions/', {
+            'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 3,
+        })
+
+        summary = self.client.get('/api/stock/products/summary/')
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.data, {
+            'product_count': 1, 'low_stock_count': 0, 'total_in_qty': 5, 'total_out_qty': 3,
+        })
+        outbound = self.client.get('/api/stock/transactions/?type=OUT')
+        self.assertEqual(len(outbound.data), 1)
+        self.assertEqual(outbound.data[0]['type'], 'OUT')

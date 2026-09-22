@@ -5,6 +5,7 @@ export const navItems = [
   { path: '/employees', label: 'Employees', icon: 'users' },
   { path: '/requests', label: 'Requests', icon: 'inbox' },
   { path: '/health-checks', label: 'Health Checks', icon: 'pulse' },
+  { path: '/accounts', label: 'Accounts', icon: 'coins' },
   { path: '/portal', label: 'Employee Portal', icon: 'user' },
 ];
 
@@ -16,6 +17,8 @@ export const emptyAsset = {
   department: '',
   current_status: 'AVAILABLE',
   custodian: '',
+  purchase_date: '',
+  purchase_price: '',
   specifications: '',
   remarks: '',
 };
@@ -31,7 +34,6 @@ export const assetStatuses = [
   { value: 'ASSIGNED', label: 'Assigned' },
   { value: 'AVAILABLE', label: 'Available' },
   { value: 'BROKEN', label: 'Repair' },
-  { value: 'RETIRED', label: 'Retired' },
 ];
 
 export const itInspectionFields = [

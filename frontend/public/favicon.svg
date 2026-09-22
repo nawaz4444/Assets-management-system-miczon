@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <!-- Top Face Gradient (Soft bright amber/gold) -->
+    <linearGradient id="topFaceGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="50%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+
+    <!-- Left Face Gradient (Mid-tone amber with depth) -->
+    <linearGradient id="leftFaceGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EA580C"/>
+      <stop offset="40%" stop-color="#D97706"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </linearGradient>
+
+    <!-- Right Face Gradient (Deep shaded amber/brown) -->
+    <linearGradient id="rightFaceGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#B45309"/>
+      <stop offset="60%" stop-color="#92400E"/>
+      <stop offset="100%" stop-color="#78350F"/>
+    </linearGradient>
+
+    <!-- Top Tape Gradient -->
+    <linearGradient id="topTapeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FEF9C3"/>
+      <stop offset="100%" stop-color="#FDE047"/>
+    </linearGradient>
+
+    <!-- Front Left Tape Gradient -->
+    <linearGradient id="leftTapeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FACC15"/>
+      <stop offset="100%" stop-color="#EAB308"/>
+    </linearGradient>
+
+    <!-- Front Right Tape Gradient -->
+    <linearGradient id="rightTapeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#CA8A04"/>
+      <stop offset="100%" stop-color="#A16207"/>
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow -->
+    <filter id="boxShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Ground Shadow -->
+  <ellipse cx="32" cy="56" rx="21" ry="5" fill="#000000" fill-opacity="0.28" />
+
+  <!-- Main Box Group with Shadow -->
+  <g filter="url(#boxShadow)">
+    <!-- Left Face -->
+    <path d="M 8 21.2 L 32 34.2 L 32 54.2 L 8 41.2 Z" 
+          fill="url(#leftFaceGrad)" 
+          stroke="#B45309" 
+          stroke-width="0.5" 
+          stroke-linejoin="round"/>
+
+    <!-- Right Face -->
+    <path d="M 32 34.2 L 56 21.2 L 56 41.2 L 32 54.2 Z" 
+          fill="url(#rightFaceGrad)" 
+          stroke="#78350F" 
+          stroke-width="0.5" 
+          stroke-linejoin="round"/>
+
+    <!-- Top Face -->
+    <path d="M 32 8.2 L 56 21.2 L 32 34.2 L 8 21.2 Z" 
+          fill="url(#topFaceGrad)" 
+          stroke="#F59E0B" 
+          stroke-width="0.5" 
+          stroke-linejoin="round"/>
+
+    <!-- Top Seam Tape -->
+    <path d="M 28.5 10.1 L 35.5 10.1 L 35.5 32.3 L 32 34.2 L 28.5 32.3 Z" 
+          fill="url(#topTapeGrad)" 
+          opacity="0.95"/>
+    <!-- Tape center fold line -->
+    <line x1="32" y1="9.5" x2="32" y2="34.2" stroke="#EAB308" stroke-width="0.6" stroke-dasharray="1.5,1"/>
+
+    <!-- Left Front Tape Overhang -->
+    <path d="M 28.5 32.3 L 32 34.2 L 32 42.5 L 28.5 40.6 Z" 
+          fill="url(#leftTapeGrad)" 
+          opacity="0.95"/>
+
+    <!-- Right Front Tape Overhang -->
+    <path d="M 32 34.2 L 35.5 32.3 L 35.5 40.6 L 32 42.5 Z" 
+          fill="url(#rightTapeGrad)" 
+          opacity="0.95"/>
+
+    <!-- Left Face: White Asset / Inventory Tag -->
+    <g>
+      <!-- Label Base -->
+      <path d="M 12 27.5 L 24 34 L 24 44.5 L 12 38 Z" 
+            fill="#FFFFFF" 
+            stroke="#CBD5E1" 
+            stroke-width="0.5" 
+            stroke-linejoin="round"/>
+      
+      <!-- Label Header Strip (AssetZone Teal) -->
+      <path d="M 13 28.6 L 23 34.1 L 23 35.6 L 13 30.1 Z" 
+            fill="#0F766E"/>
+
+      <!-- Barcode Lines -->
+      <line x1="14.5" y1="31.8" x2="14.5" y2="38.5" stroke="#1E293B" stroke-width="0.9"/>
+      <line x1="16.5" y1="32.9" x2="16.5" y2="39.6" stroke="#1E293B" stroke-width="1.3"/>
+      <line x1="18.5" y1="34" x2="18.5" y2="40.7" stroke="#1E293B" stroke-width="0.7"/>
+      <line x1="20.5" y1="35.1" x2="20.5" y2="41.8" stroke="#1E293B" stroke-width="1.2"/>
+      <line x1="22" y1="36" x2="22" y2="42.6" stroke="#1E293B" stroke-width="0.8"/>
+    </g>
+
+    <!-- Right Face: Warehouse Handling / "This Way Up" Arrows -->
+    <g stroke="#5B2207" stroke-linecap="round" stroke-linejoin="round" opacity="0.85">
+      <!-- Arrow 1 -->
+      <line x1="41" y1="34" x2="41" y2="40" stroke-width="1.4"/>
+      <path d="M 39 36 L 41 33.5 L 43 36" fill="none" stroke-width="1.4"/>
+
+      <!-- Arrow 2 -->
+      <line x1="47" y1="30.8" x2="47" y2="36.8" stroke-width="1.4"/>
+      <path d="M 45 32.8 L 47 30.3 L 49 32.8" fill="none" stroke-width="1.4"/>
+
+      <!-- Underline -->
+      <line x1="38" y1="42.5" x2="50" y2="36" stroke-width="1"/>
+    </g>
+  </g>
+</svg>

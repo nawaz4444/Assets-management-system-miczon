@@ -1,14 +1,28 @@
-/* eslint-disable react-refresh/only-export-components, react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/set-state-in-effect */
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Login from './Login';
+import ForgotPassword from './ForgotPassword';
+import ResetPassword from './ResetPassword';
+import { safeNextPath } from './utils/navigation';
 import { API_BASE, BACKEND_BASE } from './utils/config';
 import './styles.css';
 import { UserContext, SuperCategoryContext } from './lib/contexts';
 import { AppShell } from './pages';
 
 export { UserContext, SuperCategoryContext, BACKEND_BASE };
+
+function RequireLogin() {
+  const location = useLocation();
+  return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+}
+
+function LoginDestination({ user }) {
+  const location = useLocation();
+  const next = new URLSearchParams(location.search).get('next') || sessionStorage.getItem('auth:next');
+  return <Navigate to={safeNextPath(next, user?.is_superuser ? '/' : '/portal')} replace />;
+}
 
 function App() {
   const getInitialToken = () => {
@@ -31,6 +45,7 @@ function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userId');
+    ['inventory:filters', 'employees:filters', 'requests:filters', 'accounts:filters', 'accounts:tab', 'auth:next'].forEach(key => sessionStorage.removeItem(key));
     setToken(null);
     setUser(null);
   }, []);
@@ -68,7 +83,7 @@ function App() {
     });
   }, [token, handleLogout]);
 
-  if (loading) return <div className="loading-screen">Loading workspace...</div>;
+  if (loading || (token && !user)) return <div className="loading-screen">Loading workspace...</div>;
 
   return (
     <UserContext.Provider value={{ user, setUser, loading, token }}>
@@ -76,12 +91,15 @@ function App() {
         {!token ? (
           <Routes>
             <Route path="/login" element={<Login setToken={setToken} />} />
-            {/* Password-reset routes disabled until backend endpoints + SMTP exist.
-                Re-enable the imports above and these routes to restore the flow. */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
+            <Route path="*" element={<RequireLogin />} />
           </Routes>
         ) : (
-          <AppShell token={token} handleLogout={handleLogout} />
+          <Routes>
+            <Route path="/login" element={<LoginDestination user={user} />} />
+            <Route path="*" element={<AppShell token={token} handleLogout={handleLogout} />} />
+          </Routes>
         )}
       </BrowserRouter>
     </UserContext.Provider>

@@ -180,3 +180,106 @@ class UploadPermissionTests(BaseAPITestCase):
         self.client.force_authenticate(self.admin)
         res = self.client.post('/api/upload/', {}, format='multipart')
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class BrowserQARegressionTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        from .models import SuperCategory, HealthCheckSession
+        self.employee.user = self.user
+        self.employee.save()
+        self.it = SuperCategory.objects.get(code='it_assets')
+        self.furniture = SuperCategory.objects.get(code='furniture')
+        self.asset = Asset.objects.create(miczon_id='QA-1', name='Laptop', super_category=self.it, custodian=self.employee)
+        self.chair = Asset.objects.create(miczon_id='QA-2', name='Chair', super_category=self.furniture, custodian=self.employee)
+        self.session = HealthCheckSession.objects.create(title='IT QA', super_category=self.it)
+        self.client.force_authenticate(self.admin)
+
+    def test_selected_return_leaves_unselected_asset_assigned(self):
+        res = self.client.post(f'/api/employees/{self.employee.pk}/unassign-all/', {'asset_ids': [self.asset.pk]}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['returned_count'], 1)
+        self.asset.refresh_from_db(); self.chair.refresh_from_db()
+        self.assertIsNone(self.asset.custodian)
+        self.assertEqual(self.chair.custodian_id, self.employee.pk)
+        self.assertTrue(self.chair.assignments.filter(status='ASSIGNED').exists())
+
+    def test_missing_return_selection_does_not_offboard_everyone(self):
+        res = self.client.post(f'/api/employees/{self.employee.pk}/unassign-all/', {}, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(Asset.objects.filter(custodian=self.employee).count(), 2)
+
+    def test_edit_and_transfer_keep_one_active_assignment(self):
+        other = Employee.objects.create(name='Other', employee_id='OTHER')
+        res = self.client.patch(f'/api/assets/{self.asset.pk}/', {'custodian': other.pk}, format='json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.asset.assignments.filter(status='ASSIGNED').get().employee_id, other.pk)
+        self.assertTrue(self.asset.assignments.filter(employee=self.employee, status='RETURNED').exists())
+
+    def test_inspection_history_and_targets_survive_return(self):
+        from .models import HealthCheckResponse
+        HealthCheckResponse.objects.create(session=self.session, employee=self.employee, asset=self.asset, performance_rating=2)
+        self.asset.custodian = None; self.asset.save()
+        res = self.client.get(f'/api/reports/health-compliance/?session={self.session.pk}')
+        self.assertEqual(res.data['summary']['target_assets'], 1)
+        self.assertEqual(res.data['summary']['completed_assets'], 1)
+        self.assertEqual(res.data['summary']['critical_alerts'], 1)
+        self.assertEqual(len(res.data['responses']), 1)
+
+    def test_furniture_answers_persist_and_export_scope_matches(self):
+        from .models import HealthCheckSession, HealthCheckResponse
+        from openpyxl import load_workbook
+        from io import BytesIO
+        session = HealthCheckSession.objects.create(title='Furniture QA', super_category=self.furniture)
+        res = self.client.post('/api/health-responses/bulk-submit/', {'session': session.pk, 'employee': self.employee.pk, 'responses': [
+            {'asset': self.chair.pk, 'surface_finish': 'SEVERELY_DAMAGED', 'structural_stability': 'UNSTABLE_REPAIR_NEEDED', 'performance_rating': 1}]}, format='json')
+        self.assertEqual(res.status_code, 201, res.data)
+        response = HealthCheckResponse.objects.get(session=session)
+        self.assertEqual(response.surface_finish, 'SEVERELY_DAMAGED')
+        self.assertEqual(response.structural_stability, 'UNSTABLE_REPAIR_NEEDED')
+        report = self.client.get(f'/api/reports/export-health-responses/?session={session.pk}&type=all')
+        self.assertEqual(report.status_code, 200)
+        workbook = load_workbook(BytesIO(report.content), data_only=True)
+        summary = dict(list(workbook['Summary'].values)[1:])
+        self.assertEqual(summary['Target Assets'], 1)
+        self.assertEqual(summary['Completion %'], 100)
+        self.assertIn('Inspection Findings', next(workbook['Submitted Inspections'].values))
+
+    def test_manager_compliance_uses_team(self):
+        from .models import HealthCheckResponse
+        manager = Employee.objects.create(name='Manager', employee_id='MGR', user=self.admin, department=self.dept)
+        self.dept.manager = manager; self.dept.save()
+        self.admin.is_superuser = False; self.admin.is_staff = False; self.admin.save()
+        HealthCheckResponse.objects.create(session=self.session, employee=self.employee, asset=self.asset)
+        res = self.client.get(f'/api/reports/health-compliance/?session={self.session.pk}')
+        self.assertEqual(res.data['summary']['completed_assets'], 1)
+
+    def test_request_status_cannot_be_patched(self):
+        req = AssetActionRequest.objects.create(requester=self.employee, asset=self.asset, action_type='RETURN')
+        self.client.force_authenticate(self.user)
+        self.assertEqual(self.client.patch(f'/api/requests/{req.pk}/', {'status': 'APPROVED'}).status_code, 403)
+        req.refresh_from_db(); self.assertEqual(req.status, 'PENDING')
+
+    def test_employee_cannot_close_or_delete_inspection(self):
+        self.client.force_authenticate(self.user)
+        self.assertEqual(self.client.patch(f'/api/health-checks/{self.session.pk}/', {'status': 'CLOSED'}).status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/health-checks/{self.session.pk}/').status_code, 403)
+
+    def test_assignment_cannot_be_deleted(self):
+        self.client.force_authenticate(self.user)
+        assignment = self.asset.assignments.get(status='ASSIGNED')
+        self.assertEqual(self.client.delete(f'/api/assignments/{assignment.pk}/').status_code, 403)
+
+    def test_matching_name_does_not_grant_access(self):
+        stranger = User.objects.create_user(username=self.employee.name, email='stranger@example.com')
+        self.client.force_authenticate(stranger)
+        res = self.client.get('/api/assets/')
+        self.assertEqual(res.data['count'], 0)
+
+    def test_import_preserves_super_category_and_assignment(self):
+        res = self.client.post('/api/assets/bulk-commit/', {'rows': [{'miczon_id': 'IMPORTED', 'name': 'Imported chair', 'super_category': self.furniture.pk,
+            'custodian_id': self.employee.pk, 'category': 'Chair', 'status': 'ASSIGNED'}]}, format='json')
+        self.assertEqual(res.status_code, 200, res.data)
+        asset = Asset.objects.get(miczon_id='IMPORTED')
+        self.assertEqual(asset.super_category_id, self.furniture.pk)
+        self.assertTrue(asset.assignments.filter(employee=self.employee, status='ASSIGNED').exists())

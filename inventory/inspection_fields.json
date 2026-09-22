@@ -1,0 +1,238 @@
+{
+  "it_assets": [
+    {
+      "name": "screen_condition",
+      "label": "Screen Condition",
+      "default": "GOOD",
+      "options": {
+        "EXCELLENT": "Excellent",
+        "GOOD": "Good",
+        "SCRATCHED": "Scratched",
+        "CRACKED": "Cracked",
+        "NEEDS_REPAIR": "Needs Repair",
+        "NOT_APPLICABLE": "Not Applicable (N/A)"
+      }
+    },
+    {
+      "name": "battery_life",
+      "label": "Battery Life",
+      "default": "GOOD",
+      "options": {
+        "EXCELLENT": "Excellent",
+        "GOOD": "Good",
+        "FAIR": "Fair",
+        "POOR": "Poor",
+        "NOT_APPLICABLE": "Not Applicable (N/A)"
+      }
+    },
+    {
+      "name": "physical_condition",
+      "label": "Physical Condition",
+      "default": "GOOD_MINOR_WEAR",
+      "options": {
+        "EXCELLENT": "Excellent",
+        "GOOD_MINOR_WEAR": "Good (Minor wear)",
+        "FAIR_SCRATCHES_DENTS": "Fair (Noticeable scratches/dents)",
+        "POOR_CRACKED_BROKEN": "Poor (Cracked/Broken)"
+      }
+    },
+    {
+      "name": "power_boot_status",
+      "label": "Power & Boot Status",
+      "default": "BOOTS_NORMALLY",
+      "options": {
+        "BOOTS_NORMALLY": "Boots normally",
+        "SLOW_TO_BOOT": "Slow to boot",
+        "POWERS_NO_DISPLAY_OS": "Powers on but no display/OS",
+        "DOES_NOT_POWER_ON": "Does not power on"
+      }
+    },
+    {
+      "name": "ports_connectors",
+      "label": "Ports & Connectors",
+      "default": "ALL_FUNCTIONAL",
+      "options": {
+        "ALL_FUNCTIONAL": "All functional",
+        "LOOSE_CONNECTIONS": "Loose connections",
+        "VISIBLY_DAMAGED": "Visibly damaged",
+        "UNRESPONSIVE": "Unresponsive"
+      }
+    },
+    {
+      "name": "network_functionality",
+      "label": "Network Functionality",
+      "default": "CONNECTS_NORMALLY",
+      "options": {
+        "CONNECTS_NORMALLY": "Connects normally",
+        "INTERMITTENT_CONNECTION": "Intermittent connection",
+        "FAILS_TO_CONNECT": "Fails to connect"
+      }
+    },
+    {
+      "name": "asset_tag_status",
+      "label": "Asset Tag Status",
+      "default": "INTACT_SCANNABLE",
+      "options": {
+        "INTACT_SCANNABLE": "Intact & Scannable",
+        "FADED_PEELING": "Faded/Peeling",
+        "MISSING": "Missing"
+      }
+    }
+  ],
+  "furniture": [
+    {
+      "name": "surface_finish",
+      "label": "Surface Finish & Scratches",
+      "default": "EXCELLENT",
+      "options": {
+        "EXCELLENT": "Excellent (No Scratches)",
+        "GOOD_MINOR_SCRATCHES": "Good (Minor Scratches)",
+        "STAINED_DISCOLORED": "Stained / Discolored",
+        "SEVERELY_DAMAGED": "Severely Damaged / Chipped"
+      }
+    },
+    {
+      "name": "structural_stability",
+      "label": "Structural Stability & Joints",
+      "default": "SOLID_STABLE",
+      "options": {
+        "SOLID_STABLE": "Solid & Stable",
+        "MINOR_WOBBLE": "Minor Wobble",
+        "LOOSE_JOINTS_SCREWS": "Loose Joints / Screws",
+        "UNSTABLE_REPAIR_NEEDED": "Unstable / Repair Needed"
+      }
+    },
+    {
+      "name": "drawers_locks",
+      "label": "Drawers, Slides & Locks",
+      "default": "SMOOTH_FUNCTIONAL",
+      "options": {
+        "SMOOTH_FUNCTIONAL": "Smooth / Fully Functional",
+        "STIFF_STICKY": "Stiff / Hard to Open",
+        "LOCK_MALFUNCTIONING": "Lock Malfunctioning",
+        "NOT_APPLICABLE": "Not Applicable (N/A)"
+      }
+    },
+    {
+      "name": "upholstery_padding",
+      "label": "Upholstery & Fabric Condition",
+      "default": "INTACT_CLEAN",
+      "options": {
+        "INTACT_CLEAN": "Intact & Clean",
+        "MINOR_WEAR_FADE": "Minor Wear / Fading",
+        "TORN_STAINED": "Torn / Stained Padding",
+        "NOT_APPLICABLE": "Not Applicable (N/A)"
+      }
+    },
+    {
+      "name": "legs_castors_base",
+      "label": "Legs, Castors & Base Support",
+      "default": "ALL_INTACT",
+      "options": {
+        "ALL_INTACT": "All Intact & Smooth",
+        "MISSING_CAPS_GLIDES": "Missing Caps / Glides",
+        "DAMAGED_WHEELS": "Damaged Wheels / Castors",
+        "BROKEN_BASE": "Broken Base / Leg"
+      }
+    },
+    {
+      "name": "ergonomic_adjustment",
+      "label": "Height & Tilt Adjustment",
+      "default": "SMOOTH_MECHANISM",
+      "options": {
+        "SMOOTH_MECHANISM": "Smooth Adjustment",
+        "STIFF_ADJUSTMENT": "Stiff / Hard to Adjust",
+        "STUCK_BROKEN": "Stuck / Broken Mechanism",
+        "NOT_APPLICABLE": "Fixed Height (N/A)"
+      }
+    },
+    {
+      "name": "asset_tag_status",
+      "label": "Asset Tag Status",
+      "default": "INTACT_SCANNABLE",
+      "options": {
+        "INTACT_SCANNABLE": "Intact & Scannable",
+        "FADED_PEELING": "Faded/Peeling",
+        "MISSING": "Missing"
+      }
+    }
+  ],
+  "appliances": [
+    {
+      "name": "cooling_heating_perf",
+      "label": "Thermal / Performance Output",
+      "default": "OPTIMAL_TEMP",
+      "options": {
+        "OPTIMAL_TEMP": "Optimal Temperature",
+        "SLOW_PERFORMANCE": "Slow Cooling / Heating",
+        "INADEQUATE_TEMP": "Inadequate Output",
+        "NOT_WORKING": "Not Working / No Output"
+      }
+    },
+    {
+      "name": "compressor_motor_status",
+      "label": "Motor / Compressor & Fan Status",
+      "default": "QUIET_SMOOTH",
+      "options": {
+        "QUIET_SMOOTH": "Quiet & Smooth Operation",
+        "EXCESSIVE_NOISE": "Excessive Noise / Vibration",
+        "INTERMITTENT_FAULT": "Intermittent Fault",
+        "MOTOR_FAILED": "Motor / Compressor Failed"
+      }
+    },
+    {
+      "name": "power_cord_plug",
+      "label": "Power Cord & Electrical Safety",
+      "default": "INTACT_SAFE",
+      "options": {
+        "INTACT_SAFE": "Intact & Safe",
+        "FRAYED_WIRE": "Frayed / Worn Cable",
+        "DAMAGED_PLUG": "Damaged Plug",
+        "SAFETY_HAZARD": "Safety Hazard (Exposed Wire)"
+      }
+    },
+    {
+      "name": "filter_ventilation",
+      "label": "Air Filter & Vent Condition",
+      "default": "CLEAN_CLEAR",
+      "options": {
+        "CLEAN_CLEAR": "Clean & Clear",
+        "DUSTY_NEEDS_CLEANING": "Dusty / Needs Cleaning",
+        "CLOGGED_FILTER": "Clogged Filter",
+        "DAMAGED_VENT": "Damaged Vent / Grill"
+      }
+    },
+    {
+      "name": "refrigerant_leak_check",
+      "label": "Gas / Water Leakage Check",
+      "default": "NO_LEAKS",
+      "options": {
+        "NO_LEAKS": "No Leaks Detected",
+        "MINOR_WATER_DRIP": "Minor Water Drip",
+        "GAS_LEAK_SUSPECTED": "Refrigerant/Gas Leak Suspected",
+        "MAJOR_LEAK": "Major Leakage"
+      }
+    },
+    {
+      "name": "control_panel_remote",
+      "label": "Control Panel & Thermostat",
+      "default": "ALL_FUNCTIONAL",
+      "options": {
+        "ALL_FUNCTIONAL": "All Controls Functional",
+        "UNRESPONSIVE_DISPLAY": "Unresponsive Display",
+        "THERMOSTAT_ERROR": "Thermostat Error",
+        "BROKEN_SWITCHES": "Broken Switches / Remote"
+      }
+    },
+    {
+      "name": "asset_tag_status",
+      "label": "Asset Tag Status",
+      "default": "INTACT_SCANNABLE",
+      "options": {
+        "INTACT_SCANNABLE": "Intact & Scannable",
+        "FADED_PEELING": "Faded/Peeling",
+        "MISSING": "Missing"
+      }
+    }
+  ]
+}

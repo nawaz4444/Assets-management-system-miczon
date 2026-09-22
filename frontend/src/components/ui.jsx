@@ -34,10 +34,10 @@ export function Dialog({ open, children }) {
   return <div className="dialog-root">{children}</div>;
 }
 
-export function DialogContent({ className = '', children }) {
+export function DialogContent({ className = '', children, ...props }) {
   return (
     <div className="dialog-overlay">
-      <div className={`dialog-content ${className}`.trim()} role="dialog" aria-modal="true">
+      <div className={`dialog-content ${className}`.trim()} role="dialog" aria-modal="true" {...props}>
         {children}
       </div>
     </div>
@@ -83,9 +83,9 @@ export function DialogHeader({ title, description }) {
   );
 }
 
-export function Field({ label, className = '', children }) {
+export function Field({ label, className = '', children, ...props }) {
   return (
-    <label className={`field ${className}`.trim()}>
+    <label className={`field ${className}`.trim()} {...props}>
       <span>{label}</span>
       {children}
     </label>
@@ -99,6 +99,10 @@ export function Notice({ children, tone = 'success' }) {
 export function StatusBadge({ status }) {
   const label = String(status || 'Unknown').replaceAll('_', ' ').toLowerCase();
   return <span className={`status-badge ${String(status || '').toLowerCase()}`}>{label}</span>;
+}
+
+export function InspectionFindings({ response }) {
+  return <dl className="inspection-findings">{(response?.inspection_findings || []).map(item => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>;
 }
 
 export function DataTable({ columns, rows, empty = 'No records found.' }) {

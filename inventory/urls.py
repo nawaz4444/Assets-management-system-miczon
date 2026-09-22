@@ -1,5 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from .password_reset import PasswordResetRequest, PasswordResetValidate, PasswordResetConfirm
 from .views import (
     AssetViewSet, EmployeeViewSet, DepartmentViewSet, UploadAssetsView, 
     AssetAssignmentViewSet, InspectionLogViewSet, ReportsViewSet, CurrentUserView,
@@ -22,6 +23,9 @@ router.register(r'reports', ReportsViewSet, basename='reports')
 
 # The API URLs are determined automatically by the router.
 urlpatterns = [
+    path('password-reset/request/', PasswordResetRequest.as_view()),
+    path('password-reset/validate/', PasswordResetValidate.as_view()),
+    path('password-reset/confirm/', PasswordResetConfirm.as_view()),
     # 1. Add the Auth Paths:
     path('auth/current-user/', CurrentUserView.as_view(), name='current-user'),
     path('scan/<str:miczon_id>/', ScanAssetView.as_view(), name='scan-asset'),
