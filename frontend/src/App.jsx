@@ -21,7 +21,8 @@ function RequireLogin() {
 function LoginDestination({ user }) {
   const location = useLocation();
   const next = new URLSearchParams(location.search).get('next') || sessionStorage.getItem('auth:next');
-  return <Navigate to={safeNextPath(next, user?.is_superuser ? '/' : '/portal')} replace />;
+  const defaultPath = user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal');
+  return <Navigate to={safeNextPath(next, defaultPath)} replace />;
 }
 
 function App() {

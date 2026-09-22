@@ -38,10 +38,25 @@ from decimal import Decimal, InvalidOperation
 from .services import employee_for_user, session_assets, inspection_fields
 
 # --- PERMISSIONS ---
+class NotStockOnlyUser(permissions.BasePermission):
+    """Denies access to stock-only users for non-stock management views."""
+    message = "Access restricted to stock management."
+
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return not user.groups.filter(name='Stock Only').exists()
+
+
 class IsAdminUserOrReadOnly(permissions.BasePermission):
-    """Any authenticated user may read; only superusers may create/update/delete."""
+    """Any authenticated non-stock user may read; only superusers may create/update/delete."""
     def has_permission(self, request, view):
         if not (request.user and request.user.is_authenticated):
+            return False
+        if not request.user.is_superuser and request.user.groups.filter(name='Stock Only').exists():
             return False
         if request.method in permissions.SAFE_METHODS:
             return True
@@ -235,6 +250,7 @@ class ScanAssetView(APIView):
 class AssetAssignmentViewSet(viewsets.ModelViewSet):
     queryset = AssetAssignment.objects.select_related('asset', 'employee').order_by('-assigned_date')
     serializer_class = AssetAssignmentSerializer
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -309,6 +325,7 @@ class AssetAssignmentViewSet(viewsets.ModelViewSet):
 class InspectionLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = InspectionLog.objects.select_related('asset').order_by('-date')
     serializer_class = InspectionLogSerializer
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -322,7 +339,7 @@ class AssetViewSet(viewsets.ModelViewSet):
     queryset = Asset.objects.all().order_by('-created_at')
     serializer_class = AssetDetailSerializer  # Default for create/update
     pagination_class = StandardResultsSetPagination
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def get_serializer_class(self):
         """
@@ -1045,6 +1062,7 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         'asset', 'requester', 'target_employee', 'processed_by', 'submitted_by',
     ).order_by('-created_at')
     serializer_class = AssetActionRequestSerializer
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def perform_create(self, serializer):
         serializer.save(status='PENDING', submitted_by=self.request.user)
@@ -1257,7 +1275,7 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ('create', 'update', 'partial_update', 'destroy', 'trigger_global', 'close'):
             return [IsAdminUserOrReadOnly()]
-        return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), NotStockOnlyUser()]
 
     def perform_create(self, serializer):
         serializer.save(triggered_by=self.request.user)
@@ -1376,6 +1394,7 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         'asset', 'asset__department', 'asset__super_category',
     ).order_by('-submitted_at')
     serializer_class = HealthCheckResponseSerializer
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1476,6 +1495,7 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=201)
 
 class ReportsViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
     HEALTH_EXPORT_COLUMNS = [
         'Employee Name', 'Employee Code', 'Department', 'Asset Miczon ID', 'Asset Name', 'Category',
         'Inspection Findings',

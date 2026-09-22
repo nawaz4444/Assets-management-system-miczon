@@ -112,26 +112,38 @@ export function AppShell({ token, handleLogout }) {
     if (requests.length) Promise.allSettled(requests);
   }, [activeSuperCategory?.code, api, employeeId]);
 
+  const currentNavItems = useMemo(() => {
+    if (user?.is_stock_only) {
+      return [
+        { path: '/stock', label: 'Dashboard', icon: 'grid' },
+        { path: '/stock/products', label: 'Products', icon: 'box' },
+        { path: '/stock/adjustments', label: 'Stock In / Out', icon: 'layers' },
+        { path: '/stock/reports', label: 'Reports', icon: 'pulse' },
+      ];
+    }
+    return navItems.filter(item => {
+      if (user?.is_superuser) return true;
+      if (user?.employee_details?.is_manager) {
+        return ['/portal', '/inventory', '/requests', '/health-checks'].includes(item.path);
+      }
+      return item.path === '/portal';
+    });
+  }, [user]);
+
   return (
     <SuperCategoryContext.Provider value={superCatContextValue}>
       <div className="app-shell">
         <aside className="sidebar">
-          <Link className="brand" to={user?.is_superuser ? '/' : '/portal'}>
-            <span className="brand-mark">IT</span>
+          <Link className="brand" to={user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal')}>
+            <span className="brand-mark">{user?.is_stock_only ? 'ST' : 'IT'}</span>
             <span>
               <strong>AssetZone</strong>
-              <small>{activeSuperCategory?.name || 'Hardware Inventory'}</small>
+              <small>{user?.is_stock_only ? 'Stock Management' : (activeSuperCategory?.name || 'Hardware Inventory')}</small>
             </span>
           </Link>
 
           <nav className="nav-list" aria-label="Primary navigation">
-            {navItems.filter(item => {
-              if (user?.is_superuser) return true;
-              if (user?.employee_details?.is_manager) {
-                return ['/portal', '/inventory', '/requests', '/health-checks'].includes(item.path);
-              }
-              return item.path === '/portal';
-            }).map((item) => {
+            {currentNavItems.map((item) => {
               if (item.external) {
                 return (
                   <a key={item.path} className="nav-item" href={item.path}>
@@ -158,13 +170,15 @@ export function AppShell({ token, handleLogout }) {
 
           <div className="sidebar-footer">
             <div className="user-pill">
-              <span className="avatar">{user?.email?.[0]?.toUpperCase() || 'U'}</span>
+              <span className="avatar">{(user?.username || user?.email)?.[0]?.toUpperCase() || 'U'}</span>
               <span>
-                <strong>{user?.employee_details?.name || user?.email || 'Signed in'}</strong>
+                <strong>{user?.employee_details?.name || user?.username || user?.email || 'Signed in'}</strong>
                 <small>
-                  {user?.is_superuser
-                    ? 'Administrator'
-                    : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee')}
+                  {user?.is_stock_only
+                    ? 'Stock Keeper'
+                    : (user?.is_superuser
+                      ? 'Administrator'
+                      : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee'))}
                 </small>
               </span>
             </div>
@@ -173,7 +187,15 @@ export function AppShell({ token, handleLogout }) {
         </aside>
 
         <main className="workspace">
-          {user?.is_superuser ? (
+          {user?.is_stock_only ? (
+            <Routes>
+              <Route path="/stock" element={<StockDashboard api={api} />} />
+              <Route path="/stock/products" element={<StockProducts api={api} />} />
+              <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
+              <Route path="/stock/reports" element={<StockReports api={api} />} />
+              <Route path="*" element={<Navigate to="/stock" replace />} />
+            </Routes>
+          ) : user?.is_superuser ? (
             <Routes>
               <Route path="/" element={<Dashboard api={api} isAdmin={true} />} />
               <Route path="/inventory" element={<InventoryPage api={api} isAdmin={true} />} />
