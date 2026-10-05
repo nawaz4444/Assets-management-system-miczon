@@ -8,10 +8,10 @@ import ResetPassword from './ResetPassword';
 import { safeNextPath } from './utils/navigation';
 import { API_BASE, BACKEND_BASE } from './utils/config';
 import './styles.css';
-import { UserContext, SuperCategoryContext } from './lib/contexts';
+import { UserContext, SuperCategoryContext, StockOperatorContext } from './lib/contexts';
 import { AppShell } from './pages';
 
-export { UserContext, SuperCategoryContext, BACKEND_BASE };
+export { UserContext, SuperCategoryContext, StockOperatorContext, BACKEND_BASE };
 
 function RequireLogin() {
   const location = useLocation();
@@ -21,7 +21,8 @@ function RequireLogin() {
 function LoginDestination({ user }) {
   const location = useLocation();
   const next = new URLSearchParams(location.search).get('next') || sessionStorage.getItem('auth:next');
-  return <Navigate to={safeNextPath(next, user?.is_superuser ? '/' : '/portal')} replace />;
+  const defaultPath = user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal');
+  return <Navigate to={safeNextPath(next, defaultPath)} replace />;
 }
 
 function App() {
@@ -45,7 +46,8 @@ function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('userToken');
     localStorage.removeItem('userId');
-    ['inventory:filters', 'employees:filters', 'requests:filters', 'accounts:filters', 'accounts:tab', 'auth:next'].forEach(key => sessionStorage.removeItem(key));
+    localStorage.removeItem('stock_operator');
+    ['inventory:filters', 'employees:filters', 'requests:filters', 'accounts:filters', 'accounts:tab', 'auth:next', 'stock_operator'].forEach(key => sessionStorage.removeItem(key));
     setToken(null);
     setUser(null);
   }, []);

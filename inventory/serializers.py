@@ -109,18 +109,42 @@ class AssetAssignmentSerializer(serializers.ModelSerializer):
 
 from django.contrib.auth.models import User
 
+
+def is_stock_only_user(user):
+    if not user or not getattr(user, 'is_authenticated', False) or getattr(user, 'is_superuser', False):
+        return False
+    return user.groups.filter(name='Stock Only').exists()
+
+
 class UserSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(read_only=True)
+    is_stock_only = serializers.SerializerMethodField()
+    groups = serializers.SlugRelatedField(many=True, read_only=True, slug_field='name')
     permissions = serializers.SerializerMethodField()
     employee_details = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'is_superuser', 'permissions', 'employee_details']
+        fields = ['id', 'username', 'email', 'is_superuser', 'is_stock_only', 'groups', 'permissions', 'employee_details']
+
+    def get_is_stock_only(self, obj):
+        return is_stock_only_user(obj)
 
     def get_permissions(self, obj):
         return list(obj.get_all_permissions())
 
     def get_employee_details(self, obj):
+        if is_stock_only_user(obj):
+            return {
+                'id': None,
+                'name': obj.get_full_name() or obj.username,
+                'employee_id': 'STOCK',
+                'department': None,
+                'is_manager': False,
+                'managed_departments': [],
+                'role': 'STOCK_KEEPER'
+            }
+
         profile = employee_for_user(obj)
 
         if profile:

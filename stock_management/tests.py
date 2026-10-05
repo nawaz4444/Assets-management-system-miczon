@@ -43,15 +43,15 @@ class StockMathTests(StockBaseTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.qty, 6)
 
-    def test_out_transaction_never_goes_negative(self):
+    def test_out_transaction_allows_negative_stock(self):
         self.client.force_authenticate(self.admin)
         res = self.client.post('/api/stock/transactions/', {
-            'date': '2026-08-24', 'product': self.product.id, 'type': 'OUT', 'qty': 999, 'unit': 'pieces',
+            'date': '2026-08-24', 'product': self.product.id, 'type': 'OUT', 'qty': 15, 'unit': 'pieces',
         })
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.product.refresh_from_db()
-        self.assertEqual(self.product.qty, 10)
-        self.assertFalse(StockTransaction.objects.exists())
+        self.assertEqual(self.product.qty, -5)
+        self.assertTrue(StockTransaction.objects.filter(type='OUT', qty=15).exists())
 
     def test_delete_in_transaction_reverses_qty(self):
         self.client.force_authenticate(self.admin)
@@ -142,12 +142,12 @@ class StockIntegrityRegressionTests(StockBaseTestCase):
         self.assertEqual(self.product.qty, 10)
         self.assertFalse(StockTransaction.objects.exists())
 
-    def test_repeated_product_cannot_oversell_in_one_batch(self):
+    def test_repeated_product_allows_negative_stock_in_one_batch(self):
         res = self.client.post('/api/stock/transactions/bulk_out/', {'date': '2026-09-04', 'demand_by': 'QA', 'transactions': [
             {'product_code': self.product.code, 'qty': 6}, {'product_code': self.product.code, 'qty': 6}]}, format='json')
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 201)
         self.product.refresh_from_db()
-        self.assertEqual(self.product.qty, 10)
+        self.assertEqual(self.product.qty, -2)
 
     def test_create_reverse_round_trip_preserves_stock(self):
         res = self.client.post('/api/stock/transactions/', {'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 4})
@@ -156,16 +156,16 @@ class StockIntegrityRegressionTests(StockBaseTestCase):
         self.product.refresh_from_db()
         self.assertEqual(self.product.qty, 10)
 
-    def test_edit_consumed_receipt_is_rejected_without_partial_write(self):
+    def test_edit_receipt_can_result_in_negative_stock(self):
         tx = StockTransaction.objects.create(product=self.product, date='2026-09-04', type='IN', qty=10)
         self.product.qty = 2
         self.product.save()
         res = self.client.patch(f'/api/stock/transactions/{tx.pk}/', {'qty': 1})
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 200)
         tx.refresh_from_db()
         self.product.refresh_from_db()
-        self.assertEqual(tx.qty, 10)
-        self.assertEqual(self.product.qty, 2)
+        self.assertEqual(tx.qty, 1)
+        self.assertEqual(self.product.qty, -7)
 
     def test_reads_do_not_seed_demo_records(self):
         StockProduct.objects.all().delete()
@@ -184,7 +184,7 @@ class StockIntegrityRegressionTests(StockBaseTestCase):
             ids.append(result.data['id'])
         result = self.client.post('/api/stock/transactions/batch-change/', {'ids': ids, 'transactions': [
             {'id': ids[0], 'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 1},
-            {'id': ids[1], 'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 20}]}, format='json')
+            {'id': ids[1], 'product': self.product.pk, 'date': '2026-09-04', 'type': 'OUT', 'qty': 0}]}, format='json')
         self.assertEqual(result.status_code, 400)
         self.product.refresh_from_db()
         self.assertEqual(self.product.qty, 5)

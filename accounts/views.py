@@ -25,10 +25,25 @@ class AccountsPagination(PageNumberPagination):
     max_page_size = 200
 
 
+class NotStockOnlyUser(permissions.BasePermission):
+    """Denies access to stock-only users for financial accounts."""
+    message = "Access restricted to stock management."
+
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return not user.groups.filter(name='Stock Only').exists()
+
+
 class IsAdminUserOrReadOnly(permissions.BasePermission):
-    """Any authenticated user may read; only superusers may write."""
+    """Any authenticated non-stock user may read; only superusers may write."""
     def has_permission(self, request, view):
         if not (request.user and request.user.is_authenticated):
+            return False
+        if not request.user.is_superuser and request.user.groups.filter(name='Stock Only').exists():
             return False
         if request.method in permissions.SAFE_METHODS:
             return True
@@ -114,7 +129,7 @@ class DepreciationRunViewSet(viewsets.ModelViewSet):
 
 class DepreciationEntryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DepreciationEntrySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def get_queryset(self):
         qs = (
@@ -158,7 +173,7 @@ def _parse_period(data):
 
 # --- Reports ---
 class ReportsView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, NotStockOnlyUser]
 
     def get(self, request, report=None):
         if report == 'register':

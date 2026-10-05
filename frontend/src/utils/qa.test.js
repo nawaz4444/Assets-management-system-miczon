@@ -60,3 +60,10 @@ test('PDF export contains real data and paginates long tables', () => {
   assert.ok(contents.startsWith('%PDF-'));
   assert.ok(contents.includes('QA-119'));
 });
+
+test('stock operator selection defines all 4 required in-charges', async () => {
+  const { STOCK_OPERATORS } = await import('../stock/stockOperators.js');
+  const names = STOCK_OPERATORS.map((op) => op.name);
+  assert.deepEqual(names, ['Mr Bilal', 'Mr Adnan', 'Mr Saqib', 'Mr Usman']);
+});
+
