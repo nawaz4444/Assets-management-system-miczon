@@ -14,8 +14,6 @@ def apply_stock_changes(changes):
         raise serializers.ValidationError({'product': 'A selected product no longer exists.'})
     for pk, delta in changes.items():
         product = products[pk]
-        if product.qty + delta < 0:
-            raise serializers.ValidationError({'qty': f'Insufficient stock for {product.code}: {product.qty} available.'})
         product.qty += delta
         product.save(update_fields=['qty'])
 

@@ -34,6 +34,8 @@ function Login({ setToken }) {
             .then(response => {
                 const token = response.data.token;
                 localStorage.setItem('userToken', token);
+                sessionStorage.removeItem('stock_operator');
+                localStorage.removeItem('stock_operator');
                 setToken(token);
             })
             .catch(err => {

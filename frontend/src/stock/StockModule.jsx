@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { StockOperatorContext } from '../lib/contexts';
+import './stock-operator.css';
+import { STOCK_OPERATORS } from './stockOperators.js';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiError } from '../lib/api';
 import { localDate, reportRange } from '../utils/dates';
@@ -11,6 +14,7 @@ export function StockDashboard({ api }) {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { operator, clearOperator } = useContext(StockOperatorContext);
 
   useEffect(() => {
     api.get('/stock/products/summary/').then((res) => {
@@ -81,6 +85,31 @@ export function StockDashboard({ api }) {
   return (
     <>
       <PageHeader eyebrow="Consumable Stock Portal" title="Stock Dashboard" />
+      {operator && (
+        <div className="stock-operator-welcome-banner">
+          <div className="stock-operator-welcome-content">
+            <span className="stock-operator-welcome-avatar">
+              {operator.split(' ').map((n) => n[0]).join('')}
+            </span>
+            <div>
+              <div className="stock-operator-welcome-title">
+                Active In-Charge: <strong>{operator}</strong>
+                <span className="stock-operator-badge-sm">Active</span>
+              </div>
+              <p className="stock-operator-welcome-desc">
+                Stock transactions, auditing, and product operations are currently managed under your profile.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="stock-operator-switch-btn"
+            onClick={clearOperator}
+          >
+            Switch Profile
+          </button>
+        </div>
+      )}
       {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
       
       <div className="metric-grid">
@@ -94,6 +123,7 @@ export function StockDashboard({ api }) {
 
 export function StockAdjustments({ api }) {
   const [activeTab, setActiveTab] = useState('in'); // 'in' or 'out'
+  const { operator, clearOperator } = useContext(StockOperatorContext);
 
   return (
     <>
@@ -101,6 +131,12 @@ export function StockAdjustments({ api }) {
         <p className="eyebrow">Stock Dashboard / Adjustments</p>
         <h1>Inventory Adjustments</h1>
       </header>
+      {operator && (
+        <div className="stock-operator-strip">
+          <span>Active In-Charge: <strong>{operator}</strong></span>
+          <button type="button" onClick={clearOperator} className="stock-operator-strip-btn">Switch Profile</button>
+        </div>
+      )}
 
       {/* Tab Switcher */}
       <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
@@ -739,13 +775,21 @@ const STOCK_BATCH_CONFIG = {
 
 function StockBatch({ api, mode }) {
   const cfg = STOCK_BATCH_CONFIG[mode];
+  const { operator, setOperator } = useContext(StockOperatorContext);
   const makeRow = (id) => ({ id, category: '', product_code: '', [cfg.rowField]: '', unit: 'pieces', qty: 1 });
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(localDate());
-  const [person, setPerson] = useState('');
+  const [person, setPerson] = useState(() => operator || '');
+
+  // Keep person in sync whenever the active operator is selected or changed
+  useEffect(() => {
+    if (operator) {
+      setPerson(operator);
+    }
+  }, [operator]);
 
   const [rows, setRows] = useState([makeRow(1)]);
 
@@ -951,7 +995,7 @@ function StockBatch({ api, mode }) {
       setToastShow(true);
 
       setRows([makeRow(1)]);
-      setPerson('');
+      setPerson(operator || '');
       loadData();
 
       setTimeout(() => {
@@ -980,15 +1024,74 @@ function StockBatch({ api, mode }) {
             />
           </div>
           <div style={{ width: '1px', height: '24px', background: '#cbd5e1' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <label style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b', whiteSpace: 'nowrap' }}>{cfg.personLabel}</label>
             <input
               type="text"
               placeholder={cfg.personPlaceholder}
               value={person}
               onChange={(e) => setPerson(e.target.value)}
-              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '240px' }}
+              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '220px' }}
             />
+
+            {/* User Selection Box */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>
+                User:
+              </span>
+              <select
+                aria-label="User selection box"
+                value={STOCK_OPERATORS.some((op) => op.name === person) ? person : (operator || '')}
+                onChange={(e) => {
+                  const selectedName = e.target.value;
+                  if (selectedName) {
+                    setPerson(selectedName);
+                    if (typeof setOperator === 'function') {
+                      setOperator(selectedName);
+                    }
+                  }
+                }}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: '13px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#1e293b',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+                title="Select user to auto-fill supplier/recipient field"
+              >
+                <option value="">-- Choose User --</option>
+                {STOCK_OPERATORS.map((op) => (
+                  <option key={op.id} value={op.name}>
+                    {op.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {operator && person !== operator && (
+              <button
+                type="button"
+                onClick={() => setPerson(operator)}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#0d9488',
+                  background: '#f0fdfa',
+                  border: '1px solid #ccfbf1',
+                  borderRadius: '6px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title={`Quick-fill with active in-charge: ${operator}`}
+              >
+                Use {operator}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1167,7 +1270,22 @@ function StockBatch({ api, mode }) {
                     />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>{cfg.editPersonLabel}</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8' }}>{cfg.editPersonLabel}</label>
+                      <select
+                        aria-label="Edit batch user selection"
+                        value={STOCK_OPERATORS.some((op) => op.name === batchDetails) ? batchDetails : ''}
+                        onChange={(e) => {
+                          if (e.target.value) setBatchDetails(e.target.value);
+                        }}
+                        style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#334155' }}
+                      >
+                        <option value="">Quick fill user...</option>
+                        {STOCK_OPERATORS.map((op) => (
+                          <option key={op.id} value={op.name}>{op.name}</option>
+                        ))}
+                      </select>
+                    </div>
                     <input
                       required
                       type="text"

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, useContext } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
-import { UserContext, SuperCategoryContext } from '../lib/contexts';
+import { UserContext, SuperCategoryContext, StockOperatorContext } from '../lib/contexts';
 import { useApi, normalizeList, apiError, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
 import { localDate } from '../utils/dates';
 import { latestOpenInspection } from '../utils/inspections';
@@ -14,6 +14,8 @@ import {
   DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
+import { StockOperatorSelector } from '../stock/StockOperatorSelector';
+import '../stock/stock-operator.css';
 import { AccountsPage } from '../accounts/AccountsModule';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
@@ -65,6 +67,26 @@ export function AppShell({ token, handleLogout }) {
 
   const [superCategories, setSuperCategories] = useState([]);
   const [activeSuperCategory, setActiveSuperCategory] = useState(null);
+
+  const [stockOperator, setStockOperator] = useState(() => {
+    return sessionStorage.getItem('stock_operator') || null;
+  });
+
+  const handleSelectStockOperator = useCallback((operatorName) => {
+    setStockOperator(operatorName);
+    sessionStorage.setItem('stock_operator', operatorName);
+  }, []);
+
+  const handleClearStockOperator = useCallback(() => {
+    setStockOperator(null);
+    sessionStorage.removeItem('stock_operator');
+  }, []);
+
+  const stockOperatorContextValue = useMemo(() => ({
+    operator: stockOperator,
+    setOperator: handleSelectStockOperator,
+    clearOperator: handleClearStockOperator,
+  }), [stockOperator, handleSelectStockOperator, handleClearStockOperator]);
 
   useEffect(() => {
     api.get('/super-categories/')
@@ -130,14 +152,26 @@ export function AppShell({ token, handleLogout }) {
     });
   }, [user]);
 
+  if (user?.is_stock_only && !stockOperator) {
+    return (
+      <StockOperatorContext.Provider value={stockOperatorContextValue}>
+        <StockOperatorSelector
+          onSelect={handleSelectStockOperator}
+          onSignOut={handleLogout}
+        />
+      </StockOperatorContext.Provider>
+    );
+  }
+
   return (
-    <SuperCategoryContext.Provider value={superCatContextValue}>
-      <div className="app-shell">
-        <aside className="sidebar">
-          <Link className="brand" to={user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal')}>
-            <span className="brand-mark">{user?.is_stock_only ? 'ST' : 'IT'}</span>
-            <span>
-              <strong>AssetZone</strong>
+    <StockOperatorContext.Provider value={stockOperatorContextValue}>
+      <SuperCategoryContext.Provider value={superCatContextValue}>
+        <div className="app-shell">
+          <aside className="sidebar">
+            <Link className="brand" to={user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal')}>
+              <span className="brand-mark">{user?.is_stock_only ? 'ST' : 'IT'}</span>
+              <span>
+                <strong>AssetZone</strong>
               <small>{user?.is_stock_only ? 'Stock Management' : (activeSuperCategory?.name || 'Hardware Inventory')}</small>
             </span>
           </Link>
@@ -169,19 +203,41 @@ export function AppShell({ token, handleLogout }) {
           </nav>
 
           <div className="sidebar-footer">
-            <div className="user-pill">
-              <span className="avatar">{(user?.username || user?.email)?.[0]?.toUpperCase() || 'U'}</span>
-              <span>
-                <strong>{user?.employee_details?.name || user?.username || user?.email || 'Signed in'}</strong>
-                <small>
-                  {user?.is_stock_only
-                    ? 'Stock Keeper'
-                    : (user?.is_superuser
-                      ? 'Administrator'
-                      : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee'))}
-                </small>
-              </span>
-            </div>
+            {user?.is_stock_only && stockOperator ? (
+              <div className="stock-operator-footer-card">
+                <div className="user-pill">
+                  <span className="avatar stock-operator-avatar-pill">
+                    {stockOperator.split(' ').map((n) => n[0]).join('')}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <strong style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{stockOperator}</strong>
+                    <small>Stock In-Charge</small>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="stock-switch-profile-btn"
+                  onClick={handleClearStockOperator}
+                  title="Switch to another stock profile"
+                >
+                  Switch Profile
+                </button>
+              </div>
+            ) : (
+              <div className="user-pill">
+                <span className="avatar">{(user?.username || user?.email)?.[0]?.toUpperCase() || 'U'}</span>
+                <span>
+                  <strong>{user?.employee_details?.name || user?.username || user?.email || 'Signed in'}</strong>
+                  <small>
+                    {user?.is_stock_only
+                      ? 'Stock Keeper'
+                      : (user?.is_superuser
+                        ? 'Administrator'
+                        : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee'))}
+                  </small>
+                </span>
+              </div>
+            )}
             <Button type="button" variant="ghost" className="full" onClick={handleLogout}>Sign out</Button>
           </div>
         </aside>
@@ -234,6 +290,7 @@ export function AppShell({ token, handleLogout }) {
         </main>
       </div>
     </SuperCategoryContext.Provider>
+    </StockOperatorContext.Provider>
   );
 }
 
