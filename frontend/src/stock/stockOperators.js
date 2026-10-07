@@ -43,4 +43,16 @@ export const STOCK_OPERATORS = [
     borderLight: '#fed7aa',
     description: 'Stock transactions & replenishment tracking',
   },
+  {
+    id: 'amir',
+    name: 'Mr Amir',
+    initials: 'MA',
+    role: 'Stock In-Charge',
+    accent: '#0284c7',
+    gradient: 'linear-gradient(135deg, #0369a1, #38bdf8)',
+    bgLight: '#f0f9ff',
+    borderLight: '#bae6fd',
+    description: 'Stock fulfillment & logistics dispatch',
+  },
 ];
+
