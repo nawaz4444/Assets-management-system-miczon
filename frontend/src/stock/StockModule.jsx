@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { StockOperatorContext } from '../lib/contexts';
+import { StockOperatorContext, UserContext } from '../lib/contexts';
 import './stock-operator.css';
 import { STOCK_OPERATORS } from './stockOperators.js';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -122,14 +122,22 @@ export function StockDashboard({ api }) {
 }
 
 export function StockAdjustments({ api }) {
-  const [activeTab, setActiveTab] = useState('in'); // 'in' or 'out'
+  const { user } = useContext(UserContext);
+  const isStockOnly = user?.is_stock_only;
+  const [activeTab, setActiveTab] = useState(isStockOnly ? 'out' : 'in');
   const { operator, clearOperator } = useContext(StockOperatorContext);
+
+  useEffect(() => {
+    if (isStockOnly) {
+      setActiveTab('out');
+    }
+  }, [isStockOnly]);
 
   return (
     <>
       <header className="page-header" style={{ marginBottom: '24px' }}>
-        <p className="eyebrow">Stock Dashboard / Adjustments</p>
-        <h1>Inventory Adjustments</h1>
+        <p className="eyebrow">{isStockOnly ? 'Stock Outbound' : 'Stock Dashboard / Adjustments'}</p>
+        <h1>{isStockOnly ? 'Stock Outbound Dispatch' : 'Inventory Adjustments'}</h1>
       </header>
       {operator && (
         <div className="stock-operator-strip">
@@ -138,39 +146,41 @@ export function StockAdjustments({ api }) {
         </div>
       )}
 
-      {/* Tab Switcher */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
-        <button 
-          onClick={() => setActiveTab('in')}
-          style={{
-            paddingBottom: '14px',
-            fontSize: '14px',
-            fontWeight: activeTab === 'in' ? '600' : '500',
-            borderBottom: activeTab === 'in' ? '2px solid #0d9488' : '2px solid transparent',
-            color: activeTab === 'in' ? '#0d9488' : '#64748b',
-            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          Stock Inbound (Stock In)
-        </button>
-        <button 
-          onClick={() => setActiveTab('out')}
-          style={{
-            paddingBottom: '14px',
-            fontSize: '14px',
-            fontWeight: activeTab === 'out' ? '600' : '500',
-            borderBottom: activeTab === 'out' ? '2px solid #0d9488' : '2px solid transparent',
-            color: activeTab === 'out' ? '#0d9488' : '#64748b',
-            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          Stock Outbound (Stock Out)
-        </button>
-      </div>
+      {/* Tab Switcher - hidden when restricted to Stock Outbound only */}
+      {!isStockOnly && (
+        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
+          <button 
+            onClick={() => setActiveTab('in')}
+            style={{
+              paddingBottom: '14px',
+              fontSize: '14px',
+              fontWeight: activeTab === 'in' ? '600' : '500',
+              borderBottom: activeTab === 'in' ? '2px solid #0d9488' : '2px solid transparent',
+              color: activeTab === 'in' ? '#0d9488' : '#64748b',
+              background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            Stock Inbound (Stock In)
+          </button>
+          <button 
+            onClick={() => setActiveTab('out')}
+            style={{
+              paddingBottom: '14px',
+              fontSize: '14px',
+              fontWeight: activeTab === 'out' ? '600' : '500',
+              borderBottom: activeTab === 'out' ? '2px solid #0d9488' : '2px solid transparent',
+              color: activeTab === 'out' ? '#0d9488' : '#64748b',
+              background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            Stock Outbound (Stock Out)
+          </button>
+        </div>
+      )}
 
-      {activeTab === 'in' ? (
+      {(!isStockOnly && activeTab === 'in') ? (
         <StockIn api={api} />
       ) : (
         <StockOut api={api} />
@@ -775,6 +785,7 @@ const STOCK_BATCH_CONFIG = {
 
 function StockBatch({ api, mode }) {
   const cfg = STOCK_BATCH_CONFIG[mode];
+  const { user } = useContext(UserContext);
   const { operator, setOperator } = useContext(StockOperatorContext);
   const makeRow = (id) => ({ id, category: '', product_code: '', [cfg.rowField]: '', unit: 'pieces', qty: 1 });
 
@@ -1186,7 +1197,7 @@ function StockBatch({ api, mode }) {
             + Add Row
           </Button>
           <div style={{ display: 'flex', gap: '12px' }}>
-            <Button type="button" variant="ghost" onClick={() => navigate('/stock')}>Cancel</Button>
+            <Button type="button" variant="ghost" onClick={() => navigate(user?.is_stock_only ? '/stock/adjustments' : '/stock')}>Cancel</Button>
             <Button onClick={handleSubmit} style={cfg.submitBtnStyle}>{cfg.submitLabel}</Button>
           </div>
         </div>

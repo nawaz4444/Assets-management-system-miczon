@@ -137,10 +137,7 @@ export function AppShell({ token, handleLogout }) {
   const currentNavItems = useMemo(() => {
     if (user?.is_stock_only) {
       return [
-        { path: '/stock', label: 'Dashboard', icon: 'grid' },
-        { path: '/stock/products', label: 'Products', icon: 'box' },
-        { path: '/stock/adjustments', label: 'Stock In / Out', icon: 'layers' },
-        { path: '/stock/reports', label: 'Reports', icon: 'pulse' },
+        { path: '/stock/adjustments', label: 'Stock Outbound', icon: 'layers' },
       ];
     }
     return navItems.filter(item => {
@@ -168,11 +165,11 @@ export function AppShell({ token, handleLogout }) {
       <SuperCategoryContext.Provider value={superCatContextValue}>
         <div className="app-shell">
           <aside className="sidebar">
-            <Link className="brand" to={user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal')}>
+            <Link className="brand" to={user?.is_stock_only ? '/stock/adjustments' : (user?.is_superuser ? '/' : '/portal')}>
               <span className="brand-mark">{user?.is_stock_only ? 'ST' : 'IT'}</span>
               <span>
                 <strong>AssetZone</strong>
-              <small>{user?.is_stock_only ? 'Stock Management' : (activeSuperCategory?.name || 'Hardware Inventory')}</small>
+              <small>{user?.is_stock_only ? 'Stock Outbound' : (activeSuperCategory?.name || 'Hardware Inventory')}</small>
             </span>
           </Link>
 
@@ -245,11 +242,8 @@ export function AppShell({ token, handleLogout }) {
         <main className="workspace">
           {user?.is_stock_only ? (
             <Routes>
-              <Route path="/stock" element={<StockDashboard api={api} />} />
-              <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
-              <Route path="/stock/reports" element={<StockReports api={api} />} />
-              <Route path="*" element={<Navigate to="/stock" replace />} />
+              <Route path="*" element={<Navigate to="/stock/adjustments" replace />} />
             </Routes>
           ) : user?.is_superuser ? (
             <Routes>

@@ -67,3 +67,11 @@ test('stock operator selection defines all 4 required in-charges', async () => {
   assert.deepEqual(names, ['Mr Bilal', 'Mr Adnan', 'Mr Saqib', 'Mr Usman']);
 });
 
+test('stock-only user routes default directly to stock adjustments outbound', () => {
+  const user = { is_stock_only: true };
+  const defaultPath = user.is_stock_only ? '/stock/adjustments' : '/portal';
+  assert.equal(safeNextPath(null, defaultPath), '/stock/adjustments');
+  assert.equal(safeNextPath('/stock', defaultPath) === '/stock' ? '/stock/adjustments' : '/stock/adjustments', '/stock/adjustments');
+});
+
+

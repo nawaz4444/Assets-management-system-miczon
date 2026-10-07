@@ -21,8 +21,10 @@ function RequireLogin() {
 function LoginDestination({ user }) {
   const location = useLocation();
   const next = new URLSearchParams(location.search).get('next') || sessionStorage.getItem('auth:next');
-  const defaultPath = user?.is_stock_only ? '/stock' : (user?.is_superuser ? '/' : '/portal');
-  return <Navigate to={safeNextPath(next, defaultPath)} replace />;
+  const defaultPath = user?.is_stock_only ? '/stock/adjustments' : (user?.is_superuser ? '/' : '/portal');
+  const target = safeNextPath(next, defaultPath);
+  const resolved = user?.is_stock_only && (target === '/stock' || target === '/') ? '/stock/adjustments' : target;
+  return <Navigate to={resolved} replace />;
 }
 
 function App() {
