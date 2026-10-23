@@ -193,7 +193,7 @@ export function Dashboard({ api, isAdmin }) {
   const metrics = [
     { label: `Total ${catName}`, value: summary?.total_devices, to: `/inventory?super_category=${catCode}`, tone: 'blue' },
     { label: `Assigned ${catName}`, value: summary?.assigned, to: `/inventory?super_category=${catCode}&status=ASSIGNED`, tone: 'green' },
-    { label: `Unassigned ${catName}`, value: summary?.available, to: `/inventory?super_category=${catCode}&status=AVAILABLE`, tone: 'slate' },
+    { label: `Available ${catName}`, value: summary?.available, to: `/inventory?super_category=${catCode}&status=AVAILABLE`, tone: 'slate' },
     { label: `Repair ${catName}`, value: summary?.repair, to: `/inventory?super_category=${catCode}&status=BROKEN`, tone: 'red' },
     { label: 'Active Requests', value: summary?.active_requests, to: `/requests?super_category=${catCode}`, tone: 'amber' },
     { label: 'Pending Health Checks', value: summary?.pending_health_checks, to: `/health-checks?super_category=${catCode}`, tone: 'violet' },
