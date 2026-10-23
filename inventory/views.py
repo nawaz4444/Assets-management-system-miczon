@@ -1350,6 +1350,13 @@ class HealthCheckResponseViewSet(viewsets.ModelViewSet):
                     'power_boot_status': response.get('power_boot_status') or 'BOOTS_NORMALLY',
                     'ports_connectors': response.get('ports_connectors') or 'ALL_FUNCTIONAL',
                     'network_functionality': response.get('network_functionality') or 'CONNECTS_NORMALLY',
+                    # Motor Vehicle inspection fields
+                    'engine_condition': response.get('engine_condition') or 'ENGINE_SMOOTH',
+                    'transmission_clutch': response.get('transmission_clutch') or 'SHIFTS_SMOOTH',
+                    'brakes_suspension': response.get('brakes_suspension') or 'RESPONSIVE',
+                    'tyres_condition': response.get('tyres_condition') or 'GOOD_TREAD',
+                    'body_exterior': response.get('body_exterior') or 'CLEAN_INTACT',
+                    'fluids_service': response.get('fluids_service') or 'UP_TO_DATE',
                     'asset_tag_status': response.get('asset_tag_status') or 'INTACT_SCANNABLE',
                     'performance_rating': response.get('performance_rating') or 4,
                     'comments': response.get('comments') or '',

@@ -173,6 +173,14 @@ class HealthCheckResponse(models.Model):
     refrigerant_leak_check = models.CharField(max_length=50, blank=True, null=True, default='NO_LEAKS')
     control_panel_remote = models.CharField(max_length=50, blank=True, null=True, default='ALL_FUNCTIONAL')
 
+    # Motor Vehicle inspection fields
+    engine_condition = models.CharField(max_length=50, blank=True, null=True, default='ENGINE_SMOOTH')
+    transmission_clutch = models.CharField(max_length=50, blank=True, null=True, default='SHIFTS_SMOOTH')
+    brakes_suspension = models.CharField(max_length=50, blank=True, null=True, default='RESPONSIVE')
+    tyres_condition = models.CharField(max_length=50, blank=True, null=True, default='GOOD_TREAD')
+    body_exterior = models.CharField(max_length=50, blank=True, null=True, default='CLEAN_INTACT')
+    fluids_service = models.CharField(max_length=50, blank=True, null=True, default='UP_TO_DATE')
+
     # Universal inspection fields
     asset_tag_status = models.CharField(max_length=50, choices=ASSET_TAG_STATUS_CHOICES, default='INTACT_SCANNABLE')
     performance_rating = models.PositiveSmallIntegerField(default=4)

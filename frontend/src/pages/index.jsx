@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, useContext } 
 import axios from 'axios';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
+import { ThermalAssetLabel, LABEL_SIZES } from '../components/ThermalAssetLabel';
 import { UserContext, SuperCategoryContext } from '../lib/contexts';
 import { useApi, normalizeList, toApiPath, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
 import {
@@ -180,7 +181,7 @@ export function Dashboard({ api, isAdmin }) {
   const [error, setError] = useState('');
 
   const catCode = activeSuperCategory?.code || 'it_assets';
-  const catName = activeSuperCategory?.name || 'IT Assets';
+  const catName = activeSuperCategory?.name || 'Computer and IT';
 
   useEffect(() => {
     if (!catCode) return;
@@ -243,6 +244,7 @@ export function InventoryPage({ api, isAdmin }) {
   const [qrLabelsDialogOpen, setQrLabelsDialogOpen] = useState(false);
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [qrAsset, setQrAsset] = useState(null);
+  const [quickQrSize, setQuickQrSize] = useState('3x2in');
   const [form, setForm] = useState(emptyAsset);
   const [editingId, setEditingId] = useState(null);
   const [importFile, setImportFile] = useState(null);
@@ -541,7 +543,7 @@ export function InventoryPage({ api, isAdmin }) {
             asset.miczon_id,
             asset.name,
             <span key="sc" style={{ fontWeight: '600', color: '#0f766e', background: '#ccfbf1', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>
-              {asset.super_category_name || 'IT Assets'}
+              {asset.super_category_name || 'Computer and IT'}
             </span>,
             asset.category || 'Uncategorized',
             asset.department_name || 'No department',
@@ -712,18 +714,63 @@ export function InventoryPage({ api, isAdmin }) {
       </Dialog>
 
       <Dialog open={!!qrAsset}>
-        <DialogContent className="qr-dialog">
-          <DialogHeader title="Asset QR Code" description={qrAsset ? `${qrAsset.name} - ${qrAsset.miczon_id}` : ''} />
+        <DialogContent className="qr-dialog" style={{ maxWidth: '480px' }}>
+          <DialogHeader title="Asset QR Label (Xprinter XP-365B)" description={qrAsset ? `${qrAsset.name} • ${qrAsset.miczon_id}` : ''} />
           {qrAsset && (
-            <div className="qr-preview">
-              <QRCodeCanvas value={getQrPayload(qrAsset.miczon_id)} size={180} includeMargin />
-              <strong>Miczon ID: {qrAsset.miczon_id}</strong>
-              <small>{getQrPayload(qrAsset.miczon_id)}</small>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', padding: '12px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'center' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569' }}>Label Stock:</span>
+                <Select
+                  value={quickQrSize}
+                  onChange={(e) => setQuickQrSize(e.target.value)}
+                  style={{ fontSize: '13px', padding: '4px 8px' }}
+                >
+                  <option value="3x2in">3.00 in × 2.00 in (Single Sticker) ★ Default</option>
+                  <option value="3x4in">3.00 in × 4.00 in (Two-Sticker Stock)</option>
+                  <option value="xp365b-60">XP-365B 60% Scale</option>
+                  <option value="4x3in">4.00 in × 3.00 in (Landscape)</option>
+                  <option value="40x30mm">40 mm × 30 mm (Compact)</option>
+                </Select>
+              </div>
+
+              <div style={{ padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #cbd5e1', display: 'flex', justifyContent: 'center' }}>
+                <ThermalAssetLabel
+                  miczonId={qrAsset.miczon_id}
+                  name={qrAsset.name}
+                  department={qrAsset.department_name}
+                  custodian={qrAsset.custodian_name}
+                  sizePreset={quickQrSize}
+                  layout="auto"
+                  border={true}
+                />
+              </div>
+
+              <div style={{ fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                💡 In Chrome print dialog: select Paper size <strong>{LABEL_SIZES[quickQrSize]?.name}</strong>, Margins: <strong>None</strong>, uncheck <strong>Headers and footers</strong>.
+              </div>
             </div>
           )}
-          <div className="dialog-footer">
+
+          {/* Dynamic @page for qrAsset print */}
+          <style>{`
+            @media print {
+              @page {
+                size: ${LABEL_SIZES[quickQrSize]?.pageSize || '3.00in 4.00in'};
+                margin: 0mm !important;
+              }
+            }
+          `}</style>
+
+          <div className="dialog-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <Button type="button" variant="ghost" onClick={() => setQrAsset(null)}>Close</Button>
-            <Button type="button" variant="primary" onClick={() => navigate(`/inventory/asset/${qrAsset?.id}`)}>Open Asset</Button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button type="button" variant="primary" onClick={() => window.print()}>
+                🖨️ Print Label (XP-365B)
+              </Button>
+              <Button type="button" variant="outline" onClick={() => navigate(`/inventory/asset/${qrAsset?.id}`)}>
+                Open Asset
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -743,7 +790,9 @@ export function AssetDetailPage({ api, isAdmin }) {
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState(emptyAsset);
+  const [tagSize, setTagSize] = useState('3x2in');
+  const [tagLayout, setTagLayout] = useState('auto');
+  const activePreset = LABEL_SIZES[tagSize] || LABEL_SIZES['3x2in'];
 
   useEffect(() => {
     api.get(`/assets/${assetId}/`)
@@ -808,7 +857,7 @@ export function AssetDetailPage({ api, isAdmin }) {
         <Button type="button" variant="ghost" onClick={() => navigate('/inventory')}>Back</Button>
         <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>
         {isAdmin && <Button type="button" variant="danger" onClick={removeAsset}>Remove</Button>}
-        <Button type="button" variant="primary" onClick={() => window.print()}>Print Asset Tag</Button>
+        <Button type="button" variant="primary" onClick={() => window.print()}>🖨️ Print Label (XP-365B)</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
@@ -961,22 +1010,86 @@ export function AssetDetailPage({ api, isAdmin }) {
       </div>
 
       {/* QR Code Tag Card */}
-      <section className="panel qr-detail-panel">
-        <h3 style={{ marginBottom: '1rem', color: '#1e293b' }}>Asset QR Code Tag</h3>
-        <div className="qr-preview">
-          <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={180} includeMargin />
-          <strong>Miczon ID: {asset.miczon_id}</strong>
-          <small>{getQrPayload(asset.miczon_id)}</small>
+      <section className="panel qr-detail-panel" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <h3 style={{ margin: 0, color: '#1e293b' }}>Asset Barcode / QR Label (Xprinter XP-365B)</h3>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+              Printer Stock: <strong>{activePreset.name}</strong>
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Select
+              value={tagSize}
+              onChange={(e) => setTagSize(e.target.value)}
+              style={{ fontSize: '13px', padding: '6px 10px', height: 'auto' }}
+            >
+              <option value="3x2in">3.00 in × 2.00 in (Single Sticker) ★ Default</option>
+              <option value="3x4in">3.00 in × 4.00 in (Two-Sticker Stock)</option>
+              <option value="xp365b-60">XP-365B 60% Scale</option>
+              <option value="4x3in">4.00 in × 3.00 in (Landscape)</option>
+              <option value="40x30mm">40 mm × 30 mm (Compact 4×3 cm)</option>
+              <option value="50x30mm">50 mm × 30 mm</option>
+            </Select>
+
+            <Select
+              value={tagLayout}
+              onChange={(e) => setTagLayout(e.target.value)}
+              style={{ fontSize: '13px', padding: '6px 10px', height: 'auto' }}
+            >
+              <option value="auto">Standard Asset Layout</option>
+              <option value="qr-only">QR + ID Only (Fast Scan)</option>
+            </Select>
+
+            <Button type="button" variant="primary" size="sm" onClick={() => window.print()}>
+              🖨️ Print Label (XP-365B)
+            </Button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <div style={{ padding: '12px', background: '#ffffff', borderRadius: '4px', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
+            <ThermalAssetLabel
+              miczonId={asset.miczon_id}
+              name={asset.name}
+              department={asset.department_name}
+              custodian={asset.custodian_name}
+              sizePreset={tagSize}
+              layout={tagLayout}
+              border={true}
+            />
+          </div>
+
+          <div style={{ maxWidth: '440px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '8px 12px', fontSize: '11px', color: '#334155', textAlign: 'left', lineHeight: '1.4' }}>
+            <strong>💡 Setup in Chrome Print Dialog:</strong>
+            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+              <li>Paper size: select <strong>USER (3.00 in x 4.00 in)</strong> (matches your driver stock).</li>
+              <li>Margins: set to <strong>None</strong>.</li>
+              <li>Options: <strong>Uncheck</strong> "Headers and footers".</li>
+            </ul>
+          </div>
         </div>
       </section>
 
+      {/* Dedicated Single Print container for Xprinter XP-365B */}
+      <style>{`
+        @media print {
+          @page {
+            size: ${activePreset.pageSize};
+            margin: 0mm !important;
+          }
+        }
+      `}</style>
       <div className="asset-tag-print-only">
-        <div className="asset-print-label">
-          <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={170} includeMargin />
-          <strong>Miczon ID: {asset.miczon_id}</strong>
-          <span>Device: {asset.name}</span>
-          <span>Custodian: {asset.custodian_name || 'Unassigned'}</span>
-        </div>
+        <ThermalAssetLabel
+          miczonId={asset.miczon_id}
+          name={asset.name}
+          department={asset.department_name}
+          custodian={asset.custodian_name}
+          sizePreset={tagSize}
+          layout={tagLayout}
+          border={false}
+        />
       </div>
 
       <Dialog open={dialogOpen}>
@@ -1026,6 +1139,43 @@ export function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Thermal printer configuration (Optimized for Xprinter XP-365B 60% scale single label fit)
+  const [labelPreset, setLabelPreset] = useState('3x2in');
+  const [customWidth, setCustomWidth] = useState(76);
+  const [customHeight, setCustomHeight] = useState(51);
+  const [layoutStyle, setLayoutStyle] = useState('auto');
+  const [brandName, setBrandName] = useState('MICZON');
+  const [showBorder, setShowBorder] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+
+  const isA4 = labelPreset === 'a4';
+  const activeWidth = labelPreset === '3x2in' ? 76.2
+    : labelPreset === 'xp365b-60' ? 45.7
+    : labelPreset === '3x4in' ? 76.2
+    : labelPreset === '4x3in' ? 101.6
+    : labelPreset === '40x30' ? 40
+    : labelPreset === '50x30' ? 50
+    : labelPreset === 'custom' ? (Math.max(15, Math.min(Number(customWidth) || 46, 110)))
+    : 70;
+
+  const activeHeight = labelPreset === '3x2in' ? 50.8
+    : labelPreset === 'xp365b-60' ? 61.0
+    : labelPreset === '3x4in' ? 101.6
+    : labelPreset === '4x3in' ? 76.2
+    : labelPreset === '40x30' ? 30
+    : labelPreset === '50x30' ? 30
+    : labelPreset === 'custom' ? (Math.max(15, Math.min(Number(customHeight) || 61, 150)))
+    : 35;
+
+  const activePageSize = labelPreset === '3x2in' ? '3.00in 2.00in'
+    : labelPreset === 'xp365b-60' ? '46mm 61mm'
+    : labelPreset === '3x4in' ? '3.00in 4.00in'
+    : labelPreset === '4x3in' ? '4.00in 3.00in'
+    : labelPreset === '40x30' ? '40mm 30mm'
+    : labelPreset === '50x30' ? '50mm 30mm'
+    : labelPreset === 'custom' ? `${activeWidth}mm ${activeHeight}mm`
+    : 'A4 portrait';
+
   useEffect(() => {
     if (open) {
       fetchAll(api, '/departments/').then(setDepartments).catch(() => {});
@@ -1059,15 +1209,17 @@ export function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
     return String(asset.department) === String(selectedDepartment) || String(asset.department_id) === String(selectedDepartment);
   });
 
+  const totalLabelCount = mode === 'EXISTING' ? filteredAssets.length : newMiczonIds.length;
+
   return (
     <Dialog open={open}>
-      <DialogContent className="qr-labels-dialog" style={{ maxWidth: '880px' }}>
+      <DialogContent className="qr-labels-dialog" style={{ maxWidth: '920px' }}>
         <DialogHeader
-          title="Print Asset QR Labels"
-          description="Filter assets by department to view and print formatted tags matching your asset tags."
+          title="Print Asset QR Labels (Xprinter XP-365B)"
+          description="Format and print QR code asset tags adjusted for thermal barcode labels (standard 40mm × 30mm / approx 4 width × 3 length cm)."
         />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button
               type="button"
@@ -1091,8 +1243,8 @@ export function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
             <Button type="button" variant="outline" size="sm" onClick={onOpenScanner}>
               Scan QR Code
             </Button>
-            <Button type="button" variant="primary" size="sm" onClick={handlePrint}>
-              🖨️ Print Asset Tags
+            <Button type="button" variant="primary" size="sm" onClick={handlePrint} disabled={totalLabelCount === 0}>
+              🖨️ Print {totalLabelCount > 0 ? `(${totalLabelCount})` : ''} Labels
             </Button>
           </div>
         </div>
@@ -1100,8 +1252,8 @@ export function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
         {notice && <Notice tone="error">{notice}</Notice>}
 
         {mode === 'EXISTING' ? (
-          <section className="panel" style={{ padding: '16px', marginBottom: '16px' }}>
-            <Field label="Select Department">
+          <section className="panel" style={{ padding: '14px', marginBottom: '14px' }}>
+            <Field label="Filter Department">
               <Select value={selectedDepartment} onChange={(e) => setSelectedDepartment(e.target.value)}>
                 <option value="">All Departments ({assets.length} Assets)</option>
                 {departments.map((dept) => {
@@ -1116,7 +1268,7 @@ export function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
             </Field>
           </section>
         ) : (
-          <section className="panel" style={{ padding: '16px', marginBottom: '16px' }}>
+          <section className="panel" style={{ padding: '14px', marginBottom: '14px' }}>
             <form className="form-grid" onSubmit={generateNewIds} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
               <Field label="Quantity of Blank Tags" style={{ flex: 1 }}>
                 <input min="1" max="500" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
@@ -1128,70 +1280,145 @@ export function QrLabelsDialog({ open, onClose, onOpenScanner, api }) {
           </section>
         )}
 
-        {/* Printable Surface */}
-        <section className="panel qr-print-surface" style={{ maxHeight: '460px', overflowY: 'auto', padding: '16px' }}>
-          {mode === 'EXISTING' ? (
-            filteredAssets.length === 0 ? (
-              <p className="empty-state">No assets found for the selected department.</p>
-            ) : (
-              <div className="qr-label-grid">
-                {filteredAssets.map((asset) => (
-                  <div
-                    key={asset.id}
-                    className="qr-label asset-print-label"
-                    style={{
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '8px',
-                      padding: '12px',
-                      textAlign: 'center',
-                      background: '#ffffff',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                      breakInside: 'avoid'
-                    }}
-                  >
-                    <QRCodeCanvas value={getQrPayload(asset.miczon_id)} size={130} includeMargin />
-                    <strong style={{ display: 'block', fontSize: '13px', marginTop: '6px', color: '#0f172a' }}>
-                      Miczon ID: {asset.miczon_id}
-                    </strong>
-                    <span style={{ display: 'block', fontSize: '12px', color: '#334155', fontWeight: '600' }}>
-                      Device: {asset.name}
-                    </span>
-                    <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
-                      Dept: {asset.department_name || 'No department'}
-                    </span>
-                    <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>
-                      Custodian: {asset.custodian_name || 'Unassigned'}
-                    </span>
-                  </div>
-                ))}
+        {/* Thermal Printer Settings Bar */}
+        <div className="panel qr-toolbar-controls" style={{ padding: '12px 16px', marginBottom: '14px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+              <Field label="Label Dimensions" style={{ minWidth: '220px', margin: 0 }}>
+                <Select value={labelPreset} onChange={(e) => setLabelPreset(e.target.value)}>
+                  <option value="3x2in">3.00 in × 2.00 in (Single Sticker) ★ Default</option>
+                  <option value="3x4in">3.00 in × 4.00 in (Two-Sticker Stock)</option>
+                  <option value="xp365b-60">XP-365B 60% Scale</option>
+                  <option value="4x3in">4.00 in × 3.00 in (Landscape)</option>
+                  <option value="40x30">40 × 30 mm (Compact 4×3 cm)</option>
+                  <option value="50x30">50 × 30 mm</option>
+                  <option value="custom">Custom Dimensions (mm)...</option>
+                  <option value="a4">A4 Paper Sheet (Multi-label Grid)</option>
+                </Select>
+              </Field>
+
+              {labelPreset === 'custom' && (
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <Field label="Width (mm)" style={{ width: '85px', margin: 0 }}>
+                    <input type="number" min="15" max="110" value={customWidth} onChange={(e) => setCustomWidth(e.target.value)} />
+                  </Field>
+                  <span style={{ marginTop: '18px', color: '#64748b' }}>×</span>
+                  <Field label="Length (mm)" style={{ width: '85px', margin: 0 }}>
+                    <input type="number" min="15" max="150" value={customHeight} onChange={(e) => setCustomHeight(e.target.value)} />
+                  </Field>
+                </div>
+              )}
+
+              <Field label="Layout Style" style={{ minWidth: '180px', margin: 0 }}>
+                <Select value={layoutStyle} onChange={(e) => setLayoutStyle(e.target.value)}>
+                  <option value="auto">Standard Asset Layout</option>
+                  <option value="qr-only">QR + ID Only (Fast Scan)</option>
+                </Select>
+              </Field>
+
+              <Field label="Header Brand" style={{ width: '95px', margin: 0 }}>
+                <input type="text" maxLength="12" value={brandName} onChange={(e) => setBrandName(e.target.value)} />
+              </Field>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: '#475569' }}>
+                <input type="checkbox" checked={showBorder} onChange={(e) => setShowBorder(e.target.checked)} />
+                Cutting Border
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowGuide(!showGuide)}
+                style={{ background: 'none', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '12px', fontWeight: '600', padding: 0 }}
+              >
+                {showGuide ? 'Hide XP-365B Tips ▴' : 'XP-365B Setup Tips ▾'}
+              </button>
+            </div>
+          </div>
+
+          {showGuide && (
+            <div className="thermal-guide-banner" style={{ marginTop: '12px' }}>
+              <div style={{ fontSize: '20px' }}>💡</div>
+              <div>
+                <strong>Xprinter XP-365B Print Setup Guide:</strong>
+                <ol style={{ margin: '4px 0 0 16px', padding: 0, lineHeight: '1.5', fontSize: '12px' }}>
+                  <li>Driver stock MUST match one physical sticker: in Printing Preferences set Stock to <strong>3.00 in × 2.00 in</strong> (not 4.00 in — 4in spans two stickers).</li>
+                  <li>Destination: Select <strong>Xprinter XP-365B</strong>.</li>
+                  <li>Paper Size: Select <strong>USER (3.00 in x 2.00 in)</strong> (match the driver stock name).</li>
+                  <li>Margins: Choose <strong>None</strong> (0mm) to prevent Chrome from slicing labels.</li>
+                  <li>Options: <strong>Uncheck</strong> "Headers and footers".</li>
+                </ol>
               </div>
-            )
-          ) : (
-            newMiczonIds.length === 0 ? (
-              <p className="empty-state">Enter a quantity and click Generate to preview blank tags.</p>
-            ) : (
-              <div className="qr-label-grid">
-                {newMiczonIds.map((miczonId) => (
-                  <div
-                    key={miczonId}
-                    className="qr-label asset-print-label"
-                    style={{
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '8px',
-                      padding: '12px',
-                      textAlign: 'center',
-                      background: '#ffffff',
-                      breakInside: 'avoid'
-                    }}
-                  >
-                    <QRCodeCanvas value={getQrPayload(miczonId)} size={130} includeMargin />
-                    <strong style={{ display: 'block', fontSize: '13px', marginTop: '6px' }}>Miczon ID: {miczonId}</strong>
-                    <span style={{ display: 'block', fontSize: '11px', color: '#64748b' }}>Unassigned Tag</span>
-                  </div>
-                ))}
-              </div>
-            )
+            </div>
           )}
+        </div>
+
+        {/* Dynamic @page CSS injected during print */}
+        <style>{`
+          @media print {
+            @page {
+              size: ${isA4 ? 'A4 portrait' : activePageSize};
+              margin: ${isA4 ? '10mm' : '0mm !important'};
+            }
+          }
+        `}</style>
+
+        {/* Printable Surface */}
+        <section className={`panel qr-print-surface ${isA4 ? 'mode-a4' : 'mode-thermal'}`} style={{ maxHeight: '460px', overflowY: 'auto', padding: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', color: '#64748b', fontSize: '12px' }}>
+            <span>
+              Label Size: <strong>{activeWidth}mm × {activeHeight}mm</strong> ({isA4 ? 'A4 Sheet Grid' : 'XP-365B Continuous Roll'}) • <strong>203 DPI</strong>
+            </span>
+            <span>
+              Count: <strong>{totalLabelCount}</strong> labels
+            </span>
+          </div>
+
+          <div className="thermal-preview-container">
+            {mode === 'EXISTING' ? (
+              filteredAssets.length === 0 ? (
+                <p className="empty-state">No assets found for the selected department.</p>
+              ) : (
+                <div className="thermal-labels-flow">
+                  {filteredAssets.map((asset) => (
+                    <ThermalAssetLabel
+                      key={asset.id}
+                      miczonId={asset.miczon_id}
+                      name={asset.name}
+                      department={asset.department_name}
+                      custodian={asset.custodian_name}
+                      sizePreset={labelPreset}
+                      layout={layoutStyle}
+                      widthMm={activeWidth}
+                      heightMm={activeHeight}
+                      brand={brandName}
+                      border={showBorder}
+                    />
+                  ))}
+                </div>
+              )
+            ) : (
+              newMiczonIds.length === 0 ? (
+                <p className="empty-state">Enter a quantity and click Generate to preview blank tags.</p>
+              ) : (
+                <div className="thermal-labels-flow">
+                  {newMiczonIds.map((miczonId) => (
+                    <ThermalAssetLabel
+                      key={miczonId}
+                      miczonId={miczonId}
+                      name=""
+                      sizePreset={labelPreset}
+                      layout={layoutStyle === 'auto' ? 'large-portrait' : layoutStyle}
+                      widthMm={activeWidth}
+                      heightMm={activeHeight}
+                      brand={brandName}
+                      border={showBorder}
+                    />
+                  ))}
+                </div>
+              )
+            )}
+          </div>
         </section>
 
         <div className="dialog-footer" style={{ marginTop: '16px' }}>
@@ -2001,7 +2228,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
   const canInspectTeam = isAdmin || isManager || Boolean(user?.employee_details?.is_manager);
   const { superCategories, activeSuperCategory, setActiveSuperCategory } = useContext(SuperCategoryContext);
   const activeCode = activeSuperCategory?.code || 'it_assets';
-  const activeCatName = activeSuperCategory?.name || 'IT Assets';
+  const activeCatName = activeSuperCategory?.name || 'Computer and IT';
 
   const [sessions, setSessions] = useState([]);
   const [report, setReport] = useState(null);
