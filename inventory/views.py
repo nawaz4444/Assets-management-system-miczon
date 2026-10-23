@@ -1634,6 +1634,11 @@ class ReportsViewSet(viewsets.ViewSet):
             else:
                 assets = assets.filter(Q(super_category__code__iexact=super_category) | Q(super_category__name__iexact=super_category))
 
+        # Optional subcategory filter (Asset.category, e.g. "Laptop", "MacBook")
+        category = request.query_params.get('category')
+        if category:
+            assets = assets.filter(category__iexact=category)
+
         if not (request.user.is_superuser or request.user.is_staff):
             emp_filter = get_employee_filter(request.user, prefix='custodian__')
             assets = assets.filter(emp_filter)
@@ -1664,6 +1669,9 @@ class ReportsViewSet(viewsets.ViewSet):
                 if super_cat_obj:
                     open_sessions = open_sessions.filter(super_category=super_cat_obj)
 
+        if category:
+            active_requests = active_requests.filter(asset__category__iexact=category)
+
         # Pending health checks = number of assigned assets not yet responded to in any open session
         if open_sessions.exists():
             open_session_ids = list(open_sessions.values_list('id', flat=True))
@@ -1676,6 +1684,9 @@ class ReportsViewSet(viewsets.ViewSet):
                     target_assets_qs = target_assets_qs.filter(super_category=super_cat_obj)
             elif super_category and str(super_category).isdigit():
                 target_assets_qs = target_assets_qs.filter(super_category_id=super_category)
+
+            if category:
+                target_assets_qs = target_assets_qs.filter(category__iexact=category)
 
             if not (request.user.is_superuser or request.user.is_staff):
                 employee = _get_employee_requester(request.user)

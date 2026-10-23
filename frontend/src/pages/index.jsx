@@ -258,6 +258,8 @@ export function Dashboard({ api, isAdmin }) {
   const { categoryCode: routeCode } = useParams();
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
+  const [breakdown, setBreakdown] = useState([]); // subcategory options for the active category
+  const [subCategory, setSubCategory] = useState(''); // '' = all subcategories
   const [error, setError] = useState('');
 
   const catCode = routeCode || activeSuperCategory?.code || 'it_assets';
@@ -279,18 +281,29 @@ export function Dashboard({ api, isAdmin }) {
     }
   }, [catCode, superCategories]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset subcategory whenever the top-level category changes
+  useEffect(() => { setSubCategory(''); }, [catCode]);
+
   useEffect(() => {
     if (!catCode) return;
-    api.get(`/reports/summary/?super_category=${encodeURIComponent(catCode)}`)
-      .then((res) => setSummary(res.data))
+    const params = new URLSearchParams({ super_category: catCode });
+    if (subCategory) params.set('category', subCategory);
+    api.get(`/reports/summary/?${params.toString()}`)
+      .then((res) => {
+        setSummary(res.data);
+        // Populate the subcategory options from the unfiltered response only
+        if (!subCategory) setBreakdown(res.data.category_breakdown || []);
+      })
       .catch(() => setError('Unable to load dashboard summary.'));
-  }, [api, catCode]);
+  }, [api, catCode, subCategory]);
 
+  const catParam = subCategory ? `&category=${encodeURIComponent(subCategory)}` : '';
+  const scope = subCategory || catName;
   const metrics = [
-    { label: `Total ${catName}`, value: summary?.total_devices, to: `/inventory?super_category=${catCode}`, tone: 'blue' },
-    { label: `Assigned ${catName}`, value: summary?.assigned, to: `/inventory?super_category=${catCode}&status=ASSIGNED`, tone: 'green' },
-    { label: `Available ${catName}`, value: summary?.available, to: `/inventory?super_category=${catCode}&status=AVAILABLE`, tone: 'slate' },
-    { label: `Repair ${catName}`, value: summary?.repair, to: `/inventory?super_category=${catCode}&status=BROKEN`, tone: 'red' },
+    { label: `Total ${scope}`, value: summary?.total_devices, to: `/inventory?super_category=${catCode}${catParam}`, tone: 'blue' },
+    { label: `Assigned ${scope}`, value: summary?.assigned, to: `/inventory?super_category=${catCode}${catParam}&status=ASSIGNED`, tone: 'green' },
+    { label: `Available ${scope}`, value: summary?.available, to: `/inventory?super_category=${catCode}${catParam}&status=AVAILABLE`, tone: 'slate' },
+    { label: `Repair ${scope}`, value: summary?.repair, to: `/inventory?super_category=${catCode}${catParam}&status=BROKEN`, tone: 'red' },
     { label: 'Active Requests', value: summary?.active_requests, to: `/requests?super_category=${catCode}`, tone: 'amber' },
     { label: 'Pending Health Checks', value: summary?.pending_health_checks, to: `/health-checks?super_category=${catCode}`, tone: 'violet' },
   ];
@@ -310,6 +323,23 @@ export function Dashboard({ api, isAdmin }) {
             activeSuperCategory={catObj}
             onSelect={(cat) => navigate(`/dashboard/${cat.code}`)}
           />
+          {breakdown.filter((b) => b.category).length > 0 && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Icon name="box" /> Subcategory:
+              </span>
+              <select
+                value={subCategory}
+                onChange={(e) => setSubCategory(e.target.value)}
+                style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 10px', fontWeight: 700, color: '#0f172a', cursor: 'pointer', outline: 'none' }}
+              >
+                <option value="">All Subcategories</option>
+                {breakdown.filter((b) => b.category).map((b) => (
+                  <option key={b.category} value={b.category}>{b.category} ({b.count})</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </PageHeader>
       {error && <Notice tone="error">{error}</Notice>}
@@ -337,6 +367,7 @@ export function InventoryPage({ api, isAdmin }) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || '');
+  const [categoryFilter, setCategoryFilter] = useState(new URLSearchParams(location.search).get('category') || '');
   
   // Pagination State
   const [page, setPage] = useState(1);
@@ -371,7 +402,8 @@ export function InventoryPage({ api, isAdmin }) {
 
   useEffect(() => {
     setStatusFilter(new URLSearchParams(location.search).get('status') || '');
-    setPage(1); // Reset to page 1 on external status filter change
+    setCategoryFilter(new URLSearchParams(location.search).get('category') || '');
+    setPage(1); // Reset to page 1 on external status/category filter change
   }, [location.search]);
 
   // 2. Load Assets with Pagination (cancellable to avoid out-of-order responses)
@@ -384,6 +416,7 @@ export function InventoryPage({ api, isAdmin }) {
     if (activeCode) params.set('super_category', activeCode);
     if (debouncedSearch) params.set('search', debouncedSearch);
     if (statusFilter) params.set('status', statusFilter);
+    if (categoryFilter) params.set('category', categoryFilter);
     if (departmentFilter) params.set('department', departmentFilter);
 
     return api.get(`/assets/?${params.toString()}`, { signal })
@@ -397,7 +430,7 @@ export function InventoryPage({ api, isAdmin }) {
         setNotice('Unable to load inventory.');
         setLoading(false);
       });
-  }, [api, activeCode, debouncedSearch, statusFilter, departmentFilter, page]);
+  }, [api, activeCode, debouncedSearch, statusFilter, categoryFilter, departmentFilter, page]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -573,6 +606,7 @@ export function InventoryPage({ api, isAdmin }) {
       if (activeCode) params.set('super_category', activeCode);
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (statusFilter) params.set('status', statusFilter);
+      if (categoryFilter) params.set('category', categoryFilter);
       if (departmentFilter) params.set('department', departmentFilter);
 
       const response = await api.get(`/assets/export/?${params.toString()}`, { responseType: 'blob' });
@@ -639,7 +673,26 @@ export function InventoryPage({ api, isAdmin }) {
             <option value="">All Statuses</option>
             {assetStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
           </Select>
-          <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); setStatusFilter(''); setPage(1); }}>Reset</Button>
+          {categoryFilter && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', borderRadius: '999px', padding: '4px 10px', fontSize: '13px', fontWeight: 600 }}>
+              Subcategory: {categoryFilter}
+              <button
+                type="button"
+                aria-label="Clear subcategory filter"
+                onClick={() => {
+                  const p = new URLSearchParams(location.search);
+                  p.delete('category');
+                  setCategoryFilter('');
+                  setPage(1);
+                  navigate(`/inventory${p.toString() ? `?${p.toString()}` : ''}`);
+                }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#3730a3', fontWeight: 700, lineHeight: 1, padding: 0 }}
+              >
+                ✕
+              </button>
+            </span>
+          )}
+          <Button type="button" variant="ghost" onClick={() => { setSearch(''); setDepartmentFilter(''); setStatusFilter(''); setCategoryFilter(''); setPage(1); }}>Reset</Button>
         </div>
         <DataTable
           columns={['Miczon ID', 'Device', 'Super Category', 'Category', 'Department', 'Status', 'Assigned User', 'Actions']}
