@@ -111,8 +111,11 @@ export function AppShell({ token, handleLogout }) {
                   </a>
                 );
               }
+              const isActive = item.path === '/'
+                ? (location.pathname === '/' || location.pathname.startsWith('/dashboard'))
+                : location.pathname === item.path;
               return (
-                <Link key={item.path} className={`nav-item ${location.pathname === item.path ? 'active' : ''}`} to={item.path}>
+                <Link key={item.path} className={`nav-item ${isActive ? 'active' : ''}`} to={item.path}>
                   <Icon name={item.icon} />
                   <span>{item.label}</span>
                 </Link>
@@ -139,7 +142,8 @@ export function AppShell({ token, handleLogout }) {
         <main className="workspace">
           {user?.is_superuser ? (
             <Routes>
-              <Route path="/" element={<Dashboard api={api} isAdmin={true} />} />
+              <Route path="/" element={<DashboardOverview api={api} isAdmin={true} />} />
+              <Route path="/dashboard/:categoryCode" element={<Dashboard api={api} isAdmin={true} />} />
               <Route path="/inventory" element={<InventoryPage api={api} isAdmin={true} />} />
               <Route path="/inventory/add" element={<InventoryPage api={api} isAdmin={true} />} />
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={true} />} />
@@ -175,13 +179,105 @@ export function AppShell({ token, handleLogout }) {
   );
 }
 
+// Top-level dashboard: one card per super-category. Clicking a card opens
+// the per-category dashboard (`/dashboard/:categoryCode`).
+export function DashboardOverview({ api, isAdmin }) {
+  const { superCategories } = useContext(SuperCategoryContext);
+  const [summaries, setSummaries] = useState({}); // code -> summary
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!superCategories || superCategories.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      superCategories.map((cat) =>
+        api.get(`/reports/summary/?super_category=${encodeURIComponent(cat.code)}`)
+          .then((res) => [cat.code, res.data])
+          .catch(() => [cat.code, null])
+      )
+    ).then((pairs) => {
+      if (cancelled) return;
+      const map = {};
+      pairs.forEach(([code, data]) => { map[code] = data; });
+      setSummaries(map);
+    }).catch(() => setError('Unable to load category summaries.'));
+    return () => { cancelled = true; };
+  }, [api, superCategories]);
+
+  const tones = ['blue', 'green', 'violet', 'amber', 'red', 'slate'];
+
+  const totalAll = Object.values(summaries).reduce((sum, s) => sum + (s?.total_devices || 0), 0);
+
+  return (
+    <>
+      <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Dashboard'} title="Categories Overview" />
+      {error && <Notice tone="error">{error}</Notice>}
+      <div className="metric-grid">
+        {/* All categories aggregate */}
+        <MetricCard
+          label="All Categories"
+          subtext="Every asset — click to open"
+          to="/dashboard/all"
+          tone="slate"
+          value={
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <strong style={{ fontSize: '30px' }}>{totalAll}</strong>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Total devices</span>
+            </div>
+          }
+        />
+        {(superCategories || []).map((cat, i) => {
+          const s = summaries[cat.code];
+          return (
+            <MetricCard
+              key={cat.id}
+              label={cat.name}
+              subtext="Click to open dashboard"
+              to={`/dashboard/${cat.code}`}
+              tone={tones[i % tones.length]}
+              value={
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <strong style={{ fontSize: '30px' }}>{s?.total_devices ?? 0}</strong>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
+                    {s
+                      ? `${s.assigned} assigned · ${s.available} available · ${s.repair} repair`
+                      : 'Loading…'}
+                  </span>
+                </div>
+              }
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 export function Dashboard({ api, isAdmin }) {
   const { superCategories, activeSuperCategory, setActiveSuperCategory } = useContext(SuperCategoryContext);
+  const { categoryCode: routeCode } = useParams();
+  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState('');
 
-  const catCode = activeSuperCategory?.code || 'it_assets';
-  const catName = activeSuperCategory?.name || 'Computer and IT';
+  const catCode = routeCode || activeSuperCategory?.code || 'it_assets';
+  const isAll = String(catCode).toLowerCase() === 'all';
+  const catObj = isAll
+    ? { id: 'all', code: 'all', name: 'All Categories' }
+    : (superCategories.find((c) => c.code === catCode) || activeSuperCategory);
+  const catName = isAll ? 'All Categories' : (catObj?.name || 'Category');
+
+  // Keep the shared active category in sync with the route, so Inventory /
+  // Requests / Health Check links below stay scoped to this category.
+  useEffect(() => {
+    if (isAll) {
+      if (activeSuperCategory?.code !== 'all') setActiveSuperCategory({ id: 'all', code: 'all', name: 'All Categories' });
+      return;
+    }
+    if (catObj && catObj.code && catObj.code !== activeSuperCategory?.code) {
+      setActiveSuperCategory(catObj);
+    }
+  }, [catCode, superCategories]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!catCode) return;
@@ -202,11 +298,19 @@ export function Dashboard({ api, isAdmin }) {
   return (
     <>
       <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Employee Dashboard'} title={`${catName} Overview`}>
-        <SuperCategorySelector
-          superCategories={superCategories}
-          activeSuperCategory={activeSuperCategory}
-          onSelect={setActiveSuperCategory}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <Link
+            to="/"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '13px', fontWeight: 600, color: '#475569', textDecoration: 'none', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 12px' }}
+          >
+            ← All Categories
+          </Link>
+          <SuperCategorySelector
+            superCategories={superCategories}
+            activeSuperCategory={catObj}
+            onSelect={(cat) => navigate(`/dashboard/${cat.code}`)}
+          />
+        </div>
       </PageHeader>
       {error && <Notice tone="error">{error}</Notice>}
       <div className="metric-grid">
