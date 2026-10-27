@@ -16,11 +16,81 @@ from .serializers import (
 from rest_framework.decorators import action
 from django.db import transaction
 from django.db.models import Count, Q
+from django.core.mail import EmailMessage, get_connection
+from django.conf import settings
+import threading
 import pandas as pd
 import uuid  # <--- Added this to generate unique IDs
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _send_inspection_emails(recipients, subject, body, from_email):
+    """Send one email per recipient over a single SMTP connection.
+    Runs in a background thread so a large recipient list never blocks the
+    request, and so providers like Google Workspace (which cap recipients per
+    message) receive individual, well-delivered messages."""
+    try:
+        connection = get_connection()
+        connection.open()
+    except Exception:
+        logger.exception("Could not open mail connection for inspection notifications")
+        return
+
+    sent = 0
+    for email in recipients:
+        try:
+            EmailMessage(
+                subject=subject, body=body, from_email=from_email,
+                to=[email], connection=connection,
+            ).send(fail_silently=False)
+            sent += 1
+        except Exception:
+            logger.exception("Failed to send inspection email to %s", email)
+
+    try:
+        connection.close()
+    except Exception:
+        pass
+    logger.info("Inspection notification emails sent: %s/%s", sent, len(recipients))
+
+
+def notify_inspection_custodians(super_cat_obj, session):
+    """Email the custodians who have assigned assets in this super-category that
+    an inspection has started. Sends one message per recipient, dispatched on a
+    background thread. Returns the number of recipients queued. Never raises —
+    a mail problem must not block starting the inspection."""
+    assigned_qs = Asset.objects.filter(current_status='ASSIGNED', custodian__isnull=False)
+    if super_cat_obj:
+        assigned_qs = assigned_qs.filter(super_category=super_cat_obj)
+
+    recipients = list(
+        Employee.objects.filter(
+            assets__in=assigned_qs
+        ).exclude(email='').exclude(email__isnull=True)
+        .values_list('email', flat=True).distinct()
+    )
+    if not recipients:
+        return 0
+
+    cat_name = super_cat_obj.name if super_cat_obj else 'Hardware'
+    subject = f"Action Required: {cat_name} Inspection Started"
+    body = (
+        f"Hello,\n\n"
+        f"A {cat_name} hardware inspection ({session.title}) has just been started.\n\n"
+        f"Please log in to the asset portal and complete the health check for every "
+        f"{cat_name} device currently assigned to you.\n\n"
+        f"Thank you,\nMiczon IT Asset Management"
+    )
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+
+    threading.Thread(
+        target=_send_inspection_emails,
+        args=(recipients, subject, body, from_email),
+        daemon=True,
+    ).start()
+    return len(recipients)
 
 class SuperCategoryViewSet(viewsets.ModelViewSet):
     queryset = SuperCategory.objects.all().order_by('id')
@@ -1207,9 +1277,13 @@ class HealthCheckSessionViewSet(viewsets.ModelViewSet):
             assigned_qs = assigned_qs.filter(super_category=super_cat_obj)
         assigned_assets = assigned_qs.count()
 
+        # Notify the custodians of this category's assigned assets by email.
+        emails_sent = notify_inspection_custodians(super_cat_obj, session)
+
         return Response({
             "status": f"Monthly inspection started for {cat_prefix}",
             "assigned_assets": assigned_assets,
+            "emails_sent": emails_sent,
             "session": serializer.data,
         }, status=201)
 

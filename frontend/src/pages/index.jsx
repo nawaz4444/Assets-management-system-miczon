@@ -256,7 +256,6 @@ export function DashboardOverview({ api, isAdmin }) {
 export function Dashboard({ api, isAdmin }) {
   const { superCategories, activeSuperCategory, setActiveSuperCategory } = useContext(SuperCategoryContext);
   const { categoryCode: routeCode } = useParams();
-  const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [breakdown, setBreakdown] = useState([]); // subcategory options for the active category
   const [subCategory, setSubCategory] = useState(''); // '' = all subcategories
@@ -318,27 +317,17 @@ export function Dashboard({ api, isAdmin }) {
           >
             ← All Categories
           </Link>
-          <SuperCategorySelector
-            superCategories={superCategories}
-            activeSuperCategory={catObj}
-            onSelect={(cat) => navigate(`/dashboard/${cat.code}`)}
-          />
           {breakdown.filter((b) => b.category).length > 0 && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Icon name="box" /> Subcategory:
-              </span>
-              <select
-                value={subCategory}
-                onChange={(e) => setSubCategory(e.target.value)}
-                style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 10px', fontWeight: 700, color: '#0f172a', cursor: 'pointer', outline: 'none' }}
-              >
-                <option value="">All Subcategories</option>
-                {breakdown.filter((b) => b.category).map((b) => (
-                  <option key={b.category} value={b.category}>{b.category} ({b.count})</option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={subCategory}
+              onChange={(e) => setSubCategory(e.target.value)}
+              style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px 12px', fontWeight: 700, color: '#0f172a', cursor: 'pointer', outline: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+            >
+              <option value="">All Subcategories</option>
+              {breakdown.filter((b) => b.category).map((b) => (
+                <option key={b.category} value={b.category}>{b.category} ({b.count})</option>
+              ))}
+            </select>
           )}
         </div>
       </PageHeader>
@@ -943,6 +932,7 @@ export function AssetDetailPage({ api, isAdmin }) {
   const navigate = useNavigate();
   const [asset, setAsset] = useState(null);
   const [notice, setNotice] = useState('');
+  const [form, setForm] = useState(emptyAsset);
 
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -2449,7 +2439,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
     const res = await api.post('/health-checks/trigger-global/', {
       super_category: activeSuperCategory?.id || activeCode
     });
-    setNotice(`Monthly inspection started for ${activeCatName} (${res.data.assigned_assets || 0} item(s)).`);
+    setNotice(`Monthly inspection started for ${activeCatName} (${res.data.assigned_assets || 0} item(s)). Emailing ${res.data.emails_sent || 0} custodian(s)…`);
     setSelectedSession(String(res.data.session?.id || ''));
   };
 
