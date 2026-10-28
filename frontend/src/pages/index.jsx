@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, useContext } from 'react';
-import axios from 'axios';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 import { ThermalAssetLabel, LABEL_SIZES } from '../components/ThermalAssetLabel';
-import { UserContext, SuperCategoryContext } from '../lib/contexts';
-import { useApi, normalizeList, toApiPath, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
+import { UserContext, SuperCategoryContext, StockOperatorContext } from '../lib/contexts';
+import { useApi, normalizeList, apiError, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
+import { localDate } from '../utils/dates';
+import { latestOpenInspection } from '../utils/inspections';
 import {
   navItems, emptyAsset, emptyEmployee, assetStatuses,
   getInspectionFields, ratingOptions, inventoryPageSize,
 } from '../lib/constants';
 import {
   Icon, Button, Select, Dialog, DialogContent, PageHeader, MetricCard,
-  DialogHeader, Field, Notice, StatusBadge, DataTable,
+  DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
 import { TicketsPage } from './TicketsPage';
+import { StockOperatorSelector } from '../stock/StockOperatorSelector';
+import '../stock/stock-operator.css';
+import { AccountsPage } from '../accounts/AccountsModule';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
   if (!superCategories || superCategories.length === 0) return null;
@@ -25,6 +29,7 @@ export function SuperCategorySelector({ superCategories, activeSuperCategory, on
         <Icon name="layers" /> Category:
       </span>
       <select
+        aria-label="Asset super category"
         value={activeSuperCategory?.code || 'it_assets'}
         onChange={(e) => {
           const val = e.target.value;
@@ -65,6 +70,26 @@ export function AppShell({ token, handleLogout }) {
   const [superCategories, setSuperCategories] = useState([]);
   const [activeSuperCategory, setActiveSuperCategory] = useState(null);
 
+  const [stockOperator, setStockOperator] = useState(() => {
+    return sessionStorage.getItem('stock_operator') || null;
+  });
+
+  const handleSelectStockOperator = useCallback((operatorName) => {
+    setStockOperator(operatorName);
+    sessionStorage.setItem('stock_operator', operatorName);
+  }, []);
+
+  const handleClearStockOperator = useCallback(() => {
+    setStockOperator(null);
+    sessionStorage.removeItem('stock_operator');
+  }, []);
+
+  const stockOperatorContextValue = useMemo(() => ({
+    operator: stockOperator,
+    setOperator: handleSelectStockOperator,
+    clearOperator: handleClearStockOperator,
+  }), [stockOperator, handleSelectStockOperator, handleClearStockOperator]);
+
   useEffect(() => {
     api.get('/super-categories/')
       .then((res) => {
@@ -84,26 +109,74 @@ export function AppShell({ token, handleLogout }) {
     setActiveSuperCategory,
   }), [superCategories, activeSuperCategory]);
 
+  const employeeId = user?.employee_details?.id;
+  const warmRoute = useCallback((path) => {
+    const categoryCode = activeSuperCategory?.code || 'it_assets';
+    let requests = [];
+    if (path === '/') requests = [api.get(`/reports/summary/?super_category=${encodeURIComponent(categoryCode)}`)];
+    if (path === '/inventory') requests = [
+      api.get(`/assets/?page=1&page_size=${inventoryPageSize}&super_category=${encodeURIComponent(categoryCode)}`),
+      fetchAll(api, '/employees/'), fetchAll(api, '/departments/'),
+    ];
+    if (path === '/employees') requests = [fetchAll(api, '/employees/?'), fetchAll(api, '/departments/')];
+    if (path === '/requests') requests = [fetchAll(api, '/requests/')];
+    if (path === '/health-checks') requests = [
+      fetchAll(api, `/health-checks/?super_category=${categoryCode}`),
+      api.get(`/reports/health-compliance/?super_category=${categoryCode}`),
+    ];
+    if (path === '/stock') requests = [api.get('/stock/products/summary/')];
+    if (path === '/accounts') requests = [
+      api.get(`/accounts/asset-financials/?page=1&page_size=50`),
+      fetchAll(api, '/departments/'),
+    ];
+    if (path === '/portal' && employeeId) requests = [
+      api.get(`/employees/${employeeId}/assigned-assets/`),
+      fetchAll(api, '/health-checks/'), fetchAll(api, '/requests/'),
+    ];
+    if (requests.length) Promise.allSettled(requests);
+  }, [activeSuperCategory?.code, api, employeeId]);
+
+  const currentNavItems = useMemo(() => {
+    if (user?.is_stock_only) {
+      return [
+        { path: '/stock/adjustments', label: 'Stock Outbound', icon: 'layers' },
+      ];
+    }
+    return navItems.filter(item => {
+      if (user?.is_superuser) return true;
+      if (user?.employee_details?.is_manager) {
+        return ['/portal', '/inventory', '/health-checks', '/tickets'].includes(item.path);
+      }
+      return ['/portal', '/tickets'].includes(item.path);
+    });
+  }, [user]);
+
+  if (user?.is_stock_only && !stockOperator) {
+    return (
+      <StockOperatorContext.Provider value={stockOperatorContextValue}>
+        <StockOperatorSelector
+          onSelect={handleSelectStockOperator}
+          onSignOut={handleLogout}
+        />
+      </StockOperatorContext.Provider>
+    );
+  }
+
   return (
-    <SuperCategoryContext.Provider value={superCatContextValue}>
-      <div className="app-shell">
-        <aside className="sidebar">
-          <Link className="brand" to={user?.is_superuser ? '/' : '/portal'}>
-            <span className="brand-mark">IT</span>
-            <span>
-              <strong>AssetZone</strong>
-              <small>{activeSuperCategory?.name || 'Hardware Inventory'}</small>
+    <StockOperatorContext.Provider value={stockOperatorContextValue}>
+      <SuperCategoryContext.Provider value={superCatContextValue}>
+        <div className="app-shell">
+          <aside className="sidebar">
+            <Link className="brand" to={user?.is_stock_only ? '/stock/adjustments' : (user?.is_superuser ? '/' : '/portal')}>
+              <span className="brand-mark">{user?.is_stock_only ? 'ST' : 'IT'}</span>
+              <span>
+                <strong>AssetZone</strong>
+              <small>{user?.is_stock_only ? 'Stock Outbound' : (activeSuperCategory?.name || 'Hardware Inventory')}</small>
             </span>
           </Link>
 
           <nav className="nav-list" aria-label="Primary navigation">
-            {navItems.filter(item => {
-              if (user?.is_superuser) return true;
-              if (user?.employee_details?.is_manager) {
-                return ['/portal', '/inventory', '/health-checks', '/tickets'].includes(item.path);
-              }
-              return ['/portal', '/tickets'].includes(item.path);
-            }).map((item) => {
+            {currentNavItems.map((item) => {
               if (item.external) {
                 return (
                   <a key={item.path} className="nav-item" href={item.path}>
@@ -116,7 +189,14 @@ export function AppShell({ token, handleLogout }) {
                 ? (location.pathname === '/' || location.pathname.startsWith('/dashboard'))
                 : location.pathname === item.path;
               return (
-                <Link key={item.path} className={`nav-item ${isActive ? 'active' : ''}`} to={item.path}>
+                <Link
+                  key={item.path}
+                  className={`nav-item ${isActive ? 'active' : ''}`}
+                  to={item.path}
+                  onMouseEnter={() => warmRoute(item.path)}
+                  onFocus={() => warmRoute(item.path)}
+                  onPointerDown={() => warmRoute(item.path)}
+                >
                   <Icon name={item.icon} />
                   <span>{item.label}</span>
                 </Link>
@@ -125,23 +205,52 @@ export function AppShell({ token, handleLogout }) {
           </nav>
 
           <div className="sidebar-footer">
-            <div className="user-pill">
-              <span className="avatar">{user?.email?.[0]?.toUpperCase() || 'U'}</span>
-              <span>
-                <strong>{user?.employee_details?.name || user?.email || 'Signed in'}</strong>
-                <small>
-                  {user?.is_superuser
-                    ? 'Administrator'
-                    : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee')}
-                </small>
-              </span>
-            </div>
+            {user?.is_stock_only && stockOperator ? (
+              <div className="stock-operator-footer-card">
+                <div className="user-pill">
+                  <span className="avatar stock-operator-avatar-pill">
+                    {stockOperator.split(' ').map((n) => n[0]).join('')}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <strong style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{stockOperator}</strong>
+                    <small>Stock In-Charge</small>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="stock-switch-profile-btn"
+                  onClick={handleClearStockOperator}
+                  title="Switch to another stock profile"
+                >
+                  Switch Profile
+                </button>
+              </div>
+            ) : (
+              <div className="user-pill">
+                <span className="avatar">{(user?.username || user?.email)?.[0]?.toUpperCase() || 'U'}</span>
+                <span>
+                  <strong>{user?.employee_details?.name || user?.username || user?.email || 'Signed in'}</strong>
+                  <small>
+                    {user?.is_stock_only
+                      ? 'Stock Keeper'
+                      : (user?.is_superuser
+                        ? 'Administrator'
+                        : (user?.employee_details?.is_manager ? 'Dept Manager' : 'Employee'))}
+                  </small>
+                </span>
+              </div>
+            )}
             <Button type="button" variant="ghost" className="full" onClick={handleLogout}>Sign out</Button>
           </div>
         </aside>
 
         <main className="workspace">
-          {user?.is_superuser ? (
+          {user?.is_stock_only ? (
+            <Routes>
+              <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
+              <Route path="*" element={<Navigate to="/stock/adjustments" replace />} />
+            </Routes>
+          ) : user?.is_superuser ? (
             <Routes>
               <Route path="/" element={<DashboardOverview api={api} isAdmin={true} />} />
               <Route path="/dashboard/:categoryCode" element={<Dashboard api={api} isAdmin={true} />} />
@@ -151,12 +260,13 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
               <Route path="/requests" element={<Navigate to="/tickets" replace />} />
-              <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} user={user} />} />
+              <Route path="/health-checks" element={<HealthChecks key={activeSuperCategory?.code} api={api} isAdmin={true} user={user} />} />
               <Route path="/stock" element={<StockDashboard api={api} />} />
               <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
               <Route path="/stock/reports" element={<StockReports api={api} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={true} />} />
+              <Route path="/accounts" element={<AccountsPage api={api} />} />
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -166,7 +276,8 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/inventory" element={<InventoryPage api={api} isAdmin={false} isManager={true} />} />
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
               <Route path="/requests" element={<Navigate to="/tickets" replace />} />
-              <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/health-checks" element={<HealthChecks key={activeSuperCategory?.code} api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
@@ -174,12 +285,15 @@ export function AppShell({ token, handleLogout }) {
             <Routes>
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
+              <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
+              <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           )}
         </main>
       </div>
     </SuperCategoryContext.Provider>
+    </StockOperatorContext.Provider>
   );
 }
 
@@ -355,15 +469,22 @@ export function InventoryPage({ api, isAdmin }) {
   const activeCode = paramSuperCategory || activeSuperCategory?.code || 'it_assets';
   const activeCatObj = superCategories.find((c) => c.code === activeCode) || activeSuperCategory;
 
+  // Persisted search/filter/page state (survives navigating to an asset detail and back)
+  const FILTERS_KEY = 'inventory:filters';
+  const savedFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(FILTERS_KEY)) || {}; } catch { return {}; }
+  })();
+
   // Search and Filter State
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || '');
+  const [search, setSearch] = useState(savedFilters.search || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(savedFilters.search || '');
+  const [departmentFilter, setDepartmentFilter] = useState(savedFilters.departmentFilter || '');
+  const [statusFilter, setStatusFilter] = useState(new URLSearchParams(location.search).get('status') || savedFilters.statusFilter || '');
   const [categoryFilter, setCategoryFilter] = useState(new URLSearchParams(location.search).get('category') || '');
-  
+
+
   // Pagination State
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(savedFilters.page || 1);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
@@ -386,23 +507,45 @@ export function InventoryPage({ api, isAdmin }) {
   const [stagingSummary, setStagingSummary] = useState(null);
   const [notice, setNotice] = useState('');
 
-  // 1. Debounce Search
+  // 1. Debounce Search. Only reset to page 1 when the search text actually changes
+  // (tracking the previous value keeps a restored page intact on mount, incl. under StrictMode).
+  const prevSearch = useRef(search);
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
-      setPage(1); // Reset to page 1 on new search
+      if (prevSearch.current !== search) {
+        setPage(1); // Reset to page 1 on new search
+        prevSearch.current = search;
+      }
     }, 400);
     return () => clearTimeout(timer);
   }, [search]);
 
+  // React to external status changes via the URL (?status=...), but only when the URL value
+  // truly changes — so returning to this page never clobbers the restored/selected status.
+  const prevUrlStatus = useRef(new URLSearchParams(location.search).get('status') || '');
   useEffect(() => {
-    setStatusFilter(new URLSearchParams(location.search).get('status') || '');
-    setCategoryFilter(new URLSearchParams(location.search).get('category') || '');
-    setPage(1); // Reset to page 1 on external status/category filter change
+    const urlStatus = new URLSearchParams(location.search).get('status') || '';
+    const urlCategory = new URLSearchParams(location.search).get('category') || '';
+    if (urlStatus !== prevUrlStatus.current) {
+      prevUrlStatus.current = urlStatus;
+      setStatusFilter(urlStatus);
+      setPage(1); // Reset to page 1 on external status filter change
+    }
+    setCategoryFilter(urlCategory);
   }, [location.search]);
 
-  // 2. Load Assets with Pagination (cancellable to avoid out-of-order responses)
-  const loadAssets = useCallback((signal) => {
+  // Persist search/filter/page so it can be restored after leaving and returning to this page
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(FILTERS_KEY, JSON.stringify({ search, departmentFilter, statusFilter, page }));
+    } catch { /* sessionStorage unavailable — non-fatal */ }
+  }, [search, departmentFilter, statusFilter, page]);
+
+  // 2. Load assets with pagination; the request id prevents older responses replacing newer filters.
+  const latestAssetRequest = useRef(0);
+  const loadAssets = useCallback(() => {
+    const requestId = ++latestAssetRequest.current;
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
@@ -414,23 +557,22 @@ export function InventoryPage({ api, isAdmin }) {
     if (categoryFilter) params.set('category', categoryFilter);
     if (departmentFilter) params.set('department', departmentFilter);
 
-    return api.get(`/assets/?${params.toString()}`, { signal })
+    return api.get(`/assets/?${params.toString()}`)
       .then((res) => {
+        if (requestId !== latestAssetRequest.current) return;
         setAssets(normalizeList(res.data));
         setTotalCount(res.data.count || 0);
         setLoading(false);
       })
-      .catch((err) => {
-        if (axios.isCancel(err)) return; // superseded by a newer request
+      .catch(() => {
+        if (requestId !== latestAssetRequest.current) return;
         setNotice('Unable to load inventory.');
         setLoading(false);
       });
   }, [api, activeCode, debouncedSearch, statusFilter, categoryFilter, departmentFilter, page]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    loadAssets(controller.signal);
-    return () => controller.abort();
+    loadAssets();
   }, [loadAssets]);
 
   useEffect(() => {
@@ -483,6 +625,8 @@ export function InventoryPage({ api, isAdmin }) {
       super_category: form.super_category || activeCatObj?.id || null,
       custodian: form.custodian || null,
       department: form.department || null,
+      purchase_date: form.purchase_date || null,
+      purchase_price: form.purchase_price === '' ? null : form.purchase_price,
       current_status: form.custodian ? 'ASSIGNED' : form.current_status,
     };
 
@@ -497,35 +641,10 @@ export function InventoryPage({ api, isAdmin }) {
       closeAssetDialog();
       loadAssets();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save asset.');
+      setNotice(apiError(err, 'Unable to save asset.'));
     }
   };
 
-  const editAsset = (asset) => {
-    setEditingId(asset.id);
-    setForm({
-      miczon_id: asset.miczon_id || '',
-      name: asset.name || '',
-      super_category: asset.super_category || '',
-      category: asset.category || '',
-      department: asset.department || '',
-      current_status: asset.current_status || 'AVAILABLE',
-      custodian: asset.custodian || '',
-      specifications: asset.specifications || '',
-      remarks: asset.remarks || '',
-    });
-    setDialogOpen(true);
-  };
-
-  const removeAsset = async (asset) => {
-    if (!window.confirm(`Remove ${asset.name}?`)) return;
-    try {
-      await api.delete(`/assets/${asset.id}/`);
-      loadAssets();
-    } catch {
-      alert('Unable to remove this asset. Please try again.');
-    }
-  };
 
   const selectImportFile = (file) => {
     if (!file) return;
@@ -564,6 +683,7 @@ export function InventoryPage({ api, isAdmin }) {
 
     const payload = new FormData();
     payload.append('file', importFile);
+    if (activeCode !== 'all') payload.append('super_category', activeCode);
     setImportLoading(true);
     setImportStatus(null);
 
@@ -618,7 +738,7 @@ export function InventoryPage({ api, isAdmin }) {
       const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `inventory_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      link.download = `inventory_export_${localDate()}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -632,7 +752,7 @@ export function InventoryPage({ api, isAdmin }) {
 
   return (
     <>
-      <PageHeader eyebrow={`${activeCatObj?.name || 'Inventory'} Register`} title={`${activeCatObj?.name || 'All'} Assets`}>
+      <PageHeader eyebrow="Inventory Register" title={activeCode === 'all' ? 'All Assets' : activeCatObj?.name || 'Assets'}>
         <SuperCategorySelector
           superCategories={superCategories}
           activeSuperCategory={activeSuperCategory}
@@ -665,7 +785,7 @@ export function InventoryPage({ api, isAdmin }) {
           setEditingId(null);
           setForm({ ...emptyAsset, super_category: activeCatObj?.id || '' });
           setDialogOpen(true);
-        }}>Add {activeCatObj?.name?.replace(/s$/i, '') || 'Asset'}</Button>
+        }}>Add Asset</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
 
@@ -679,14 +799,14 @@ export function InventoryPage({ api, isAdmin }) {
         )}
         <div className="panel-heading inventory-heading">
           <div>
-            <h2>All {activeCatObj?.name || 'Assets'}</h2>
+            <h2>{activeCode === 'all' ? 'All Assets' : activeCatObj?.name || 'Assets'}</h2>
             <p className="panel-subtitle">
               {totalCount} item{totalCount === 1 ? '' : 's'} total
             </p>
           </div>
         </div>
         <div className="filter-bar">
-          <input className="search" placeholder="Search Miczon ID, device, custodian..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input aria-label="Search inventory" className="search" placeholder="Search Miczon ID, device, custodian..." value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={departmentFilter} onChange={(e) => { setDepartmentFilter(e.target.value); setPage(1); }}>
             <option value="">All Departments</option>
             {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -792,6 +912,8 @@ export function InventoryPage({ api, isAdmin }) {
                 {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
               </Select>
             </Field>
+            <Field label="Purchase Date"><input type="date" value={form.purchase_date || ''} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} /></Field>
+            <Field label="Purchase Price (PKR)"><input type="number" min="0" step="0.01" value={form.purchase_price ?? ''} onChange={(e) => setForm({ ...form, purchase_price: e.target.value })} placeholder="e.g. 45000" /></Field>
             <Field label="Specifications"><textarea rows="3" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} /></Field>
             <Field label="Remarks"><textarea rows="3" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field>
             <div className="dialog-footer">
@@ -854,12 +976,16 @@ export function InventoryPage({ api, isAdmin }) {
             <div className="import-staging-view">
               <div style={{ maxHeight: '450px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '1rem' }}>
                 <DataTable
-                  columns={['#', 'Miczon ID', 'Device', 'Reconciled Custodian', 'Status', 'Messages']}
+                  columns={['#', 'Miczon ID', 'Device', 'Purchase', 'Reconciled Custodian', 'Status', 'Messages']}
                   rows={[
                     ...stagingData.map(row => [
                       row.excel_row,
                       <strong>{row.miczon_id}</strong>,
                       row.name,
+                      <span style={{ fontSize: '12px', color: '#334155' }}>
+                        {row.purchase_price != null && row.purchase_price !== '' ? `Rs ${Number(row.purchase_price).toLocaleString()}` : '—'}
+                        {row.purchase_date ? <span style={{ display: 'block', color: '#94a3b8' }}>{row.purchase_date}</span> : null}
+                      </span>,
                       <span className="text-success">{row.custodian_name || 'No custodian'}</span>,
                       <StatusBadge status="Ready" />,
                       <span style={{ fontSize: '12px', color: '#64748b' }}>Validated</span>
@@ -867,6 +993,7 @@ export function InventoryPage({ api, isAdmin }) {
                     ...stagingErrors.map(row => [
                       row.row,
                       <strong className="text-danger">{row.miczon_id || 'N/A'}</strong>,
+                      '-',
                       '-',
                       '-',
                       <StatusBadge status="Error" />,
@@ -993,6 +1120,8 @@ export function AssetDetailPage({ api, isAdmin }) {
       department: asset.department || '',
       current_status: asset.current_status || 'AVAILABLE',
       custodian: asset.custodian || '',
+      purchase_date: asset.purchase_date || '',
+      purchase_price: asset.purchase_price ?? '',
       specifications: asset.specifications || '',
       remarks: asset.remarks || '',
     });
@@ -1015,6 +1144,8 @@ export function AssetDetailPage({ api, isAdmin }) {
       ...form,
       custodian: form.custodian || null,
       department: form.department || null,
+      purchase_date: form.purchase_date || null,
+      purchase_price: form.purchase_price === '' ? null : form.purchase_price,
       current_status: form.custodian ? 'ASSIGNED' : form.current_status,
     };
 
@@ -1024,7 +1155,7 @@ export function AssetDetailPage({ api, isAdmin }) {
       setDialogOpen(false);
       api.get(`/assets/${assetId}/`).then((res) => setAsset(res.data));
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save hardware.');
+      setNotice(apiError(err, 'Unable to save hardware.'));
     }
   };
 
@@ -1035,7 +1166,7 @@ export function AssetDetailPage({ api, isAdmin }) {
     <>
       <PageHeader eyebrow="Asset Detail" title={asset.name}>
         <Button type="button" variant="ghost" onClick={() => navigate('/inventory')}>Back</Button>
-        <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>
+        {isAdmin && <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>}
         {isAdmin && <Button type="button" variant="danger" onClick={removeAsset}>Remove</Button>}
         <Button type="button" variant="primary" onClick={() => window.print()}>🖨️ Print Label (XP-365B)</Button>
       </PageHeader>
@@ -1068,6 +1199,14 @@ export function AssetDetailPage({ api, isAdmin }) {
           <div>
             <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Date Registered</span>
             <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.created_at ? new Date(asset.created_at).toLocaleDateString() : '-'}</strong>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Purchase Date</span>
+            <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.purchase_date ? new Date(asset.purchase_date).toLocaleDateString() : '-'}</strong>
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Purchase Price</span>
+            <strong style={{ fontSize: '14px', color: '#334155' }}>{asset.purchase_price != null && asset.purchase_price !== '' ? `Rs ${Number(asset.purchase_price).toLocaleString()}` : '-'}</strong>
           </div>
           <div>
             <span style={{ display: 'block', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b' }}>Last Inspection</span>
@@ -1136,14 +1275,7 @@ export function AssetDetailPage({ api, isAdmin }) {
                   {asset.latest_inspection.performance_rating} / 5 ⭐
                 </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: '#64748b' }}>Screen Condition:</span>
-                <strong>{asset.latest_inspection.screen_condition || 'N/A'}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: '#64748b' }}>Battery Health:</span>
-                <strong>{asset.latest_inspection.battery_life || 'N/A'}</strong>
-              </div>
+              <InspectionFindings response={asset.latest_inspection} />
               {asset.latest_inspection.comments && (
                 <div style={{ marginTop: '4px', paddingTop: '8px', borderTop: '1px solid #e2e8f0' }}>
                   <small style={{ color: '#64748b', display: 'block' }}>Comments:</small>
@@ -1296,6 +1428,8 @@ export function AssetDetailPage({ api, isAdmin }) {
                 {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
               </Select>
             </Field>
+            <Field label="Purchase Date"><input type="date" value={form.purchase_date || ''} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} /></Field>
+            <Field label="Purchase Price (PKR)"><input type="number" min="0" step="0.01" value={form.purchase_price ?? ''} onChange={(e) => setForm({ ...form, purchase_price: e.target.value })} placeholder="e.g. 45000" /></Field>
             <Field label="Specifications"><textarea rows="3" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} /></Field>
             <Field label="Remarks"><textarea rows="3" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></Field>
             <div className="dialog-footer">
@@ -1733,10 +1867,16 @@ export function ScanAssetDialog({ open, onClose, api }) {
 }
 
 export function EmployeeDirectory({ api, isAdmin }) {
+  // Persisted search/filter (survives leaving and returning to this page)
+  const EMP_FILTERS_KEY = 'employees:filters';
+  const savedEmpFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(EMP_FILTERS_KEY)) || {}; } catch { return {}; }
+  })();
+
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [search, setSearch] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [search, setSearch] = useState(savedEmpFilters.search || '');
+  const [departmentFilter, setDepartmentFilter] = useState(savedEmpFilters.departmentFilter || '');
   const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -1765,6 +1905,13 @@ export function EmployeeDirectory({ api, isAdmin }) {
   useEffect(() => {
     fetchAll(api, '/departments/').then(setDepartments);
   }, [api]);
+
+  // Persist search/filter so it can be restored after leaving and returning to this page
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(EMP_FILTERS_KEY, JSON.stringify({ search, departmentFilter }));
+    } catch { /* sessionStorage unavailable — non-fatal */ }
+  }, [search, departmentFilter]);
 
   const loadEmployeeAssets = async (employee) => {
     const res = await api.get(`/employees/${employee.id}/assigned-assets/`);
@@ -1884,7 +2031,7 @@ export function EmployeeDirectory({ api, isAdmin }) {
       {notice && <Notice>{notice}</Notice>}
       <section className="panel">
         <div className="employee-filter-bar">
-          <input className="search" placeholder="Search name or employee ID..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input aria-label="Search employees" className="search" placeholder="Search name or employee ID..." value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
             <option value="">All Departments</option>
             {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
@@ -1917,7 +2064,7 @@ export function EmployeeDirectory({ api, isAdmin }) {
           <DataTable
             columns={['Select', 'Device', 'Serial', 'Type', 'Status']}
             rows={assets.map((asset) => [
-              <input type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => setSelectedAssetIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id])} />,
+              <input aria-label={`Select ${asset.name} (${asset.miczon_id})`} type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => setSelectedAssetIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id])} />,
               asset.name,
               asset.miczon_id,
               asset.category || 'Uncategorized',
@@ -2016,12 +2163,19 @@ export function EmployeeDirectory({ api, isAdmin }) {
 
 export function RequestManager({ api, isAdmin, isManager, user }) {
   const isManagerOrAdmin = isAdmin || isManager || Boolean(user?.employee_details?.is_manager);
+
+  // Persisted status/search filter (survives leaving and returning to this page)
+  const REQ_FILTERS_KEY = 'requests:filters';
+  const savedReqFilters = (() => {
+    try { return JSON.parse(sessionStorage.getItem(REQ_FILTERS_KEY)) || {}; } catch { return {}; }
+  })();
+
   const [requests, setRequests] = useState([]);
   const [notice, setNotice] = useState('');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [adminRemarkInput, setAdminRemarkInput] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState(savedReqFilters.statusFilter || 'ALL');
+  const [searchQuery, setSearchQuery] = useState(savedReqFilters.searchQuery || '');
 
   const [employees, setEmployees] = useState([]);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -2038,6 +2192,13 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
     loadRequests();
   }, [loadRequests]);
 
+  // Persist status/search filter so it can be restored after leaving and returning to this page
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(REQ_FILTERS_KEY, JSON.stringify({ statusFilter, searchQuery }));
+    } catch { /* sessionStorage unavailable — non-fatal */ }
+  }, [statusFilter, searchQuery]);
+
   const openAdminCreateModal = async () => {
     try {
       const empData = await fetchAll(api, '/employees/');
@@ -2050,7 +2211,7 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
       });
       setCreateModalOpen(true);
     } catch (err) {
-      setNotice('Unable to fetch employee list.');
+      setNotice(apiError(err, 'Unable to fetch employee list.'));
     }
   };
 
@@ -2078,8 +2239,12 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
   };
 
   const processRequest = async (id, action, customRemarks) => {
-    const admin_remarks = customRemarks !== undefined ? customRemarks : window.prompt(`Optional remarks for ${action}:`);
-    if (admin_remarks === null) return;
+    if (customRemarks === undefined) {
+      setSelectedRequest(requests.find(req => req.id === id));
+      setAdminRemarkInput('');
+      return;
+    }
+    const admin_remarks = customRemarks;
     
     try {
       await api.post(`/requests/${id}/${action}/`, { admin_remarks: admin_remarks || `Processed via Request Manager.` });
@@ -2161,7 +2326,7 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
           <input
             className="search"
             type="search"
-            placeholder="Search requester, device..."
+            aria-label="Search requests" placeholder="Search requester, device..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ width: '260px' }}
@@ -2176,7 +2341,7 @@ export function RequestManager({ api, isAdmin, isManager, user }) {
           rows={filteredRequests.map((req) => [
             <div key="requester" className="employee-cell">
               <strong>{req.requester_name || 'Employee'}</strong>
-              <small>{req.target_employee_name ? `Target: ${req.target_employee_name}` : 'Self request'}</small>
+              <small>{req.submitted_by_name ? `Submitted by: ${req.submitted_by_name}` : 'Submitter not recorded'}</small>
             </div>,
             <div key="device">
               <span className="status-badge" style={{ fontSize: '11px', padding: '2px 8px', marginRight: '6px', textTransform: 'uppercase' }}>
@@ -2455,12 +2620,12 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
     setModalSessionId(targetSession);
     setModalSearch('');
     setModalDeptFilter('');
+    setModalLoading(true);
     setReportModalOpen(true);
   };
 
   useEffect(() => {
     if (reportModalOpen && modalSessionId) {
-      setModalLoading(true);
       api.get(`/reports/health-compliance/?session=${modalSessionId}`)
         .then((res) => setModalResponses(res.data?.responses || []))
         .catch(() => setNotice('Unable to load inspection responses.'))
@@ -2484,7 +2649,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
       setAdminInspectEmployee(emp);
       setAdminHealthForm({});
     } catch (err) {
-      setNotice('Unable to fetch pending assets for employee.');
+      setNotice(apiError(err, 'Unable to fetch pending assets for employee.'));
     }
   };
 
@@ -2526,7 +2691,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
       setAdminHealthForm({});
       load();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save health check responses.');
+      setNotice(apiError(err, 'Unable to save health check responses.'));
     }
   };
 
@@ -2553,40 +2718,11 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (error) {
+    } catch {
       setNotice('Failed to download excel report.');
     }
   };
 
-  const downloadExcel = async () => {
-    if (!selectedSession) return;
-    try {
-      const exportType = activeReportView || 'all';
-      const params = new URLSearchParams({
-        session: selectedSession,
-        type: exportType,
-      });
-      if (reportSearch.trim()) params.set('search', reportSearch.trim());
-      if (reportDepartment && exportType !== 'critical') params.set('department', reportDepartment);
-
-      const response = await api.get(`/reports/export-health-responses/?${params.toString()}`, {
-        responseType: 'blob',
-      });
-      const contentDisposition = response.headers['content-disposition'];
-      const fileName = contentDisposition?.match(/filename="?([^"]+)"?/)?.[1] || `health_report_${exportType.replaceAll('-', '_')}_${selectedSession}.xlsx`;
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Download failed', error);
-      setNotice('Failed to download excel report.');
-    }
-  };
 
   const summary = report?.summary || {};
   const pendingRows = report?.pending_by_employee || [];
@@ -2600,11 +2736,6 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
     ...pendingRows.map((row) => row.department).filter(Boolean),
     ...modalResponses.map((row) => row.department).filter(Boolean),
   ])).sort((a, b) => a.localeCompare(b));
-
-  useEffect(() => {
-    setReportSearch('');
-    setReportDepartment('');
-  }, [activeReportView, selectedSession]);
 
   const matchesSearch = (values) => {
     const needle = reportSearch.trim().toLowerCase();
@@ -2694,7 +2825,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
         </div>
         <div className="report-period-control">
           <span>Inspection period</span>
-          <Select value={selectedSession} onChange={(event) => setSelectedSession(event.target.value)} disabled={sessions.length === 0}>
+          <Select aria-label="Inspection session" value={selectedSession} onChange={(event) => { setSelectedSession(event.target.value); setReportSearch(''); setReportDepartment(''); }} disabled={sessions.length === 0}>
             {sessions.length === 0 ? (
               <option value="">No sessions</option>
             ) : sessions.map((session) => (
@@ -2739,7 +2870,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
           <input
             className="search"
             type="search"
-            placeholder="Search employee, asset, ID, department..."
+            aria-label="Search inspection report" placeholder="Search employee, asset, ID, department..."
             value={reportSearch}
             onChange={(event) => setReportSearch(event.target.value)}
           />
@@ -2857,12 +2988,11 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
             <Button type="button" variant="ghost" onClick={closeReportView}>Clear View</Button>
           </div>
           <DataTable
-            columns={['Asset', 'Employee', 'Screen', 'Battery', 'Rating']}
+            columns={['Asset', 'Employee', 'Inspection Findings', 'Rating']}
             rows={filteredCriticalRows.map((response) => [
               `${response.asset_name} (${response.asset_miczon_id})`,
               response.employee_name,
-              response.screen_condition,
-              response.battery_life,
+              <InspectionFindings response={response} />,
               <strong className="text-danger">{response.performance_rating}/5</strong>,
             ])}
             empty="No critical alerts for this inspection."
@@ -2870,7 +3000,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
         </section>
       )}
 
-      {isAdmin && adminInspectEmployee && (
+      {canInspectTeam && adminInspectEmployee && (
         <Dialog open={!!adminInspectEmployee}>
           <DialogContent className="inspection-dialog">
             <DialogHeader
@@ -3084,8 +3214,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
                       </span>
                     </div>,
                     <div key="cond" style={{ fontSize: '12px', display: 'grid', gap: '3px', whiteSpace: 'nowrap' }}>
-                      <div>Screen: <strong style={{ color: '#334155' }}>{resp.screen_condition}</strong></div>
-                      <div>Battery: <strong style={{ color: '#334155' }}>{resp.battery_life}</strong></div>
+                      <InspectionFindings response={resp} />
                     </div>,
                     <span key="date" style={{ color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>
                       {new Date(resp.submitted_at).toLocaleDateString()}
@@ -3124,33 +3253,36 @@ export function EmployeePortal({ api, user }) {
   const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
   const [healthForm, setHealthForm] = useState({});
   const [notice, setNotice] = useState('');
+  const [inspectionLoading, setInspectionLoading] = useState(false);
 
   const loadPortal = useCallback(async () => {
     if (!employee?.id) return;
-    const gearRes = await api.get(`/employees/${employee.id}/assigned-assets/`);
-    const openSessions = (await fetchAll(api, '/health-checks/')).filter((session) => session.status === 'OPEN');
+    const [gearRes, sessionRows, requestsResult] = await Promise.all([
+      api.get(`/employees/${employee.id}/assigned-assets/`),
+      fetchAll(api, '/health-checks/'),
+      fetchAll(api, '/requests/').catch((error) => {
+        console.error('Unable to fetch requests:', error);
+        return null;
+      }),
+    ]);
+    const latestSession = latestOpenInspection(sessionRows);
     setGear(gearRes.data);
-    setSessions(openSessions);
-    
-    try {
-      const requestsData = await fetchAll(api, '/requests/');
-      setMyRequests(requestsData);
-    } catch (e) {
-      console.error('Unable to fetch requests:', e);
-    }
+    setSessions(latestSession ? [latestSession] : []);
+    if (requestsResult) setMyRequests(requestsResult);
 
-    const firstSession = openSessions.some((session) => String(session.id) === String(activeSession)) ? activeSession : openSessions[0]?.id || '';
-    setActiveSession(firstSession);
-    if (firstSession) {
-      const pendingRes = await api.get(`/health-checks/${firstSession}/pending-assets/`);
+    const latestSessionId = latestSession?.id || '';
+    setActiveSession(latestSessionId);
+    if (latestSessionId) {
+      const pendingRes = await api.get(`/health-checks/${latestSessionId}/pending-assets/`);
       setPendingAssets(normalizeList(pendingRes.data));
     } else {
       setPendingAssets([]);
     }
-  }, [api, employee, activeSession]);
+  }, [api, employee]);
 
   useEffect(() => {
-    loadPortal();
+    // This effect synchronizes the portal with remote API data.
+    loadPortal().catch(err => setNotice(apiError(err, 'Unable to load your gear and inspections.')));
   }, [loadPortal]);
 
   const submitRequest = async (event) => {
@@ -3202,6 +3334,41 @@ export function EmployeePortal({ api, user }) {
     }));
   };
 
+  const startLatestInspection = async () => {
+    if (!employee?.id) return;
+
+    setInspectionLoading(true);
+    try {
+      const latestSession = latestOpenInspection(await fetchAll(api, '/health-checks/'));
+      if (!latestSession) {
+        setSessions([]);
+        setActiveSession('');
+        setPendingAssets([]);
+        setNotice('No open monthly inspection is available.');
+        return;
+      }
+
+      const pendingRes = await api.get(`/health-checks/${latestSession.id}/pending-assets/`);
+      const latestPendingAssets = normalizeList(pendingRes.data);
+      setSessions([latestSession]);
+      setActiveSession(latestSession.id);
+      setPendingAssets(latestPendingAssets);
+      setHealthForm({});
+
+      if (latestPendingAssets.length === 0) {
+        setNotice('You have no outstanding items for the most recent monthly inspection.');
+        return;
+      }
+
+      setNotice('');
+      setInspectionDialogOpen(true);
+    } catch (err) {
+      setNotice(apiError(err, 'Unable to load the latest monthly inspection.'));
+    } finally {
+      setInspectionLoading(false);
+    }
+  };
+
   const submitHealthBatch = async (event) => {
     event.preventDefault();
     if (!activeSession || pendingAssets.length === 0) return;
@@ -3228,7 +3395,7 @@ export function EmployeePortal({ api, user }) {
       setInspectionDialogOpen(false);
       loadPortal();
     } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to save health check responses.');
+      setNotice(apiError(err, 'Unable to save health check responses.'));
     }
   };
 
@@ -3237,13 +3404,15 @@ export function EmployeePortal({ api, user }) {
   return (
     <>
       <PageHeader eyebrow="Employee Portal" title="My gear and requests">
-        <Button type="button" variant="ghost" disabled={!employee || !activeSession} onClick={() => setInspectionDialogOpen(true)}>
-          Start Inspection
+        {employee && activeSession && pendingAssets.length > 0 && (
+          <p className="inspection-required-copy" role="status">Monthly inspection is required</p>
+        )}
+        <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length || inspectionLoading} onClick={startLatestInspection}>
+          {inspectionLoading ? 'Loading Inspection...' : 'Start Inspection'}
         </Button>
         <Button type="button" variant="primary" disabled={!employee} onClick={() => { setRequestsListDialogOpen(true); setShowRequestForm(false); }}>My Requests</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
-      {employee && activeSession && pendingAssets.length > 0 && <Notice tone="error">Monthly inspection required: {pendingAssets.length} assigned item(s) still need a health check.</Notice>}
       {notice && <Notice>{notice}</Notice>}
 
       <section className="panel portal-gear-panel">

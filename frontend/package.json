@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test": "node --test src/utils/qa.test.js",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
@@ -16,6 +17,8 @@
     "@mui/material": "^7.3.6",
     "axios": "^1.13.2",
     "html5-qrcode": "^2.3.8",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

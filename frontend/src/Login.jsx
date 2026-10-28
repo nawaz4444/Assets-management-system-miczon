@@ -3,11 +3,14 @@ import axios from 'axios';
 import { Container, Paper, TextField, Button, Typography, Box, Alert } from '@mui/material';
 
 import { BACKEND_BASE } from './utils/config';
+import { Link } from 'react-router-dom';
+import { safeNextPath } from './utils/navigation';
 
 function Login({ setToken }) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
 
     const params = new URLSearchParams(window.location.search);
     const googleError = params.get('error');
@@ -21,6 +24,9 @@ function Login({ setToken }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        setError('');
         axios.post(`${BACKEND_BASE}/api-token-auth/`, {
             username: username,
             password: password
@@ -28,12 +34,14 @@ function Login({ setToken }) {
             .then(response => {
                 const token = response.data.token;
                 localStorage.setItem('userToken', token);
+                sessionStorage.removeItem('stock_operator');
+                localStorage.removeItem('stock_operator');
                 setToken(token);
             })
             .catch(err => {
                 console.error(err);
-                setError('Invalid Username or Password');
-            });
+                setError(err.response?.status === 400 ? 'Invalid username or password.' : 'Unable to reach the login service. Please try again.');
+            }).finally(() => setBusy(false));
     };
 
     return (
@@ -47,7 +55,7 @@ function Login({ setToken }) {
                     fullWidth
                     variant="outlined"
                     style={{ marginTop: '16px' }}
-                    onClick={() => { window.location.href = `${BACKEND_BASE}/accounts/google/login/`; }}
+                    onClick={() => { sessionStorage.setItem('auth:next', safeNextPath(params.get('next'))); window.location.href = `${BACKEND_BASE}/accounts/google/login/`; }}
                 >
                     Continue with Google
                 </Button>
@@ -55,7 +63,8 @@ function Login({ setToken }) {
                 <Box component="form" onSubmit={handleSubmit} style={{ marginTop: '20px', width: '100%' }}>
                     <TextField variant="outlined" margin="normal" required fullWidth label="Username" autoFocus value={username} onChange={(e) => setUsername(e.target.value)} />
                     <TextField variant="outlined" margin="normal" required fullWidth label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                    <Button type="submit" fullWidth variant="contained" color="primary" style={{ margin: '20px 0' }}>Sign In</Button>
+                    <Button type="submit" disabled={busy} fullWidth variant="contained" color="primary" style={{ margin: '20px 0' }}>{busy ? 'Signing in…' : 'Sign In'}</Button>
+                    <Link to="/forgot-password">Forgot password?</Link>
                 </Box>
             </Paper>
         </Container>

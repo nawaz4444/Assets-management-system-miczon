@@ -53,6 +53,18 @@ def run_setup():
         google_app.sites.add(site)
         print("🔑 Google SocialApp created.")
 
+    # 4. Ensure stock-only user exists
+    from django.contrib.auth.models import Group
+    stock_group, _ = Group.objects.get_or_create(name='Stock Only')
+    stock_u, s_created = User.objects.get_or_create(username='stock_user', defaults={'email': 'stock@miczon.com'})
+    stock_u.set_password('StockPass@2026')
+    stock_u.is_active = True
+    stock_u.is_staff = False
+    stock_u.is_superuser = False
+    stock_u.save()
+    stock_u.groups.add(stock_group)
+    print(f"📦 Stock-only user {'created' if s_created else 'verified'}: stock_user")
+
     print("✅ Setup Complete!")
 
 if __name__ == "__main__":

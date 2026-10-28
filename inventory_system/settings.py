@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount.providers.google',
     'inventory',
     'stock_management',
+    'accounts',
     'corsheaders',
 ]
 
@@ -160,6 +161,7 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
 
 # Static files (CSS, JavaScript, Images)
@@ -197,7 +199,6 @@ AUTHENTICATION_BACKENDS = [
 
 
 ACCOUNT_EMAIL_VERIFICATION = 'none'
-
 # --- Email configuration ---
 # Real SMTP is used only when EMAIL_HOST credentials are provided via the
 # environment (.env). Without them we fall back to the console backend so
@@ -209,13 +210,21 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'false').lower() in ('1', 'true', 'yes')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@miczon.local')
+EMAIL_TIMEOUT = 15
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'AssetZone <no-reply@miczon.local>')
 
-if EMAIL_HOST and EMAIL_HOST_USER:
+# Explicit EMAIL_BACKEND override wins; otherwise auto-select: real SMTP when
+# host+user are configured, console backend otherwise.
+if os.getenv('EMAIL_BACKEND'):
+    EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
+elif EMAIL_HOST and EMAIL_HOST_USER:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
+# Password reset
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+PASSWORD_RESET_TIMEOUT = 3600
 SOCIALACCOUNT_QUERY_EMAIL = True
 
 # allauth (current settings style)

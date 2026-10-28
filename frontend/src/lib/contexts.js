@@ -7,3 +7,9 @@ export const SuperCategoryContext = createContext({
   activeSuperCategory: null,
   setActiveSuperCategory: () => {},
 });
+
+export const StockOperatorContext = createContext({
+  operator: null,
+  setOperator: () => {},
+  clearOperator: () => {},
+});

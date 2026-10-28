@@ -1,23 +1,24 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { StockOperatorContext, UserContext } from '../lib/contexts';
+import './stock-operator.css';
+import { STOCK_OPERATORS } from './stockOperators.js';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { apiError } from '../lib/api';
+import { localDate, reportRange } from '../utils/dates';
 import {
   Icon, Button, Select, Dialog, DialogContent, PageHeader, MetricCard,
   DialogHeader, Field, Notice, StatusBadge, DataTable,
 } from '../components/ui';
 
 export function StockDashboard({ api }) {
-  const [products, setProducts] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { operator, clearOperator } = useContext(StockOperatorContext);
 
   useEffect(() => {
-    Promise.all([
-      api.get('/stock/products/'),
-      api.get('/stock/transactions/')
-    ]).then(([prodRes, txRes]) => {
-      setProducts(prodRes.data);
-      setTransactions(txRes.data);
+    api.get('/stock/products/summary/').then((res) => {
+      setSummary(res.data);
     }).catch(() => {
       setError('Unable to load stock dashboard summary.');
     }).finally(() => {
@@ -27,9 +28,9 @@ export function StockDashboard({ api }) {
 
   if (loading) return <div style={{ padding: '24px', color: '#64748b' }}>Loading dashboard data...</div>;
  
-  const lowStockCount = products.filter(p => p.qty <= p.reorder).length;
-  const totalInQty = transactions.filter(t => t.type === 'IN').reduce((acc, t) => acc + t.qty, 0);
-  const totalOutQty = transactions.filter(t => t.type === 'OUT').reduce((acc, t) => acc + t.qty, 0);
+  const lowStockCount = summary?.low_stock_count || 0;
+  const totalInQty = summary?.total_in_qty || 0;
+  const totalOutQty = summary?.total_out_qty || 0;
 
   const adjustmentsValue = (
     <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginTop: '10px' }}>
@@ -76,7 +77,7 @@ export function StockDashboard({ api }) {
   );
 
   const metrics = [
-    { label: 'Products', value: products.length, to: '/stock/products', tone: 'blue', subtext: 'Total registered items' },
+    { label: 'Products', value: summary?.product_count || 0, to: '/stock/products', tone: 'blue', subtext: 'Total registered items' },
     { label: 'Adjustments', value: adjustmentsValue, to: '/stock/adjustments', tone: 'green', subtext: 'Stock inbound & outbound' },
     { label: 'Reports', value: alertsValue, to: '/stock/reports', tone: 'amber', subtext: 'Reorder warnings' },
   ];
@@ -84,6 +85,31 @@ export function StockDashboard({ api }) {
   return (
     <>
       <PageHeader eyebrow="Consumable Stock Portal" title="Stock Dashboard" />
+      {operator && (
+        <div className="stock-operator-welcome-banner">
+          <div className="stock-operator-welcome-content">
+            <span className="stock-operator-welcome-avatar">
+              {operator.split(' ').map((n) => n[0]).join('')}
+            </span>
+            <div>
+              <div className="stock-operator-welcome-title">
+                Active In-Charge: <strong>{operator}</strong>
+                <span className="stock-operator-badge-sm">Active</span>
+              </div>
+              <p className="stock-operator-welcome-desc">
+                Stock transactions, auditing, and product operations are currently managed under your profile.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="stock-operator-switch-btn"
+            onClick={clearOperator}
+          >
+            Switch Profile
+          </button>
+        </div>
+      )}
       {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>{error}</div>}
       
       <div className="metric-grid">
@@ -96,48 +122,65 @@ export function StockDashboard({ api }) {
 }
 
 export function StockAdjustments({ api }) {
-  const [activeTab, setActiveTab] = useState('in'); // 'in' or 'out'
+  const { user } = useContext(UserContext);
+  const isStockOnly = user?.is_stock_only;
+  const [activeTab, setActiveTab] = useState(isStockOnly ? 'out' : 'in');
+  const { operator, clearOperator } = useContext(StockOperatorContext);
+
+  useEffect(() => {
+    if (isStockOnly) {
+      setActiveTab('out');
+    }
+  }, [isStockOnly]);
 
   return (
     <>
       <header className="page-header" style={{ marginBottom: '24px' }}>
-        <p className="eyebrow">Stock Dashboard / Adjustments</p>
-        <h1>Inventory Adjustments</h1>
+        <p className="eyebrow">{isStockOnly ? 'Stock Outbound' : 'Stock Dashboard / Adjustments'}</p>
+        <h1>{isStockOnly ? 'Stock Outbound Dispatch' : 'Inventory Adjustments'}</h1>
       </header>
+      {operator && (
+        <div className="stock-operator-strip">
+          <span>Active In-Charge: <strong>{operator}</strong></span>
+          <button type="button" onClick={clearOperator} className="stock-operator-strip-btn">Switch Profile</button>
+        </div>
+      )}
 
-      {/* Tab Switcher */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
-        <button 
-          onClick={() => setActiveTab('in')}
-          style={{
-            paddingBottom: '14px',
-            fontSize: '14px',
-            fontWeight: activeTab === 'in' ? '600' : '500',
-            borderBottom: activeTab === 'in' ? '2px solid #0d9488' : '2px solid transparent',
-            color: activeTab === 'in' ? '#0d9488' : '#64748b',
-            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          Stock Inbound (Stock In)
-        </button>
-        <button 
-          onClick={() => setActiveTab('out')}
-          style={{
-            paddingBottom: '14px',
-            fontSize: '14px',
-            fontWeight: activeTab === 'out' ? '600' : '500',
-            borderBottom: activeTab === 'out' ? '2px solid #0d9488' : '2px solid transparent',
-            color: activeTab === 'out' ? '#0d9488' : '#64748b',
-            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
-            cursor: 'pointer'
-          }}
-        >
-          Stock Outbound (Stock Out)
-        </button>
-      </div>
+      {/* Tab Switcher - hidden when restricted to Stock Outbound only */}
+      {!isStockOnly && (
+        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px', gap: '24px' }}>
+          <button 
+            onClick={() => setActiveTab('in')}
+            style={{
+              paddingBottom: '14px',
+              fontSize: '14px',
+              fontWeight: activeTab === 'in' ? '600' : '500',
+              borderBottom: activeTab === 'in' ? '2px solid #0d9488' : '2px solid transparent',
+              color: activeTab === 'in' ? '#0d9488' : '#64748b',
+              background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            Stock Inbound (Stock In)
+          </button>
+          <button 
+            onClick={() => setActiveTab('out')}
+            style={{
+              paddingBottom: '14px',
+              fontSize: '14px',
+              fontWeight: activeTab === 'out' ? '600' : '500',
+              borderBottom: activeTab === 'out' ? '2px solid #0d9488' : '2px solid transparent',
+              color: activeTab === 'out' ? '#0d9488' : '#64748b',
+              background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            Stock Outbound (Stock Out)
+          </button>
+        </div>
+      )}
 
-      {activeTab === 'in' ? (
+      {(!isStockOnly && activeTab === 'in') ? (
         <StockIn api={api} />
       ) : (
         <StockOut api={api} />
@@ -195,6 +238,8 @@ export function StockProducts({ api }) {
   }, [api]);
 
   useEffect(() => {
+    // Fetching the catalog synchronizes with an external service.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProducts();
     loadCategories();
   }, [loadProducts, loadCategories]);
@@ -250,7 +295,7 @@ export function StockProducts({ api }) {
       setTimeout(() => setToastShow(false), 5000);
       loadProducts();
     } catch (err) {
-      alert('Unable to save product specs.');
+      alert(apiError(err, 'Unable to save product specs.'));
     }
   };
 
@@ -326,7 +371,7 @@ export function StockProducts({ api }) {
       </div>
 
       {/* Products Table */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+      <div className="stock-print-surface" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
         {loading ? (
           <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>Loading products catalog...</div>
         ) : (
@@ -740,13 +785,22 @@ const STOCK_BATCH_CONFIG = {
 
 function StockBatch({ api, mode }) {
   const cfg = STOCK_BATCH_CONFIG[mode];
+  const { user } = useContext(UserContext);
+  const { operator, setOperator } = useContext(StockOperatorContext);
   const makeRow = (id) => ({ id, category: '', product_code: '', [cfg.rowField]: '', unit: 'pieces', qty: 1 });
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [person, setPerson] = useState('');
+  const [date, setDate] = useState(localDate());
+  const [person, setPerson] = useState(() => operator || '');
+
+  // Keep person in sync whenever the active operator is selected or changed
+  useEffect(() => {
+    if (operator) {
+      setPerson(operator);
+    }
+  }, [operator]);
 
   const [rows, setRows] = useState([makeRow(1)]);
 
@@ -772,14 +826,12 @@ function StockBatch({ api, mode }) {
     Promise.all([
       api.get('/stock/products/'),
       api.get('/stock/categories/'),
-      api.get('/stock/transactions/')
+      api.get(`/stock/transactions/?type=${cfg.txType}`)
     ]).then(([prodRes, catRes, txRes]) => {
       setProducts(prodRes.data);
       setCategories(catRes.data.map(c => c.name));
-      const filteredTx = txRes.data.filter(t => t.type === cfg.txType);
-
       const groups = {};
-      filteredTx.forEach(tx => {
+      txRes.data.forEach(tx => {
         const key = `${tx.date}_${tx.details || ''}`;
         if (!groups[key]) {
           groups[key] = {
@@ -808,6 +860,8 @@ function StockBatch({ api, mode }) {
   }, [api, selectedGroup, cfg.txType, cfg.fallbackDetails]);
 
   useEffect(() => {
+    // loadData refreshes remote stock data and its loading indicator.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
   }, [loadData]);
 
@@ -822,10 +876,10 @@ function StockBatch({ api, mode }) {
   const handleDeleteGroup = async (group) => {
     if (window.confirm(`Are you sure you want to delete this batch of ${group.items.length} transaction(s)? Product quantities will be adjusted automatically.`)) {
       try {
-        await Promise.all(group.items.map(item => api.delete(`/stock/transactions/${item.id}/`)));
+        await api.post('/stock/transactions/batch-change/', { ids: group.items.map(item => item.id), delete: true });
         loadData();
-      } catch {
-        alert("Unable to delete batch transactions.");
+      } catch (error) {
+        alert(apiError(error, 'Unable to delete batch transactions.'));
       }
     }
   };
@@ -833,21 +887,20 @@ function StockBatch({ api, mode }) {
   const handleSaveBatchChanges = async (e) => {
     e.preventDefault();
     try {
-      await Promise.all(batchItems.map(item =>
-        api.put(`/stock/transactions/${item.id}/`, {
+      await api.post('/stock/transactions/batch-change/', { ids: batchItems.map(item => item.id), transactions: batchItems.map(item => ({
+          id: item.id,
           date: batchDate,
           product: item.product, // ID
           type: item.type,
           details: batchDetails,
           qty: item.qty,
           unit: item.unit
-        })
-      ));
+        })) });
       setEditDialogOpen(false);
       setSelectedGroup(null);
       loadData();
-    } catch {
-      alert('Unable to save changes to batch.');
+    } catch (error) {
+      alert(apiError(error, 'Unable to save changes to batch.'));
     }
   };
 
@@ -953,19 +1006,21 @@ function StockBatch({ api, mode }) {
       setToastShow(true);
 
       setRows([makeRow(1)]);
-      setPerson('');
+      setPerson(operator || '');
       loadData();
 
       setTimeout(() => {
         setToastShow(false);
       }, 3000);
-    } catch {
-      alert(cfg.submitError);
+    } catch (error) {
+      alert(apiError(error, cfg.submitError));
     }
   };
 
   return (
     <>
+      {loading && <Notice>Loading stock transactions…</Notice>}
+      {toastShow && <Notice>{toastMsg}</Notice>}
       <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
 
         {/* Date Selector & Person */}
@@ -980,15 +1035,74 @@ function StockBatch({ api, mode }) {
             />
           </div>
           <div style={{ width: '1px', height: '24px', background: '#cbd5e1' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <label style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b', whiteSpace: 'nowrap' }}>{cfg.personLabel}</label>
             <input
               type="text"
               placeholder={cfg.personPlaceholder}
               value={person}
               onChange={(e) => setPerson(e.target.value)}
-              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '240px' }}
+              style={{ padding: '6px 12px', fontSize: '14px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '220px' }}
             />
+
+            {/* User Selection Box */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>
+                User:
+              </span>
+              <select
+                aria-label="User selection box"
+                value={STOCK_OPERATORS.some((op) => op.name === person) ? person : (operator || '')}
+                onChange={(e) => {
+                  const selectedName = e.target.value;
+                  if (selectedName) {
+                    setPerson(selectedName);
+                    if (typeof setOperator === 'function') {
+                      setOperator(selectedName);
+                    }
+                  }
+                }}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: '13px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#1e293b',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+                title="Select user to auto-fill supplier/recipient field"
+              >
+                <option value="">-- Choose User --</option>
+                {STOCK_OPERATORS.map((op) => (
+                  <option key={op.id} value={op.name}>
+                    {op.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {operator && person !== operator && (
+              <button
+                type="button"
+                onClick={() => setPerson(operator)}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  color: '#0d9488',
+                  background: '#f0fdfa',
+                  border: '1px solid #ccfbf1',
+                  borderRadius: '6px',
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title={`Quick-fill with active in-charge: ${operator}`}
+              >
+                Use {operator}
+              </button>
+            )}
           </div>
         </div>
 
@@ -1083,7 +1197,7 @@ function StockBatch({ api, mode }) {
             + Add Row
           </Button>
           <div style={{ display: 'flex', gap: '12px' }}>
-            <Button type="button" variant="ghost" onClick={() => navigate('/stock')}>Cancel</Button>
+            <Button type="button" variant="ghost" onClick={() => navigate(user?.is_stock_only ? '/stock/adjustments' : '/stock')}>Cancel</Button>
             <Button onClick={handleSubmit} style={cfg.submitBtnStyle}>{cfg.submitLabel}</Button>
           </div>
         </div>
@@ -1092,7 +1206,7 @@ function StockBatch({ api, mode }) {
       {/* Existing Transactions Table */}
       <div style={{ marginTop: '40px' }}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>{cfg.historyTitle}</h3>
-        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div className="stock-print-surface" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
@@ -1167,7 +1281,22 @@ function StockBatch({ api, mode }) {
                     />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>{cfg.editPersonLabel}</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8' }}>{cfg.editPersonLabel}</label>
+                      <select
+                        aria-label="Edit batch user selection"
+                        value={STOCK_OPERATORS.some((op) => op.name === batchDetails) ? batchDetails : ''}
+                        onChange={(e) => {
+                          if (e.target.value) setBatchDetails(e.target.value);
+                        }}
+                        style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#334155' }}
+                      >
+                        <option value="">Quick fill user...</option>
+                        {STOCK_OPERATORS.map((op) => (
+                          <option key={op.id} value={op.name}>{op.name}</option>
+                        ))}
+                      </select>
+                    </div>
                     <input
                       required
                       type="text"
@@ -1313,16 +1442,16 @@ export function StockReports({ api }) {
   
   // Filters Activity Logs Tab
   const [actPeriod, setActPeriod] = useState('this-month');
-  const [actStartDate, setActStartDate] = useState('');
-  const [actEndDate, setActEndDate] = useState('');
+  const [actStartDate, setActStartDate] = useState(() => reportRange('this-month')[0]);
+  const [actEndDate, setActEndDate] = useState(() => reportRange('this-month')[1]);
   const [actCategory, setActCategory] = useState('');
   const [actName, setActName] = useState('');
   const [showActivityTable, setShowActivityTable] = useState(false);
 
   // Filters Transaction Audit Tab
   const [audPeriod, setAudPeriod] = useState('this-month');
-  const [audStartDate, setAudStartDate] = useState('');
-  const [audEndDate, setAudEndDate] = useState('');
+  const [audStartDate, setAudStartDate] = useState(() => reportRange('this-month')[0]);
+  const [audEndDate, setAudEndDate] = useState(() => reportRange('this-month')[1]);
   const [audCategory, setAudCategory] = useState('');
   const [audProductCode, setAudProductCode] = useState('');
   const [auditRows, setAuditRows] = useState([]);
@@ -1347,42 +1476,21 @@ export function StockReports({ api }) {
     loadData();
   }, [loadData]);
 
-  // Set dates based on Period Selector (Activity Tab)
-  useEffect(() => {
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = today.getMonth();
-
-    if (actPeriod === 'this-month') {
-      setActStartDate(new Date(y, m, 1).toISOString().split('T')[0]);
-      setActEndDate(today.toISOString().split('T')[0]);
-    } else if (actPeriod === 'previous-month') {
-      setActStartDate(new Date(y, m - 1, 1).toISOString().split('T')[0]);
-      setActEndDate(new Date(y, m, 0).toISOString().split('T')[0]);
+  const changeActivityPeriod = value => {
+    setActPeriod(value);
+    if (value !== 'custom') {
+      const [start, end] = reportRange(value);
+      setActStartDate(start); setActEndDate(end);
     }
-  }, [actPeriod]);
+  };
 
-  // Set dates based on Period Selector (Audit Tab)
-  useEffect(() => {
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = today.getMonth();
-
-    if (audPeriod === 'this-month') {
-      setAudStartDate(new Date(y, m, 1).toISOString().split('T')[0]);
-      setAudEndDate(today.toISOString().split('T')[0]);
-    } else if (audPeriod === 'previous-month') {
-      setAudStartDate(new Date(y, m - 1, 1).toISOString().split('T')[0]);
-      setAudEndDate(new Date(y, m, 0).toISOString().split('T')[0]);
-    } else if (audPeriod === 'quarter') {
-      const qMonth = Math.floor(m / 3) * 3;
-      setAudStartDate(new Date(y, qMonth, 1).toISOString().split('T')[0]);
-      setAudEndDate(today.toISOString().split('T')[0]);
-    } else if (audPeriod === 'year') {
-      setAudStartDate(new Date(y, 0, 1).toISOString().split('T')[0]);
-      setAudEndDate(today.toISOString().split('T')[0]);
+  const changeAuditPeriod = value => {
+    setAudPeriod(value);
+    if (value !== 'custom') {
+      const [start, end] = reportRange(value);
+      setAudStartDate(start); setAudEndDate(end);
     }
-  }, [audPeriod]);
+  };
 
   const categories = [...new Set(products.map(p => p.category_name))].filter(Boolean).sort();
   const names = [...new Set(products.map(p => p.name))].sort();
@@ -1397,7 +1505,7 @@ export function StockReports({ api }) {
   });
 
   const handleRunAudit = () => {
-    if (!audStartDate || !audEndDate) {
+    if (!audStartDate || !audEndDate || audStartDate > audEndDate) {
       alert('Please select a valid date range to perform stock audit.');
       return;
     }
@@ -1443,10 +1551,30 @@ export function StockReports({ api }) {
     setShowAuditTable(true);
   };
 
-  const triggerExport = (reportName) => {
-    setToastMsg(`Successfully generated PDF file download for "${reportName}".`);
-    setToastShow(true);
-    setTimeout(() => setToastShow(false), 4000);
+  const triggerExport = async (reportName) => {
+    try {
+      const { buildReportPdf } = await import('../utils/reports');
+      let headers, rows, scope;
+      if (reportName === 'Product List Report') {
+        headers = ['Product ID', 'Product Name', 'Category', 'Description', 'Stock Available', 'Low Stock Level'];
+        rows = filteredProducts.map(p => [p.code, p.name, p.category_name, p.description, p.qty, p.reorder]);
+        scope = prodCategory || 'All categories';
+      } else if (reportName === 'Product Activity Report') {
+        headers = ['Date', 'Product ID', 'Product Name', 'Type', 'Details', 'Quantity', 'Unit'];
+        rows = filteredActivityLogs.map(t => [t.date, t.product_code, t.product_name, t.type, t.details, t.qty, t.unit]);
+        scope = `${actStartDate} to ${actEndDate} | ${actCategory || 'All categories'} | ${actName || 'All products'}`;
+      } else {
+        headers = ['Category', 'Product ID', 'Product Name', 'Opening Stock', 'Stock In', 'Stock Out', 'Net Quantity'];
+        rows = auditRows.map(r => [r.category, r.code, r.name, r.openingStock, r.periodIn, r.periodOut, r.netQty]);
+        scope = `${audStartDate} to ${audEndDate} | ${audCategory || 'All categories'}`;
+      }
+      buildReportPdf(reportName, headers, rows, scope).save(`${reportName.replaceAll(' ', '_')}_${localDate()}.pdf`);
+      setToastMsg('PDF report downloaded.');
+      setToastShow(true);
+      setTimeout(() => setToastShow(false), 4000);
+    } catch (error) {
+      alert(apiError(error, 'Unable to generate the PDF report.'));
+    }
   };
 
   const triggerPrint = (reportName) => {
@@ -1526,7 +1654,7 @@ export function StockReports({ api }) {
           </div>
 
           {/* Table */}
-          <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <div className="stock-print-surface" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
             <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Product Specifications Table</h3>
@@ -1573,7 +1701,7 @@ export function StockReports({ api }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Period Selector</label>
-                <Select value={actPeriod} onChange={(e) => setActPeriod(e.target.value)}>
+                <Select value={actPeriod} onChange={(e) => changeActivityPeriod(e.target.value)}>
                   <option value="this-month">This Month</option>
                   <option value="previous-month">Previous Month</option>
                   <option value="custom">Custom Range</option>
@@ -1624,7 +1752,7 @@ export function StockReports({ api }) {
 
           {/* Results Table */}
           {showActivityTable && (
-            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div className="stock-print-surface" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
               <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Product Activity Audit Report</h3>
@@ -1696,7 +1824,7 @@ export function StockReports({ api }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '6px' }}>Period Selector</label>
-                <Select value={audPeriod} onChange={(e) => setAudPeriod(e.target.value)}>
+                <Select value={audPeriod} onChange={(e) => changeAuditPeriod(e.target.value)}>
                   <option value="this-month">This Month</option>
                   <option value="previous-month">Previous Month</option>
                   <option value="quarter">This Quarter</option>
@@ -1749,7 +1877,7 @@ export function StockReports({ api }) {
 
           {/* Audit Results Table */}
           {showAuditTable && (
-            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div className="stock-print-surface" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
               <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '15px', color: '#1e293b' }}>Stock Transaction History Audit</h3>
