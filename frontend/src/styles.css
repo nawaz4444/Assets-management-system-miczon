@@ -187,6 +187,20 @@ a {
   background: currentColor;
 }
 
+.app-icon-ticket::before {
+  inset: 4px 2px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+}
+
+.app-icon-ticket::after {
+  top: 4px;
+  bottom: 4px;
+  left: 8px;
+  width: 0;
+  border-left: 2px dashed currentColor;
+}
+
 .app-icon-pulse::after {
   left: 5px;
   top: 4px;
@@ -340,7 +354,64 @@ h3 {
 .header-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
+}
+
+/* Tools / actions dropdown */
+.dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.dropdown-caret {
+  margin-left: 4px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 196px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: #172033;
+  padding: 9px 10px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+
+.dropdown-item:hover {
+  background: #f1f5f9;
+}
+
+.dropdown-ico {
+  font-size: 15px;
+  line-height: 1;
 }
 
 .metric-grid {
@@ -787,6 +858,9 @@ h3 {
 .table-wrap {
   width: 100%;
   overflow-x: auto;
+  border: 1px solid #e8edf3;
+  border-radius: 10px;
+  background: #ffffff;
 }
 
 .filter-bar {
@@ -839,19 +913,24 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #edf2f7;
-  padding: 12px;
+  border-bottom: 1px solid #eef2f7;
+  padding: 13px 16px;
   text-align: left;
   vertical-align: middle;
 }
 
-th {
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
   color: #64748b;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 800;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 td {
@@ -859,9 +938,64 @@ td {
   font-size: 14px;
 }
 
+/* Zebra striping + hover for scanability */
+tbody tr {
+  transition: background-color 0.12s ease;
+}
+
+tbody tr:nth-child(even) {
+  background: #fcfdfe;
+}
+
+tbody tr:hover {
+  background: #f1f6f9;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
 td,
 th {
   overflow-wrap: anywhere;
+}
+
+/* Table cell helpers */
+.cell-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f766e;
+  white-space: nowrap;
+}
+
+.cell-primary {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.cell-muted {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #0f766e;
+  border: 1px solid #a7f3d0;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.tag-chip.neutral {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
 }
 
 .row-actions {
@@ -1491,6 +1625,514 @@ input[type="checkbox"] {
   }
 }
 
+/* Thermal Label Tag for Xprinter XP-365B and Direct Thermal Barcode Printers (40mm x 30mm) */
+.thermal-preview-container {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.thermal-labels-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.thermal-label-tag {
+  box-sizing: border-box;
+  background: #ffffff;
+  color: #000000;
+  position: relative;
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  user-select: none;
+  flex-shrink: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+.thermal-label-tag.has-border {
+  border: 1px solid #94a3b8;
+}
+
+.thermal-label-tag.borderless {
+  border: 1px solid transparent;
+}
+
+.thermal-label-inner {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 1.5mm;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Side by side layout (Recommended for 40mm x 30mm) */
+.thermal-label-inner.side-by-side {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5mm;
+}
+
+.thermal-qr-box {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+}
+
+.thermal-info-box {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  overflow: hidden;
+}
+
+.thermal-brand-badge {
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #000000;
+  border-bottom: 1px solid #000000;
+  padding-bottom: 0.3mm;
+  margin-bottom: 0.5mm;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thermal-id-text {
+  font-size: 8px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #000000;
+  line-height: 1.1;
+  margin-bottom: 0.4mm;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thermal-title-text {
+  font-size: 6.5px;
+  font-weight: 700;
+  color: #000000;
+  line-height: 1.15;
+  margin-bottom: 0.3mm;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.thermal-unassigned-tag {
+  font-size: 6px;
+  font-weight: 700;
+  color: #475569;
+  letter-spacing: 0.3px;
+  margin-bottom: 0.3mm;
+}
+
+.thermal-sub-text {
+  font-size: 5.5px;
+  color: #334155;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Stacked Layout */
+.thermal-label-inner.stacked {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+  padding: 1mm 1.5mm;
+}
+
+.thermal-top-brand {
+  font-size: 6.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #000000;
+  border-bottom: 1px solid #000000;
+  width: 100%;
+  padding-bottom: 0.3mm;
+  white-space: nowrap;
+}
+
+.thermal-qr-box-center {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.5mm 0;
+}
+
+.thermal-bottom-info {
+  width: 100%;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* QR Only Layout */
+.thermal-label-inner.qr-only {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+  padding: 1.2mm 1.5mm;
+}
+
+.thermal-qr-box-large {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.4mm 0;
+}
+
+.thermal-id-large {
+  font-size: 8.5px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #000000;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+/* Thermal Printer Guide Banner */
+.thermal-guide-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.thermal-guide-banner strong {
+  color: #0f172a;
+}
+
+/* 60% Calibrated Layout for Xprinter XP-365B Single Label Print */
+.thermal-label-inner.calibrated-60 {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+  padding: 2mm 2.5mm;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+
+.thermal-cal-header {
+  width: 100%;
+  text-align: center;
+  border-bottom: 1.5px solid #000000;
+  padding-bottom: 0.8mm;
+  margin-bottom: 0.8mm;
+}
+
+.thermal-cal-brand {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #000000;
+  line-height: 1.1;
+}
+
+.thermal-cal-badge {
+  font-size: 5.5px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.4px;
+}
+
+.thermal-cal-qr {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0.6mm 0;
+}
+
+.thermal-cal-id-box {
+  width: 100%;
+  background: #000000;
+  color: #ffffff;
+  padding: 1.2mm 0;
+  border-radius: 2px;
+  margin: 0.8mm 0;
+  text-align: center;
+}
+
+.thermal-cal-id-title {
+  font-size: 5.5px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  color: #cbd5e1;
+}
+
+.thermal-cal-id {
+  font-size: 11px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.8px;
+  color: #ffffff;
+  line-height: 1.1;
+}
+
+.thermal-cal-details {
+  width: 100%;
+  text-align: left;
+  border-top: 1px solid #000000;
+  border-bottom: 1px solid #000000;
+  padding: 1mm 0.5mm;
+  margin: 0.8mm 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6mm;
+}
+
+.thermal-cal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 6.8px;
+  line-height: 1.15;
+}
+
+.thermal-cal-label {
+  font-weight: 700;
+  color: #000000;
+}
+
+.thermal-cal-value {
+  font-weight: 600;
+  color: #000000;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thermal-cal-footer {
+  font-size: 5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #475569;
+  text-align: center;
+}
+
+/* 3" x 4" Large Portrait Layout (XP-365B Stock) */
+.thermal-label-inner.large-portrait {
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+  padding: 3.5mm 4mm;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+
+.thermal-large-header {
+  width: 100%;
+  text-align: center;
+  border-bottom: 2px solid #000000;
+  padding-bottom: 1.5mm;
+  margin-bottom: 1.5mm;
+}
+
+.thermal-large-brand {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #000000;
+  line-height: 1.2;
+}
+
+.thermal-large-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.5px;
+  margin-top: 1px;
+}
+
+.thermal-large-qr {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 1mm 0;
+}
+
+.thermal-large-id-box {
+  width: 100%;
+  background: #000000;
+  color: #ffffff;
+  padding: 2mm 0;
+  border-radius: 3px;
+  margin: 1.5mm 0;
+  text-align: center;
+}
+
+.thermal-large-id-title {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #cbd5e1;
+}
+
+.thermal-large-id {
+  font-size: 17px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 1px;
+  color: #ffffff;
+  line-height: 1.1;
+}
+
+.thermal-large-details {
+  width: 100%;
+  text-align: left;
+  border-top: 1px solid #000000;
+  border-bottom: 1px solid #000000;
+  padding: 2mm 1mm;
+  margin: 1mm 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5mm;
+}
+
+.thermal-large-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.thermal-row-label {
+  font-weight: 700;
+  color: #000000;
+}
+
+.thermal-row-value {
+  font-weight: 600;
+  color: #000000;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thermal-large-footer {
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #475569;
+  text-align: center;
+}
+
+/* Landscape Single-Sticker Layout (3" x 2" / 4" x 3") */
+.thermal-label-inner.large-landscape {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 2mm;
+  gap: 2.5mm;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+
+.thermal-landscape-left {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.thermal-landscape-right {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1mm;
+  text-align: left;
+}
+
+.thermal-landscape-right .thermal-large-brand {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid #000000;
+  padding-bottom: 0.6mm;
+}
+
+.thermal-landscape-id {
+  font-size: 15px;
+  font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.5px;
+  color: #000000;
+  line-height: 1.05;
+  word-break: break-all;
+}
+
+.thermal-landscape-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6mm;
+}
+
+.thermal-landscape-row {
+  font-size: 8.5px;
+  line-height: 1.15;
+  color: #000000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thermal-landscape-row .thermal-row-label {
+  font-weight: 700;
+  margin-right: 1mm;
+}
+
+.thermal-landscape-row .thermal-row-value {
+  font-weight: 600;
+}
+
+/* Responsive / layout (from main) */
 .workspace, .panel, .page-header, .header-actions, .table-wrap { min-width: 0; }
 .workspace { max-width: 100%; }
 .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; }
@@ -1515,6 +2157,7 @@ input[type="checkbox"] {
   .dialog-content .table-wrap { max-width: 100%; }
 }
 
+/* Stock print (from main) */
 @media print {
   body:has(.stock-print-surface) .workspace * { visibility: hidden; }
   body:has(.stock-print-surface) .stock-print-surface,
@@ -1522,50 +2165,112 @@ input[type="checkbox"] {
   body:has(.stock-print-surface) .stock-print-surface { position: absolute; inset: 0; width: 100%; overflow: visible !important; }
   .stock-print-surface button { display: none; }
   .stock-print-surface table { min-width: 0; font-size: 10px !important; }
-  @page {
-    margin: 10mm;
+  @page { margin: 10mm; }
+}
+
+/* Print Media Queries for Xprinter XP-365B - Guaranteed 1 Page Isolation */
+@media print {
+  html, body {
+    min-width: 0 !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  body {
-    min-width: 0;
-    background: #ffffff;
+  /* Hide entire application shell and background panels */
+  body * {
+    visibility: hidden !important;
   }
 
-  .sidebar,
-  .page-header,
-  .notice,
-  .modal-toolbar,
-  .dialog-header,
-  .dialog-footer,
-  .panel:not(.qr-print-surface) {
-    display: none !important;
+  /* Expose ONLY the active thermal print container */
+  .asset-tag-print-only,
+  .asset-tag-print-only * {
+    visibility: visible !important;
   }
 
-  .dialog-root {
-    position: static !important;
+  /* Lock single tag to exact top-left (0,0) of the sticker */
+  .asset-tag-print-only {
+    display: flex !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    z-index: 999999 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+
+  .asset-tag-print-only .thermal-label-tag {
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Dialog Print handling for QrLabelsDialog and qrAsset modal */
+  .dialog-root:has(.qr-labels-dialog),
+  .dialog-root:has(.qr-dialog),
+  .qr-labels-dialog,
+  .qr-labels-dialog *,
+  .qr-dialog,
+  .qr-dialog * {
+    visibility: visible !important;
+  }
+
+  .qr-labels-dialog,
+  .qr-dialog {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    z-index: 999999 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .dialog-overlay {
     background: transparent !important;
+    padding: 0 !important;
   }
 
-  .dialog-backdrop {
-    display: none !important;
-  }
-
-  .dialog-content.qr-labels-dialog {
+  .dialog-content.qr-labels-dialog,
+  .dialog-content.qr-dialog {
     position: static !important;
     max-width: 100% !important;
     box-shadow: none !important;
     border: none !important;
     padding: 0 !important;
+    margin: 0 !important;
     background: transparent !important;
   }
 
-  .app-shell {
-    display: block;
-    min-height: 0;
-  }
-
-  .workspace {
-    padding: 0;
+  .qr-labels-dialog .dialog-header,
+  .qr-labels-dialog .dialog-footer,
+  .qr-labels-dialog .qr-toolbar-controls,
+  .qr-labels-dialog .thermal-guide-banner,
+  .qr-labels-dialog .panel:not(.qr-print-surface),
+  .qr-dialog .dialog-header,
+  .qr-dialog .dialog-footer {
+    display: none !important;
   }
 
   .qr-print-surface {
@@ -1574,30 +2279,49 @@ input[type="checkbox"] {
     box-shadow: none !important;
     margin: 0 !important;
     padding: 0 !important;
-    max-height: none !important;
-    overflow: visible !important;
+    background: transparent !important;
   }
 
-  .qr-label-grid {
+  .thermal-preview-container {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  /* Thermal roll mode */
+  .mode-thermal .thermal-labels-flow {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .mode-thermal .thermal-label-tag {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin: 0 auto !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .mode-thermal .thermal-label-tag:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* A4 Sheet mode */
+  .mode-a4 .thermal-labels-flow {
     display: grid !important;
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 6mm !important;
+    padding: 6mm !important;
   }
 
-  .qr-label,
-  .asset-print-label {
-    break-inside: avoid;
-    border: 1px solid #000000 !important;
-    border-radius: 4px !important;
-    padding: 4mm !important;
-    text-align: center !important;
-  }
-
-  .asset-tag-print-only {
-    display: flex !important;
-    min-height: 100vh;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 8mm;
+  .mode-a4 .thermal-label-tag {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border: 1px dashed #cbd5e1 !important;
+    box-shadow: none !important;
   }
 }

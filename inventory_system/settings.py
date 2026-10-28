@@ -199,15 +199,30 @@ AUTHENTICATION_BACKENDS = [
 
 
 ACCOUNT_EMAIL_VERIFICATION = 'none'
-EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend')
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+# --- Email configuration ---
+# Real SMTP is used only when EMAIL_HOST credentials are provided via the
+# environment (.env). Without them we fall back to the console backend so
+# development still works (messages are printed, not sent). No secrets live
+# in this file — set EMAIL_HOST_USER / EMAIL_HOST_PASSWORD in .env for prod.
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
-EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'false').lower() == 'true'
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'false').lower() in ('1', 'true', 'yes')
 EMAIL_TIMEOUT = 15
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'AssetZone <noreply@localhost>')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'AssetZone <no-reply@miczon.local>')
+
+# Explicit EMAIL_BACKEND override wins; otherwise auto-select: real SMTP when
+# host+user are configured, console backend otherwise.
+if os.getenv('EMAIL_BACKEND'):
+    EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
+elif EMAIL_HOST and EMAIL_HOST_USER:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Password reset
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 PASSWORD_RESET_TIMEOUT = 3600
 SOCIALACCOUNT_QUERY_EMAIL = True

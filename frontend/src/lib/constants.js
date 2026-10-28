@@ -3,8 +3,8 @@ export const navItems = [
   { path: '/inventory', label: 'Inventory', icon: 'box' },
   { path: '/stock', label: 'Stock', icon: 'layers' },
   { path: '/employees', label: 'Employees', icon: 'users' },
-  { path: '/requests', label: 'Requests', icon: 'inbox' },
   { path: '/health-checks', label: 'Health Checks', icon: 'pulse' },
+  { path: '/tickets', label: 'Help Desk', icon: 'ticket' },
   { path: '/accounts', label: 'Accounts', icon: 'coins' },
   { path: '/portal', label: 'Employee Portal', icon: 'user' },
 ];
@@ -275,10 +275,90 @@ export const appliancesInspectionFields = [
   },
 ];
 
+export const motorVehicleInspectionFields = [
+  {
+    name: 'engine_condition',
+    label: 'Engine & Performance',
+    defaultValue: 'ENGINE_SMOOTH',
+    options: [
+      { value: 'ENGINE_SMOOTH', label: 'Smooth & Responsive' },
+      { value: 'MINOR_NOISE', label: 'Minor Noise / Vibration' },
+      { value: 'ROUGH_IDLE', label: 'Rough Idle / Power Loss' },
+      { value: 'ENGINE_FAILURE', label: "Engine Failure / Won't Start" },
+    ],
+  },
+  {
+    name: 'transmission_clutch',
+    label: 'Transmission / Clutch',
+    defaultValue: 'SHIFTS_SMOOTH',
+    options: [
+      { value: 'SHIFTS_SMOOTH', label: 'Shifts Smoothly' },
+      { value: 'SLIGHT_SLIP', label: 'Slight Slipping / Delay' },
+      { value: 'HARD_SHIFTING', label: 'Hard / Jerky Shifting' },
+      { value: 'GEARBOX_FAULT', label: 'Gearbox / Clutch Fault' },
+    ],
+  },
+  {
+    name: 'brakes_suspension',
+    label: 'Brakes & Suspension',
+    defaultValue: 'RESPONSIVE',
+    options: [
+      { value: 'RESPONSIVE', label: 'Responsive & Firm' },
+      { value: 'SOFT_PEDAL', label: 'Soft Pedal / Reduced Grip' },
+      { value: 'NOISE_VIBRATION', label: 'Noise / Vibration on Braking' },
+      { value: 'UNSAFE', label: 'Unsafe / Needs Immediate Repair' },
+    ],
+  },
+  {
+    name: 'tyres_condition',
+    label: 'Tyres & Wheels',
+    defaultValue: 'GOOD_TREAD',
+    options: [
+      { value: 'GOOD_TREAD', label: 'Good Tread & Pressure' },
+      { value: 'UNEVEN_WEAR', label: 'Uneven Wear' },
+      { value: 'LOW_TREAD', label: 'Low Tread / Needs Replacement' },
+      { value: 'FLAT_DAMAGED', label: 'Flat / Damaged Tyre' },
+    ],
+  },
+  {
+    name: 'body_exterior',
+    label: 'Body, Lights & Exterior',
+    defaultValue: 'CLEAN_INTACT',
+    options: [
+      { value: 'CLEAN_INTACT', label: 'Clean & Intact' },
+      { value: 'MINOR_SCRATCHES', label: 'Minor Scratches / Dents' },
+      { value: 'DENTS_RUST', label: 'Noticeable Dents / Rust' },
+      { value: 'LIGHTS_FAULT', label: 'Lights / Glass Damaged' },
+    ],
+  },
+  {
+    name: 'fluids_service',
+    label: 'Fluids & Service Status',
+    defaultValue: 'UP_TO_DATE',
+    options: [
+      { value: 'UP_TO_DATE', label: 'Serviced & Fluids OK' },
+      { value: 'SERVICE_DUE_SOON', label: 'Service Due Soon' },
+      { value: 'LOW_FLUIDS', label: 'Low Oil / Coolant' },
+      { value: 'OVERDUE_LEAK', label: 'Overdue / Leak Detected' },
+    ],
+  },
+  {
+    name: 'asset_tag_status',
+    label: 'Asset Tag Status',
+    defaultValue: 'INTACT_SCANNABLE',
+    options: [
+      { value: 'INTACT_SCANNABLE', label: 'Intact & Scannable' },
+      { value: 'FADED_PEELING', label: 'Faded/Peeling' },
+      { value: 'MISSING', label: 'Missing' },
+    ],
+  },
+];
+
 export function getInspectionFields(asset, sessionCategoryCode) {
   const code = String(asset?.super_category_code || sessionCategoryCode || 'it_assets').toLowerCase();
   if (code.includes('furniture')) return furnitureInspectionFields;
   if (code.includes('appliance')) return appliancesInspectionFields;
+  if (code.includes('motor') || code.includes('vehicle')) return motorVehicleInspectionFields;
   return itInspectionFields;
 }
 
