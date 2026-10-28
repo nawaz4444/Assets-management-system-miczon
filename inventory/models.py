@@ -290,3 +290,143 @@ class AssetActionRequest(models.Model):
     def __str__(self):
         asset_id = self.asset.miczon_id if self.asset else "New Asset"
         return f"{self.action_type} Request: {asset_id} by {self.requester.name}"
+
+
+# --- HELP DESK / TICKETS: ROUTING FOUNDATION ---
+# Config layer that decides where a ticket goes. A ticket's Type routes it to an
+# Agent Group (falling back to its Category's default group); the group's members
+# are the agents who resolve it. Priority is a static choice on the ticket itself.
+
+class AgentGroup(models.Model):
+    """A named team of employees who resolve tickets (e.g. 'IT Support')."""
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    members = models.ManyToManyField(Employee, related_name='agent_groups', blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class TicketCategory(models.Model):
+    """Top-level bucket for tickets (e.g. 'IT And Technical Support')."""
+    name = models.CharField(max_length=120, unique=True)
+    description = models.TextField(blank=True)
+    # Group that handles this category unless a Type overrides it.
+    default_agent_group = models.ForeignKey(
+        AgentGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='categories'
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name_plural = 'Ticket categories'
+
+    def __str__(self):
+        return self.name
+
+
+class TicketType(models.Model):
+    """Sub-classification under a category (e.g. 'Assets Request')."""
+    # When set, raising a ticket of this type also spawns a linked
+    # AssetActionRequest that performs the real asset operation on approval.
+    ASSET_ACTION_CHOICES = [
+        ('', '—'),
+        ('ADD', 'Add Asset'),
+        ('ASSIGN', 'Assign / Provision'),
+        ('TRANSFER', 'Transfer'),
+        ('RETURN', 'Return'),
+        ('REPAIR', 'Repair'),
+    ]
+
+    name = models.CharField(max_length=120)
+    category = models.ForeignKey(TicketCategory, on_delete=models.CASCADE, related_name='types')
+    # Optional per-type routing override; otherwise the category default is used.
+    agent_group = models.ForeignKey(
+        AgentGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='ticket_types'
+    )
+    asset_action = models.CharField(max_length=20, blank=True, default='', choices=ASSET_ACTION_CHOICES)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['category__name', 'name']
+        unique_together = ('name', 'category')
+
+    @property
+    def resolved_agent_group(self):
+        """Where a ticket of this type should route."""
+        return self.agent_group or self.category.default_agent_group
+
+    def __str__(self):
+        return f"{self.category.name} / {self.name}"
+
+
+class Ticket(models.Model):
+    """A help-desk request raised by an employee, routed to an agent group."""
+    PRIORITY_CHOICES = [
+        ('HIGH', 'High'),
+        ('MEDIUM', 'Medium'),
+        ('LOW', 'Low'),
+    ]
+    STATUS_CHOICES = [
+        ('NEW', 'New'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('RESOLVED', 'Resolved'),
+        ('REOPENED', 'Reopened'),
+        ('CLOSED', 'Closed'),
+    ]
+
+    code = models.CharField(max_length=20, unique=True, blank=True)
+    title = models.CharField(max_length=200)
+    category = models.ForeignKey(TicketCategory, on_delete=models.PROTECT, related_name='tickets')
+    ticket_type = models.ForeignKey(TicketType, on_delete=models.PROTECT, related_name='tickets')
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='MEDIUM')
+    description = models.TextField()
+    attachment = models.FileField(upload_to='tickets/%Y/%m/', null=True, blank=True)
+
+    raised_by = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='tickets_raised')
+    raised_for = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='tickets_for'
+    )
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='NEW')
+    assigned_group = models.ForeignKey(
+        AgentGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name='tickets'
+    )
+    assigned_agent = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='tickets_assigned'
+    )
+    # Links an asset-request ticket to the AssetActionRequest engine that
+    # actually performs the operation (create/assign/transfer/return/repair).
+    action_request = models.OneToOneField(
+        AssetActionRequest, on_delete=models.SET_NULL, null=True, blank=True, related_name='ticket'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        # Auto-route to the type's agent group when none is set yet.
+        if self.ticket_type_id and self.assigned_group_id is None:
+            group = self.ticket_type.resolved_agent_group
+            if group:
+                self.assigned_group = group
+        super().save(*args, **kwargs)
+        # Assign a human-readable code once we have a PK.
+        if not self.code:
+            self.code = f"TKT-{self.pk:05d}"
+            super().save(update_fields=['code'])
+
+    def __str__(self):
+        return f"{self.code or 'TKT'} - {self.title}"

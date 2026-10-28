@@ -5,13 +5,15 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.http import FileResponse, HttpResponse
 from .models import (
     Asset, Employee, Department, AssetHistory, AssetAssignment, InspectionLog,
-    AssetActionRequest, HealthCheckSession, HealthCheckResponse, SuperCategory
+    AssetActionRequest, HealthCheckSession, HealthCheckResponse, SuperCategory,
+    AgentGroup, TicketCategory, TicketType, Ticket
 )
 from .serializers import (
-    AssetSerializer, EmployeeSerializer, DepartmentSerializer, 
-    AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer, 
+    AssetSerializer, EmployeeSerializer, DepartmentSerializer,
+    AssetAssignmentSerializer, InspectionLogSerializer, AssetListSerializer,
     AssetDetailSerializer, UserSerializer, AssetActionRequestSerializer,
-    HealthCheckSessionSerializer, HealthCheckResponseSerializer, SuperCategorySerializer
+    HealthCheckSessionSerializer, HealthCheckResponseSerializer, SuperCategorySerializer,
+    AgentGroupSerializer, TicketCategorySerializer, TicketTypeSerializer, TicketSerializer
 )
 from rest_framework.decorators import action
 from django.db import transaction
@@ -69,6 +71,7 @@ def notify_inspection_custodians(super_cat_obj, session):
         Employee.objects.filter(
             assets__in=assigned_qs
         ).exclude(email='').exclude(email__isnull=True)
+        .exclude(email__istartswith='unknown-')  # skip auto-generated placeholder emails
         .values_list('email', flat=True).distinct()
     )
     if not recipients:
@@ -163,6 +166,59 @@ def _is_manager(user):
         return True
     emp = _get_employee_requester(user)
     return bool(emp and emp.managed_departments.exists())
+
+
+def ensure_ticket_for_request(action_request):
+    """Create a Help Desk ticket linked to an asset request if one doesn't
+    exist yet, so requests raised outside the Help Desk still appear there.
+    Safe to call repeatedly; never raises."""
+    from .models import TicketCategory, TicketType, Ticket
+    try:
+        if action_request.ticket:
+            return action_request.ticket
+    except Exception:
+        pass
+    try:
+        it_cat = TicketCategory.objects.filter(name='IT And Technical Support').first()
+        if not it_cat:
+            return None
+        ticket_type = TicketType.objects.filter(category=it_cat, asset_action=action_request.action_type).first()
+        if not ticket_type:
+            return None
+        label = action_request.requested_device_type or (
+            action_request.asset.name if action_request.asset else 'Asset request'
+        )
+        ticket = Ticket.objects.create(
+            title=f"{ticket_type.name}: {label}"[:200],
+            category=it_cat,
+            ticket_type=ticket_type,
+            priority='MEDIUM',
+            description=action_request.reason_for_request or action_request.remarks or '',
+            raised_by=action_request.requester,
+            action_request=action_request,
+        )
+        return ticket
+    except Exception:
+        logger.exception("Could not auto-create ticket for request %s", getattr(action_request, 'id', None))
+        return None
+
+
+def _sync_linked_ticket(action_request, status):
+    """Move the Ticket linked to an asset request to `status` when the request
+    is approved (RESOLVED) or rejected (CLOSED). No-op if there is no ticket."""
+    from django.utils import timezone as _tz
+    try:
+        ticket = action_request.ticket
+    except Exception:
+        ticket = None
+    if not ticket:
+        return
+    ticket.status = status
+    if status == 'RESOLVED':
+        ticket.resolved_at = _tz.now()
+    elif status == 'CLOSED':
+        ticket.closed_at = _tz.now()
+    ticket.save(update_fields=['status', 'resolved_at', 'closed_at'])
 
 def _get_managed_department_ids(user):
     if not user or not user.is_authenticated:
@@ -1069,8 +1125,9 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             data['status'] = 'PENDING'
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
-            serializer.save(requester=requester, status='PENDING')
-            return Response(serializer.data, status=201)
+            action_req = serializer.save(requester=requester, status='PENDING')
+            ensure_ticket_for_request(action_req)
+            return Response(self.get_serializer(action_req).data, status=201)
 
         requested_emp_id = request.data.get('requester')
         if requested_emp_id and not request.user.is_superuser:
@@ -1078,7 +1135,13 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
             if int(requested_emp_id) not in team_ids:
                 return Response({"error": "You do not have permission to submit requests for this employee."}, status=403)
 
-        return super().create(request, *args, **kwargs)
+        response = super().create(request, *args, **kwargs)
+        created_id = response.data.get('id') if hasattr(response, 'data') else None
+        if created_id:
+            req = AssetActionRequest.objects.filter(id=created_id).first()
+            if req:
+                ensure_ticket_for_request(req)
+        return response
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -1207,7 +1270,9 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         req.processed_at = timezone.now()
         req.processed_by = request.user
         req.save()
-        
+
+        _sync_linked_ticket(req, 'RESOLVED')
+
         return Response({"status": "Request approved and action performed"})
 
     @action(detail=True, methods=['post'])
@@ -1225,7 +1290,9 @@ class AssetActionRequestViewSet(viewsets.ModelViewSet):
         req.processed_at = timezone.now()
         req.processed_by = request.user
         req.save()
-        
+
+        _sync_linked_ticket(req, 'CLOSED')
+
         return Response({"status": "Request rejected"})
 
 class HealthCheckSessionViewSet(viewsets.ModelViewSet):
@@ -2053,3 +2120,194 @@ class UploadAssetsView(APIView):
         except Exception as e:
             logger.exception("Critical upload error")
             return Response({"status": "error", "message": f"Error: {str(e)}"}, status=400)
+
+
+# --- HELP DESK / TICKETS: ROUTING FOUNDATION VIEWSETS ---
+
+class AgentGroupViewSet(viewsets.ModelViewSet):
+    queryset = AgentGroup.objects.all().prefetch_related('members').order_by('name')
+    serializer_class = AgentGroupSerializer
+
+
+class TicketCategoryViewSet(viewsets.ModelViewSet):
+    queryset = TicketCategory.objects.all().select_related('default_agent_group').order_by('name')
+    serializer_class = TicketCategorySerializer
+
+
+class TicketTypeViewSet(viewsets.ModelViewSet):
+    serializer_class = TicketTypeSerializer
+
+    def get_queryset(self):
+        qs = TicketType.objects.all().select_related('category', 'agent_group').order_by('category__name', 'name')
+        category = self.request.query_params.get('category')
+        if category:
+            if str(category).isdigit():
+                qs = qs.filter(category_id=category)
+            else:
+                qs = qs.filter(category__name__iexact=category)
+        return qs
+
+
+# --- HELP DESK / TICKETS: TICKET VIEWSET ---
+from rest_framework.parsers import JSONParser
+
+
+def notify_ticket_agents(ticket):
+    """Email the assigned group's agents that a new ticket was raised.
+    Reuses the background per-recipient sender. Returns recipients queued."""
+    group = ticket.assigned_group
+    if not group:
+        return 0
+    recipients = list(
+        group.members.exclude(email='').exclude(email__isnull=True)
+        .exclude(email__istartswith='unknown-')  # skip auto-generated placeholder emails
+        .values_list('email', flat=True).distinct()
+    )
+    if not recipients:
+        return 0
+
+    raiser = ticket.raised_by.name if ticket.raised_by else 'An employee'
+    subject = f"New Ticket {ticket.code}: {ticket.title}"
+    body = (
+        f"A new help-desk ticket has been raised and routed to your group "
+        f"({group.name}).\n\n"
+        f"Ticket:     {ticket.code} - {ticket.title}\n"
+        f"Category:   {ticket.category.name}\n"
+        f"Type:       {ticket.ticket_type.name}\n"
+        f"Priority:   {ticket.get_priority_display()}\n"
+        f"Raised by:  {raiser}\n\n"
+        f"Details:\n{ticket.description}\n\n"
+        f"Please log in to the portal to review and resolve it."
+    )
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+    threading.Thread(
+        target=_send_inspection_emails,
+        args=(recipients, subject, body, from_email),
+        daemon=True,
+    ).start()
+    return len(recipients)
+
+
+class TicketViewSet(viewsets.ModelViewSet):
+    serializer_class = TicketSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        qs = Ticket.objects.select_related(
+            'category', 'ticket_type', 'raised_by', 'raised_for', 'assigned_group', 'assigned_agent'
+        )
+        params = self.request.query_params
+        for field in ('status', 'priority'):
+            value = params.get(field)
+            if value:
+                qs = qs.filter(**{field: value})
+        if params.get('category'):
+            qs = qs.filter(category_id=params['category'])
+        if params.get('ticket_type'):
+            qs = qs.filter(ticket_type_id=params['ticket_type'])
+
+        is_admin = self.request.user.is_superuser or self.request.user.is_staff
+        employee = _get_employee_requester(self.request.user)
+        request_type = params.get('request_type', 'mine')
+
+        if request_type == 'to_resolve':
+            if is_admin and not employee:
+                return qs
+            if not employee:
+                return qs.none()
+            return qs.filter(Q(assigned_agent=employee) | Q(assigned_group__members=employee)).distinct()
+
+        if request_type == 'all' and is_admin:
+            return qs
+
+        # Default: the caller's own tickets.
+        if not employee:
+            return qs.all() if is_admin else qs.none()
+        return qs.filter(Q(raised_by=employee) | Q(raised_for=employee)).distinct()
+
+    def perform_create(self, serializer):
+        employee = _get_employee_requester(self.request.user)
+        ticket = serializer.save(raised_by=employee)
+
+        # If this ticket type maps to an asset operation, create the linked
+        # AssetActionRequest that the existing engine will act on at approval.
+        ticket_type = ticket.ticket_type
+        if ticket_type and ticket_type.asset_action:
+            data = self.request.data
+            action_req = AssetActionRequest.objects.create(
+                requester=employee,
+                action_type=ticket_type.asset_action,
+                asset_id=(data.get('asset') or None),
+                target_employee_id=(data.get('target_employee') or None),
+                requested_device_type=(data.get('requested_device_type') or ''),
+                specifications=(data.get('specifications') or ''),
+                vendor=(data.get('vendor') or ''),
+                expected_return_date=(data.get('expected_return_date') or None),
+                reason_for_request=(ticket.description or ''),
+                remarks=(data.get('remarks') or ''),
+                status='PENDING',
+            )
+            ticket.action_request = action_req
+            ticket.save(update_fields=['action_request'])
+
+        notify_ticket_agents(ticket)
+
+    @action(detail=False, methods=['get'], url_path='my-counts')
+    def my_counts(self, request):
+        employee = _get_employee_requester(request.user)
+        mine = Ticket.objects.filter(raised_by=employee) if employee else Ticket.objects.none()
+        to_resolve = Ticket.objects.none()
+        if employee:
+            to_resolve = Ticket.objects.filter(
+                Q(assigned_agent=employee) | Q(assigned_group__members=employee)
+            ).exclude(status__in=['RESOLVED', 'CLOSED']).distinct()
+        return Response({
+            'new': mine.filter(status='NEW').count(),
+            'in_progress': mine.filter(status='IN_PROGRESS').count(),
+            'resolved': mine.filter(status='RESOLVED').count(),
+            'closed': mine.filter(status='CLOSED').count(),
+            'total': mine.count(),
+            'to_resolve': to_resolve.count(),
+        })
+
+    def _can_manage(self, user, ticket):
+        """Admins/staff, the assigned agent, or a member of the assigned group."""
+        if user.is_superuser or user.is_staff:
+            return True
+        emp = _get_employee_requester(user)
+        if not emp:
+            return False
+        if ticket.assigned_agent_id == emp.id:
+            return True
+        return bool(ticket.assigned_group and ticket.assigned_group.members.filter(id=emp.id).exists())
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        ticket = Ticket.objects.filter(pk=pk).first()
+        if not ticket:
+            return Response({'error': 'Ticket not found.'}, status=404)
+        if not self._can_manage(request.user, ticket):
+            return Response({'error': 'You cannot manage this ticket.'}, status=403)
+        ticket.assigned_agent_id = request.data.get('assigned_agent') or None
+        if ticket.status == 'NEW' and ticket.assigned_agent_id:
+            ticket.status = 'IN_PROGRESS'
+        ticket.save()
+        return Response(self.get_serializer(ticket).data)
+
+    @action(detail=True, methods=['post'], url_path='set-status')
+    def set_status(self, request, pk=None):
+        ticket = Ticket.objects.filter(pk=pk).first()
+        if not ticket:
+            return Response({'error': 'Ticket not found.'}, status=404)
+        if not self._can_manage(request.user, ticket):
+            return Response({'error': 'You cannot manage this ticket.'}, status=403)
+        new_status = request.data.get('status')
+        if new_status not in dict(Ticket.STATUS_CHOICES):
+            return Response({'error': 'Invalid status.'}, status=400)
+        ticket.status = new_status
+        if new_status == 'RESOLVED':
+            ticket.resolved_at = timezone.now()
+        elif new_status == 'CLOSED':
+            ticket.closed_at = timezone.now()
+        ticket.save()
+        return Response(self.get_serializer(ticket).data)

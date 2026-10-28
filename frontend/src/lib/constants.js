@@ -3,8 +3,8 @@ export const navItems = [
   { path: '/inventory', label: 'Inventory', icon: 'box' },
   { path: '/stock', label: 'Stock', icon: 'layers' },
   { path: '/employees', label: 'Employees', icon: 'users' },
-  { path: '/requests', label: 'Requests', icon: 'inbox' },
   { path: '/health-checks', label: 'Health Checks', icon: 'pulse' },
+  { path: '/tickets', label: 'Help Desk', icon: 'ticket' },
   { path: '/portal', label: 'Employee Portal', icon: 'user' },
 ];
 

@@ -14,6 +14,7 @@ import {
   DialogHeader, Field, Notice, StatusBadge, DataTable,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
+import { TicketsPage } from './TicketsPage';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
   if (!superCategories || superCategories.length === 0) return null;
@@ -99,9 +100,9 @@ export function AppShell({ token, handleLogout }) {
             {navItems.filter(item => {
               if (user?.is_superuser) return true;
               if (user?.employee_details?.is_manager) {
-                return ['/portal', '/inventory', '/requests', '/health-checks'].includes(item.path);
+                return ['/portal', '/inventory', '/health-checks', '/tickets'].includes(item.path);
               }
-              return item.path === '/portal';
+              return ['/portal', '/tickets'].includes(item.path);
             }).map((item) => {
               if (item.external) {
                 return (
@@ -149,12 +150,13 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={true} />} />
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/employees" element={<EmployeeDirectory api={api} isAdmin={true} />} />
-              <Route path="/requests" element={<RequestManager api={api} isAdmin={true} user={user} />} />
+              <Route path="/requests" element={<Navigate to="/tickets" replace />} />
               <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={true} user={user} />} />
               <Route path="/stock" element={<StockDashboard api={api} />} />
               <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
               <Route path="/stock/reports" element={<StockReports api={api} />} />
+              <Route path="/tickets" element={<TicketsPage api={api} isAdmin={true} />} />
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -163,13 +165,15 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="/inventory" element={<InventoryPage api={api} isAdmin={false} isManager={true} />} />
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
-              <Route path="/requests" element={<RequestManager api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/requests" element={<Navigate to="/tickets" replace />} />
               <Route path="/health-checks" element={<HealthChecks api={api} isAdmin={false} isManager={true} user={user} />} />
+              <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           ) : (
             <Routes>
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
+              <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           )}
@@ -367,6 +371,8 @@ export function InventoryPage({ api, isAdmin }) {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [qrLabelsDialogOpen, setQrLabelsDialogOpen] = useState(false);
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef(null);
   const [qrAsset, setQrAsset] = useState(null);
   const [quickQrSize, setQuickQrSize] = useState('3x2in');
   const [form, setForm] = useState(emptyAsset);
@@ -431,6 +437,16 @@ export function InventoryPage({ api, isAdmin }) {
     fetchAll(api, '/employees/').then(setEmployees);
     fetchAll(api, '/departments/').then(setDepartments);
   }, [api]);
+
+  // Close the Tools menu when clicking outside it
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const onDocClick = (e) => {
+      if (toolsRef.current && !toolsRef.current.contains(e.target)) setToolsOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [toolsOpen]);
 
   useEffect(() => {
     if (location.pathname !== '/inventory/add') return;
@@ -625,9 +641,26 @@ export function InventoryPage({ api, isAdmin }) {
             navigate(`/inventory?super_category=${sc.code}`);
           }}
         />
-        <Button type="button" variant="outline" onClick={handleExport}>Download Excel</Button>
-        {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Assets</Button>}
-        <Button type="button" variant="outline" onClick={() => setQrLabelsDialogOpen(true)}>QR Labels</Button>
+        <div className="dropdown" ref={toolsRef}>
+          <Button type="button" variant="outline" onClick={() => setToolsOpen((o) => !o)} aria-haspopup="menu" aria-expanded={toolsOpen}>
+            Tools <span className="dropdown-caret">▾</span>
+          </Button>
+          {toolsOpen && (
+            <div className="dropdown-menu" role="menu">
+              <button type="button" className="dropdown-item" role="menuitem" onClick={() => { setToolsOpen(false); handleExport(); }}>
+                <span className="dropdown-ico">⬇️</span> Download Excel
+              </button>
+              {isAdmin && (
+                <button type="button" className="dropdown-item" role="menuitem" onClick={() => { setToolsOpen(false); setImportDialogOpen(true); }}>
+                  <span className="dropdown-ico">⬆️</span> Import Assets
+                </button>
+              )}
+              <button type="button" className="dropdown-item" role="menuitem" onClick={() => { setToolsOpen(false); setQrLabelsDialogOpen(true); }}>
+                <span className="dropdown-ico">🏷️</span> QR Labels
+              </button>
+            </div>
+          )}
+        </div>
         <Button type="button" variant="primary" onClick={() => {
           setEditingId(null);
           setForm({ ...emptyAsset, super_category: activeCatObj?.id || '' });
@@ -686,15 +719,15 @@ export function InventoryPage({ api, isAdmin }) {
         <DataTable
           columns={['Miczon ID', 'Device', 'Super Category', 'Category', 'Department', 'Status', 'Assigned User', 'Actions']}
           rows={assets.map((asset) => [
-            asset.miczon_id,
-            asset.name,
-            <span key="sc" style={{ fontWeight: '600', color: '#0f766e', background: '#ccfbf1', padding: '2px 8px', borderRadius: '4px', fontSize: '12px' }}>
-              {asset.super_category_name || 'Computer and IT'}
-            </span>,
-            asset.category || 'Uncategorized',
-            asset.department_name || 'No department',
+            <span key="id" className="cell-id">{asset.miczon_id}</span>,
+            <span key="name" className="cell-primary">{asset.name}</span>,
+            <span key="sc" className="tag-chip">{asset.super_category_name || 'Computer and IT'}</span>,
+            asset.category
+              ? <span key="cat" className="tag-chip neutral">{asset.category}</span>
+              : <span key="cat" className="cell-muted">Uncategorized</span>,
+            asset.department_name || <span className="cell-muted">No department</span>,
             <StatusBadge key="sb" status={asset.current_status} />,
-            asset.custodian_name || 'Unassigned',
+            asset.custodian_name || <span className="cell-muted">Unassigned</span>,
             <div key="act" className="row-actions">
               <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/inventory/asset/${asset.id}`)}>View</Button>
             </div>,
