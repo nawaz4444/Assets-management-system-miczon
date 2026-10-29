@@ -337,12 +337,12 @@ class TicketSerializer(serializers.ModelSerializer):
             'raised_by', 'raised_by_name', 'raised_for', 'raised_for_name',
             'status', 'status_display', 'assigned_group', 'assigned_group_name',
             'assigned_agent', 'assigned_agent_name',
-            'action_request', 'action_request_status',
+            'action_request', 'action_request_status', 'resolution_note',
             'created_at', 'updated_at', 'resolved_at', 'closed_at',
         ]
         read_only_fields = [
             'code', 'raised_by', 'status', 'assigned_group', 'assigned_agent',
-            'action_request', 'resolved_at', 'closed_at',
+            'action_request', 'resolution_note', 'resolved_at', 'closed_at',
         ]
 
     action_request_status = serializers.CharField(source='action_request.status', read_only=True, default=None)

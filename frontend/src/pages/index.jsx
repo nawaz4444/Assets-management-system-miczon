@@ -15,7 +15,7 @@ import {
   DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
-import { TicketsPage } from './TicketsPage';
+import { TicketsPage, AddTicketForm } from './TicketsPage';
 import { StockOperatorSelector } from '../stock/StockOperatorSelector';
 import '../stock/stock-operator.css';
 import { AccountsPage } from '../accounts/AccountsModule';
@@ -3244,31 +3244,27 @@ export function EmployeePortal({ api, user }) {
   const [pendingAssets, setPendingAssets] = useState([]);
   const [activeSession, setActiveSession] = useState('');
   
-  const [requestsListDialogOpen, setRequestsListDialogOpen] = useState(false);
-  const [myRequests, setMyRequests] = useState([]);
-  const [editingRequestId, setEditingRequestId] = useState(null);
+  const [ticketsDialogOpen, setTicketsDialogOpen] = useState(false);
+  const [myTickets, setMyTickets] = useState([]);
   const [showRequestForm, setShowRequestForm] = useState(false);
+  const [viewTicket, setViewTicket] = useState(null);
   const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
-  
-  const [requestForm, setRequestForm] = useState({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
+
   const [healthForm, setHealthForm] = useState({});
   const [notice, setNotice] = useState('');
   const [inspectionLoading, setInspectionLoading] = useState(false);
 
   const loadPortal = useCallback(async () => {
     if (!employee?.id) return;
-    const [gearRes, sessionRows, requestsResult] = await Promise.all([
+    const [gearRes, sessionRows, ticketsResult] = await Promise.all([
       api.get(`/employees/${employee.id}/assigned-assets/`),
       fetchAll(api, '/health-checks/'),
-      fetchAll(api, '/requests/').catch((error) => {
-        console.error('Unable to fetch requests:', error);
-        return null;
-      }),
+      fetchAll(api, '/tickets/?request_type=mine').catch(() => null),
     ]);
     const latestSession = latestOpenInspection(sessionRows);
     setGear(gearRes.data);
     setSessions(latestSession ? [latestSession] : []);
-    if (requestsResult) setMyRequests(requestsResult);
+    if (ticketsResult) setMyTickets(ticketsResult);
 
     const latestSessionId = latestSession?.id || '';
     setActiveSession(latestSessionId);
@@ -3285,46 +3281,9 @@ export function EmployeePortal({ api, user }) {
     loadPortal().catch(err => setNotice(apiError(err, 'Unable to load your gear and inspections.')));
   }, [loadPortal]);
 
-  const submitRequest = async (event) => {
-    event.preventDefault();
-    try {
-      const payload = {
-        action_type: 'ASSIGN',
-        requested_device_type: requestForm.requested_device_type,
-        specifications: requestForm.specifications,
-        reason_for_request: requestForm.remarks,
-        remarks: requestForm.remarks,
-      };
-
-      if (editingRequestId) {
-        await api.patch(`/requests/${editingRequestId}/`, payload);
-        setNotice('Hardware request updated.');
-      } else {
-        await api.post('/requests/', payload);
-        setNotice('Hardware request submitted.');
-      }
-      
-      setRequestForm({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
-      setEditingRequestId(null);
-      setShowRequestForm(false);
-      
-      const requestsData = await fetchAll(api, '/requests/');
-      setMyRequests(requestsData);
-    } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to submit hardware request.');
-    }
-  };
-
-  const deleteRequest = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this pending request?")) return;
-    try {
-      await api.delete(`/requests/${id}/`);
-      setNotice('Hardware request deleted.');
-      const requestsData = await fetchAll(api, '/requests/');
-      setMyRequests(requestsData);
-    } catch (err) {
-      setNotice(err.response?.data?.error || 'Unable to delete hardware request.');
-    }
+  const reloadMyTickets = async () => {
+    const data = await fetchAll(api, '/tickets/?request_type=mine').catch(() => null);
+    if (data) setMyTickets(data);
   };
 
   const updateHealthField = (assetId, field, value) => {
@@ -3410,7 +3369,7 @@ export function EmployeePortal({ api, user }) {
         <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length || inspectionLoading} onClick={startLatestInspection}>
           {inspectionLoading ? 'Loading Inspection...' : 'Start Inspection'}
         </Button>
-        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setRequestsListDialogOpen(true); setShowRequestForm(false); }}>My Requests</Button>
+        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setTicketsDialogOpen(true); setShowRequestForm(false); }}>My Tickets</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
       {notice && <Notice>{notice}</Notice>}
@@ -3494,113 +3453,95 @@ export function EmployeePortal({ api, user }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={requestsListDialogOpen}>
-        <DialogContent className="requests-list-dialog" style={{ maxWidth: '900px' }}>
-          <DialogHeader 
-            title={editingRequestId ? "Edit Request" : "My Requests"} 
-            description={editingRequestId ? "Update your pending hardware request." : "Manage your hardware requests and view history."} 
+      <Dialog open={ticketsDialogOpen}>
+        <DialogContent style={{ maxWidth: '640px' }}>
+          <DialogHeader
+            title={showRequestForm ? 'New Request' : 'My Tickets'}
+            description={showRequestForm ? 'Pick a category and type, then describe your request.' : 'Raise a request and track your tickets.'}
+            onClose={() => { setTicketsDialogOpen(false); setShowRequestForm(false); }}
           />
-          
-          <div className="requests-dialog-body" style={{ maxHeight: '70vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
-            {/* Request Form - Toggleable */}
+
+          <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
             {showRequestForm ? (
-              <section style={{ marginBottom: '2rem', padding: '1.5rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <h3 style={{ marginBottom: '1rem' }}>{editingRequestId ? 'Edit Pending Request' : 'Submit New Request'}</h3>
-                <form className="dialog-form" onSubmit={submitRequest}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                    <Field label="Hardware Type">
-                      <Select value={requestForm.requested_device_type} onChange={(e) => setRequestForm({ ...requestForm, requested_device_type: e.target.value })}>
-                        <option>Laptop</option><option>Mobile</option><option>Accessory</option><option>Monitor</option><option>Other</option>
-                      </Select>
-                    </Field>
-                    <Field label="Specifications">
-                      <input value={requestForm.specifications} onChange={(e) => setRequestForm({ ...requestForm, specifications: e.target.value })} placeholder="e.g. 16GB RAM, 512GB SSD..." />
-                    </Field>
-                  </div>
-                  <Field label="Reason for Request">
-                    <textarea required rows="3" value={requestForm.remarks} onChange={(e) => setRequestForm({ ...requestForm, remarks: e.target.value })} />
-                  </Field>
-                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
-                    <Button type="button" variant="ghost" onClick={() => {
-                      setShowRequestForm(false);
-                      setEditingRequestId(null);
-                      setRequestForm({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
-                    }}>Cancel</Button>
-                    <Button type="submit" variant="primary" disabled={!employee}>
-                      {editingRequestId ? "Save Changes" : "Submit Request"}
-                    </Button>
-                  </div>
-                </form>
-              </section>
+              <AddTicketForm
+                api={api}
+                submitLabel="Submit request"
+                onCancel={() => setShowRequestForm(false)}
+                onDone={() => { setShowRequestForm(false); setNotice('Your request has been submitted.'); reloadMyTickets(); }}
+              />
             ) : (
-              <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
-                <Button type="button" variant="primary" onClick={() => setShowRequestForm(true)}>+ New Request</Button>
-              </div>
-            )}
-
-            {/* Pending Requests */}
-            <section style={{ marginBottom: '2rem' }}>
-              <h3 style={{ marginBottom: '1rem' }}>Pending Requests</h3>
-              <DataTable
-                columns={['Device', 'Reason', 'Status', 'Created', 'Actions']}
-                rows={myRequests.filter(r => r.status === 'PENDING').map(r => [
-                  <div key="device">
-                    <strong>{r.asset_name || r.requested_device_type || r.asset_miczon_id || 'New hardware'}</strong>
-                    {r.specifications && <><br/><small style={{ color: '#64748b' }}>Specs: {r.specifications}</small></>}
-                  </div>,
-                  <div key="reason" style={{ maxWidth: '300px', wordBreak: 'break-word', overflowWrap: 'break-word', color: '#475569', fontSize: '13px' }}>
-                    {r.reason_for_request || r.remarks || 'No reason provided'}
-                  </div>,
-                  <StatusBadge key="status" status={r.status} />,
-                  <span key="created" style={{ whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleDateString()}</span>,
-                  <div key="actions" className="row-actions" style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'nowrap' }}>
-                    <Button type="button" variant="ghost" size="sm" title="Edit Request" style={{ padding: '6px 10px' }} onClick={() => {
-                      setEditingRequestId(r.id);
-                      setRequestForm({
-                        requested_device_type: r.requested_device_type || 'Laptop',
-                        specifications: r.specifications || '',
-                        remarks: r.reason_for_request || r.remarks || ''
-                      });
-                      setShowRequestForm(true);
-                    }}>
-                      <Icon name="edit" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" className="text-danger" title="Delete Request" style={{ padding: '6px 10px', color: '#dc2626' }} onClick={() => deleteRequest(r.id)}>
-                      <Icon name="cross" />
-                    </Button>
-                  </div>
-                ])}
-                empty="No pending requests."
-              />
-            </section>
-
-            {/* Request History */}
-            <section>
-              <h3 style={{ marginBottom: '1rem' }}>Request History</h3>
-              <DataTable
-                columns={['Device', 'Status', 'Processed At', 'Admin Remarks']}
-                rows={myRequests.filter(r => r.status !== 'PENDING').map(r => [
+              <>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+                  <Button type="button" variant="primary" onClick={() => setShowRequestForm(true)}>+ New request</Button>
+                </div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your requests</div>
+                {myTickets.length === 0 ? (
+                  <p className="empty-state">You have not raised any tickets yet.</p>
+                ) : (
                   <div>
-                    <strong>{r.asset_name || r.requested_device_type || r.asset_miczon_id || 'New hardware'}</strong>
-                    <br/><small>{r.reason_for_request || r.remarks || 'No reason provided'}</small>
-                  </div>,
-                  <StatusBadge status={r.status} />,
-                  r.processed_at ? new Date(r.processed_at).toLocaleDateString() : '-',
-                  r.admin_remarks || '-'
-                ])}
-                empty="No historical requests."
+                    {myTickets.map((t) => {
+                      const dot = { NEW: '#3b82f6', IN_PROGRESS: '#f59e0b', REOPENED: '#f59e0b', RESOLVED: '#10b981', CLOSED: '#94a3b8' }[t.status] || '#94a3b8';
+                      return (
+                        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>{t.ticket_type_name} · {new Date(t.created_at).toLocaleDateString()}</div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', whiteSpace: 'nowrap' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#334155' }}>
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: dot }} />
+                              {t.status_display || t.status}
+                            </span>
+                            <Button type="button" variant="outline" size="sm" onClick={() => setViewTicket(t)}>View</Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Read-only request detail for the employee */}
+      <Dialog open={!!viewTicket}>
+        <DialogContent style={{ maxWidth: '560px' }}>
+          {viewTicket && (
+            <>
+              <DialogHeader
+                title={`${viewTicket.code} · ${viewTicket.title}`}
+                description={`${viewTicket.category_name} → ${viewTicket.ticket_type_name}`}
+                onClose={() => setViewTicket(null)}
               />
-            </section>
-          </div>
-          
-          <div className="dialog-footer" style={{ marginTop: '1rem' }}>
-            <Button type="button" variant="ghost" onClick={() => {
-              setRequestsListDialogOpen(false);
-              setEditingRequestId(null);
-              setShowRequestForm(false);
-              setRequestForm({ requested_device_type: 'Laptop', specifications: '', remarks: '' });
-            }}>Close</Button>
-          </div>
+              <div>
+                {[
+                  ['Status', viewTicket.status_display || viewTicket.status],
+                  ['Handled by', viewTicket.assigned_agent_name || viewTicket.assigned_group_name || 'Not yet assigned'],
+                  ['Created', viewTicket.created_at ? new Date(viewTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '12px', padding: '9px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
+                    <div style={{ color: '#64748b' }}>{label}</div>
+                    <div style={{ color: '#0f172a', fontWeight: 500 }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: '16px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Description</div>
+                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{viewTicket.description || <span className="cell-muted">No description</span>}</div>
+              </div>
+              {viewTicket.resolution_note && (
+                <div style={{ marginTop: '16px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Latest note from the team</div>
+                  <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{viewTicket.resolution_note}</div>
+                </div>
+              )}
+              <div className="dialog-footer">
+                <Button type="button" variant="ghost" onClick={() => setViewTicket(null)}>Close</Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>
