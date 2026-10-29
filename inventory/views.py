@@ -2228,6 +2228,10 @@ class TicketViewSet(viewsets.ModelViewSet):
         request_type = params.get('request_type', 'mine')
 
         if request_type == 'to_resolve':
+            # The "To Resolve" queue is active work only. Hide finished tickets
+            # (Resolved/Closed) unless the caller explicitly filters by status.
+            if not params.get('status'):
+                qs = qs.exclude(status__in=['RESOLVED', 'CLOSED'])
             if is_admin and not employee:
                 return qs
             if not employee:

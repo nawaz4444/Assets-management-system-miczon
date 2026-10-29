@@ -74,9 +74,12 @@ export function MetricCard({ label, value, to, tone = 'slate', subtext }) {
   );
 }
 
-export function DialogHeader({ title, description }) {
+export function DialogHeader({ title, description, onClose }) {
   return (
     <div className="dialog-header">
+      {onClose && (
+        <button type="button" className="dialog-close" aria-label="Close" onClick={onClose}>&times;</button>
+      )}
       <h2 className="dialog-title">{title}</h2>
       {description && <p className="dialog-description">{description}</p>}
     </div>

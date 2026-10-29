@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { normalizeList, fetchAll } from '../lib/api';
 import {
   Button, Select, Dialog, DialogContent, PageHeader,
-  DialogHeader, Field, Notice, StatusBadge, DataTable,
+  DialogHeader, Field, Notice, DataTable,
 } from '../components/ui';
 
 // --- HELP DESK: TICKETS PORTAL (Add Ticket + My Tickets / To Resolve) ---
@@ -20,21 +20,21 @@ const TICKET_STATUSES = [
   { value: 'CLOSED', label: 'Closed' },
 ];
 
-function PriorityTag({ priority }) {
-  const tones = {
-    HIGH: { background: '#fee2e2', color: '#991b1b', border: '#fecaca' },
-    MEDIUM: { background: '#fef3c7', color: '#92400e', border: '#fde68a' },
-    LOW: { background: '#e0f2fe', color: '#075985', border: '#bae6fd' },
-  };
-  const t = tones[priority] || tones.MEDIUM;
+const boxStyle = { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' };
+
+const STATUS_LABELS = {
+  NEW: 'New', IN_PROGRESS: 'In Progress', RESOLVED: 'Resolved', REOPENED: 'Reopened', CLOSED: 'Closed',
+};
+
+// One clean label/value row in the ticket detail list.
+function InfoRow({ label, value }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', borderRadius: '999px', background: t.background, color: t.color, border: `1px solid ${t.border}`, fontSize: '11.5px', fontWeight: 700, padding: '3px 10px', textTransform: 'capitalize' }}>
-      {(priority || 'Medium').toLowerCase()}
-    </span>
+    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '12px', padding: '9px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
+      <div style={{ color: '#64748b' }}>{label}</div>
+      <div style={{ color: '#0f172a', fontWeight: 500 }}>{value}</div>
+    </div>
   );
 }
-
-const boxStyle = { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' };
 
 function GroupMembersEditor({ group, employees, onSave }) {
   const [selected, setSelected] = useState((group.members || []).map(String));
@@ -234,6 +234,7 @@ export function TicketsPage({ api, isAdmin }) {
     { label: 'New', value: counts?.new, tone: 'blue' },
     { label: 'In Progress', value: counts?.in_progress, tone: 'amber' },
     { label: 'Resolved', value: counts?.resolved, tone: 'green' },
+    { label: 'Closed', value: counts?.closed, tone: 'slate' },
     { label: 'Assigned to me', value: counts?.to_resolve, tone: 'violet' },
   ];
 
@@ -268,14 +269,16 @@ export function TicketsPage({ api, isAdmin }) {
           <span />
         </div>
         <DataTable
-          columns={['Code', 'Title', 'Category', 'Type', 'Priority', 'Status', view === 'to_resolve' ? 'Raised By' : 'Assigned To', 'Created', 'Actions']}
+          columns={['Code', 'Title', 'Category', 'Priority', 'Status', view === 'to_resolve' ? 'Raised By' : 'Assigned To', 'Created', '']}
           rows={tickets.map((t) => [
             <span key="c" className="cell-id">{t.code}</span>,
-            <span key="t" className="cell-primary">{t.title}</span>,
-            <span key="cat" className="tag-chip">{t.category_name}</span>,
-            t.ticket_type_name,
-            <PriorityTag key="p" priority={t.priority} />,
-            <StatusBadge key="s" status={t.status} />,
+            <div key="t">
+              <div className="cell-primary">{t.title}</div>
+              {t.ticket_type_name && <div className="cell-muted" style={{ fontSize: '12px' }}>{t.ticket_type_name}</div>}
+            </div>,
+            t.category_name,
+            (t.priority || 'Medium').charAt(0) + (t.priority || 'Medium').slice(1).toLowerCase(),
+            STATUS_LABELS[t.status] || t.status,
             view === 'to_resolve'
               ? (t.raised_by_name || '—')
               : (t.assigned_group_name || <span className="cell-muted">Unassigned</span>),
@@ -382,60 +385,61 @@ export function TicketsPage({ api, isAdmin }) {
       {/* Ticket detail / resolution */}
       <Dialog open={!!activeTicket}>
         <DialogContent>
-          {activeTicket && (
+          {activeTicket && (() => {
+            const forSomeoneElse = activeTicket.raised_for_name && activeTicket.raised_for_name !== activeTicket.raised_by_name;
+            const raisedBy = forSomeoneElse ? `${activeTicket.raised_by_name} (for ${activeTicket.raised_for_name})` : activeTicket.raised_by_name;
+            return (
             <>
-              <DialogHeader title={`${activeTicket.code} — ${activeTicket.title}`} description={`${activeTicket.category_name} / ${activeTicket.ticket_type_name}`} />
+              <DialogHeader title={`${activeTicket.code} · ${activeTicket.title}`} description={`${activeTicket.category_name} → ${activeTicket.ticket_type_name}`} onClose={() => setActiveTicket(null)} />
               <div className="stack-form">
-                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center', fontSize: '13px', color: '#475569' }}>
-                  <span>Priority: <PriorityTag priority={activeTicket.priority} /></span>
-                  <span>Status: <StatusBadge status={activeTicket.status} /></span>
-                  <span>Group: <strong>{activeTicket.assigned_group_name || '—'}</strong></span>
-                  <span>Agent: <strong>{activeTicket.assigned_agent_name || 'Unassigned'}</strong></span>
+                <div>
+                  <InfoRow label="Status" value={STATUS_LABELS[activeTicket.status] || activeTicket.status} />
+                  <InfoRow label="Priority" value={(activeTicket.priority || 'Medium').charAt(0) + (activeTicket.priority || 'Medium').slice(1).toLowerCase()} />
+                  <InfoRow label="Raised by" value={raisedBy} />
+                  <InfoRow label="Assigned to" value={activeTicket.assigned_agent_name || activeTicket.assigned_group_name || 'Not assigned'} />
+                  <InfoRow label="Created" value={activeTicket.created_at ? new Date(activeTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'} />
+                  {activeTicket.action_request && (
+                    <InfoRow label="Asset request" value={(activeTicket.action_request_status || 'pending').charAt(0) + (activeTicket.action_request_status || 'pending').slice(1).toLowerCase()} />
+                  )}
                 </div>
-                <div style={{ fontSize: '13px', color: '#475569' }}>
-                  Raised by <strong>{activeTicket.raised_by_name}</strong>
-                  {activeTicket.raised_for_name ? <> for <strong>{activeTicket.raised_for_name}</strong></> : null}
-                </div>
-                <div style={boxStyle}>{activeTicket.description || <span className="cell-muted">No description</span>}</div>
-                {activeTicket.attachment_url && (
-                  <a href={activeTicket.attachment_url} target="_blank" rel="noreferrer" style={{ color: '#0f766e', fontWeight: 600 }}>View attachment</a>
-                )}
-                {activeTicket.action_request && (
-                  <div style={{ ...boxStyle, borderColor: '#a7f3d0', background: '#ecfdf5' }}>
-                    <strong style={{ color: '#0f766e' }}>Linked asset request</strong> — status: {activeTicket.action_request_status || '—'}
-                  </div>
-                )}
 
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Description</div>
+                  <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{activeTicket.description || <span className="cell-muted">No description provided</span>}</div>
+                  {activeTicket.attachment_url && (
+                    <a href={activeTicket.attachment_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '8px', color: '#0f766e', fontWeight: 600, fontSize: '13px' }}>View attachment</a>
+                  )}
+                </div>
+
+                {/* Staff-only controls */}
                 {canManage && (
-                  <div style={boxStyle}>
-                    <div className="form-grid">
-                      <Field label="Assign Agent">
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                      <Field label="Assign to" style={{ flex: '1 1 180px', margin: 0 }}>
                         <Select value={agentPick} onChange={(e) => setAgentPick(e.target.value)}>
-                          <option value="">Unassigned</option>
+                          <option value="">Nobody yet</option>
                           {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Status">
+                      <Field label="Status" style={{ flex: '1 1 160px', margin: 0 }}>
                         <Select value={statusPick} onChange={(e) => setStatusPick(e.target.value)}>
-                          {TICKET_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                          {TICKET_STATUSES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
                         </Select>
                       </Field>
+                      <Button type="button" variant="primary" disabled={working} onClick={saveAssignment}>{working ? 'Saving…' : 'Save'}</Button>
                     </div>
-                    <Button type="button" variant="primary" size="sm" disabled={working} onClick={saveAssignment}>{working ? 'Saving...' : 'Save'}</Button>
                     {isAdmin && activeTicket.action_request && activeTicket.action_request_status === 'PENDING' && (
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px', borderTop: '1px solid #e2e8f0', paddingTop: '10px' }}>
-                        <Button type="button" variant="primary" disabled={working} onClick={() => decideAsset('approve')}>Approve &amp; Run Operation</Button>
+                      <div style={{ marginTop: '14px', borderTop: '1px solid #e2e8f0', paddingTop: '14px', display: 'flex', gap: '8px' }}>
+                        <Button type="button" variant="primary" disabled={working} onClick={() => decideAsset('approve')}>Approve request</Button>
                         <Button type="button" variant="danger" disabled={working} onClick={() => decideAsset('reject')}>Reject</Button>
                       </div>
                     )}
                   </div>
                 )}
               </div>
-              <div className="dialog-footer">
-                <Button type="button" variant="ghost" onClick={() => setActiveTicket(null)}>Close</Button>
-              </div>
             </>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
