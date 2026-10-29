@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     'stock_management',
     'accounts',
     'corsheaders',
+    'anymail',
 ]
 
 MIDDLEWARE = [
@@ -213,10 +214,20 @@ EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'false').lower() in ('1', 'true', 'ye
 EMAIL_TIMEOUT = 15
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'AssetZone <no-reply@miczon.local>')
 
-# Explicit EMAIL_BACKEND override wins; otherwise auto-select: real SMTP when
-# host+user are configured, console backend otherwise.
+# Brevo (Sendinblue) transactional email over HTTPS (port 443). Preferred on
+# hosts that block outbound SMTP ports (e.g. DigitalOcean blocks 25/465/587).
+BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
+ANYMAIL = {
+    'BREVO_API_KEY': BREVO_API_KEY,
+}
+
+# Explicit EMAIL_BACKEND override wins; otherwise auto-select: Brevo HTTP API
+# when its key is set, then real SMTP when host+user are configured, else the
+# console backend (messages printed, not sent — fine for local dev).
 if os.getenv('EMAIL_BACKEND'):
     EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
+elif BREVO_API_KEY:
+    EMAIL_BACKEND = 'anymail.backends.brevo.EmailBackend'
 elif EMAIL_HOST and EMAIL_HOST_USER:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 else:

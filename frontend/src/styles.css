@@ -1152,6 +1152,32 @@ th {
 
 .dialog-header {
   margin-bottom: 18px;
+  position: relative;
+  padding-right: 36px;
+}
+
+.dialog-close {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 24px;
+  line-height: 1;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dialog-close:hover {
+  background: #f1f5f9;
+  color: #334155;
 }
 
 .dialog-title {
