@@ -19,6 +19,7 @@ import { TicketsPage, AddTicketForm } from './TicketsPage';
 import { StockOperatorSelector } from '../stock/StockOperatorSelector';
 import '../stock/stock-operator.css';
 import { AccountsPage } from '../accounts/AccountsModule';
+import { BudgetsPage } from '../budgets/BudgetModule';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
   if (!superCategories || superCategories.length === 0) return null;
@@ -145,9 +146,9 @@ export function AppShell({ token, handleLogout }) {
     return navItems.filter(item => {
       if (user?.is_superuser) return true;
       if (user?.employee_details?.is_manager) {
-        return ['/portal', '/inventory', '/health-checks', '/tickets'].includes(item.path);
+        return ['/portal', '/inventory', '/health-checks', '/tickets', '/budgets'].includes(item.path);
       }
-      return ['/portal', '/tickets'].includes(item.path);
+      return ['/portal', '/tickets', '/budgets'].includes(item.path);
     });
   }, [user]);
 
@@ -267,6 +268,7 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/stock/reports" element={<StockReports api={api} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={true} />} />
               <Route path="/accounts" element={<AccountsPage api={api} />} />
+              <Route path="/budgets" element={<BudgetsPage api={api} />} />
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -279,12 +281,14 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/health-checks" element={<HealthChecks key={activeSuperCategory?.code} api={api} isAdmin={false} isManager={true} user={user} />} />
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
+              <Route path="/budgets" element={<BudgetsPage api={api} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           ) : (
             <Routes>
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
+              <Route path="/budgets" element={<BudgetsPage api={api} />} />
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
