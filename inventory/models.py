@@ -449,6 +449,8 @@ class Ticket(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    # The agent's note to the requester on the most recent status change.
+    resolution_note = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['-created_at']

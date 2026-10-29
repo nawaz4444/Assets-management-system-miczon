@@ -2205,6 +2205,80 @@ def notify_ticket_agents(ticket):
     return len(recipients)
 
 
+def _valid_emails(employees):
+    """Distinct real emails from Employee objects (skip blanks and unknown-* placeholders)."""
+    seen = []
+    for emp in employees:
+        email = (getattr(emp, 'email', '') or '').strip()
+        if email and not email.lower().startswith('unknown-') and email not in seen:
+            seen.append(email)
+    return seen
+
+
+def _queue_ticket_emails(recipients, subject, body):
+    if not recipients:
+        return 0
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+    threading.Thread(
+        target=_send_inspection_emails, args=(recipients, subject, body, from_email), daemon=True,
+    ).start()
+    return len(recipients)
+
+
+def notify_ticket_assignee(ticket):
+    """Email the newly assigned agent that a ticket is theirs to resolve."""
+    recipients = _valid_emails([ticket.assigned_agent])
+    if not recipients:
+        return 0
+    raiser = ticket.raised_by.name if ticket.raised_by else 'An employee'
+    subject = f"Ticket {ticket.code} assigned to you: {ticket.title}"
+    body = (
+        f"A help-desk ticket has been assigned to you.\n\n"
+        f"Ticket:    {ticket.code} - {ticket.title}\n"
+        f"Category:  {ticket.category.name} / {ticket.ticket_type.name}\n"
+        f"Priority:  {ticket.get_priority_display()}\n"
+        f"Raised by: {raiser}\n\n"
+        f"Details:\n{ticket.description}\n\n"
+        f"Please log in to the portal to resolve it."
+    )
+    return _queue_ticket_emails(recipients, subject, body)
+
+
+# Subject + lead line for each requester-facing ticket update.
+_REQUESTER_EVENTS = {
+    'assigned': ("Your ticket {code} is being handled",
+                 "Your ticket has been assigned to {agent} and is now being looked into."),
+    'in_progress': ("Your ticket {code} is in progress",
+                    "An agent ({agent}) has started working on your ticket."),
+    'resolved': ("Your ticket {code} has been resolved",
+                 "Your ticket has been marked as resolved. If it still needs attention, let us know."),
+    'closed': ("Your ticket {code} has been closed",
+               "Your ticket has been closed."),
+}
+
+
+def notify_ticket_requester(ticket, event, note=''):
+    """Email the person who raised the ticket about a status update."""
+    tmpl = _REQUESTER_EVENTS.get(event)
+    if not tmpl:
+        return 0
+    recipients = _valid_emails([ticket.raised_by, ticket.raised_for])
+    if not recipients:
+        return 0
+    agent = ticket.assigned_agent.name if ticket.assigned_agent else 'the team'
+    subject = tmpl[0].format(code=ticket.code)
+    body = (
+        f"{tmpl[1].format(agent=agent)}\n\n"
+        f"Ticket:     {ticket.code} - {ticket.title}\n"
+        f"Status:     {ticket.get_status_display()}\n"
+        f"Handled by: {agent}\n"
+    )
+    if note:
+        body += f"\nNote from the team:\n{note}\n"
+    body += "\nYou can view it anytime in the portal under My Tickets."
+    return _queue_ticket_emails(recipients, subject, body)
+
+
 class TicketViewSet(viewsets.ModelViewSet):
     serializer_class = TicketSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -2309,10 +2383,15 @@ class TicketViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Ticket not found.'}, status=404)
         if not self._can_manage(request.user, ticket):
             return Response({'error': 'You cannot manage this ticket.'}, status=403)
+        old_agent_id = ticket.assigned_agent_id
         ticket.assigned_agent_id = request.data.get('assigned_agent') or None
         if ticket.status == 'NEW' and ticket.assigned_agent_id:
             ticket.status = 'IN_PROGRESS'
         ticket.save()
+        # Notify only on a genuinely new assignment (avoids spam on repeated saves).
+        if ticket.assigned_agent_id and ticket.assigned_agent_id != old_agent_id:
+            notify_ticket_assignee(ticket)
+            notify_ticket_requester(ticket, 'assigned')
         return Response(self.get_serializer(ticket).data)
 
     @action(detail=True, methods=['post'], url_path='set-status')
@@ -2325,10 +2404,19 @@ class TicketViewSet(viewsets.ModelViewSet):
         new_status = request.data.get('status')
         if new_status not in dict(Ticket.STATUS_CHOICES):
             return Response({'error': 'Invalid status.'}, status=400)
+        note = (request.data.get('note') or '').strip()
+        old_status = ticket.status
         ticket.status = new_status
         if new_status == 'RESOLVED':
             ticket.resolved_at = timezone.now()
         elif new_status == 'CLOSED':
             ticket.closed_at = timezone.now()
+        if note:
+            ticket.resolution_note = note
         ticket.save()
+        # Notify the requester on a real status change.
+        if new_status != old_status:
+            event = {'IN_PROGRESS': 'in_progress', 'RESOLVED': 'resolved', 'CLOSED': 'closed'}.get(new_status)
+            if event:
+                notify_ticket_requester(ticket, event, note=note)
         return Response(self.get_serializer(ticket).data)
