@@ -9,6 +9,7 @@ import {
   Icon, Button, Select, Dialog, DialogContent, PageHeader, MetricCard,
   DialogHeader, Field, Notice, StatusBadge, DataTable,
 } from '../components/ui';
+import { ProductQrDialog } from './StockScanOut';
 
 export function StockDashboard({ api }) {
   const [summary, setSummary] = useState(null);
@@ -80,6 +81,7 @@ export function StockDashboard({ api }) {
     { label: 'Products', value: summary?.product_count || 0, to: '/stock/products', tone: 'blue', subtext: 'Total registered items' },
     { label: 'Adjustments', value: adjustmentsValue, to: '/stock/adjustments', tone: 'green', subtext: 'Stock inbound & outbound' },
     { label: 'Reports', value: alertsValue, to: '/stock/reports', tone: 'amber', subtext: 'Reorder warnings' },
+    { label: 'Scan Out', value: 'Scan', to: '/stock/scan-out', tone: 'slate', subtext: 'Stock out by QR code' },
   ];
 
   return (
@@ -222,6 +224,7 @@ export function StockProducts({ api }) {
   // Toast State
   const [toastShow, setToastShow] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [qrProduct, setQrProduct] = useState(null);
 
   const loadProducts = useCallback(() => {
     setLoading(true);
@@ -411,8 +414,20 @@ export function StockProducts({ api }) {
                   </td>
                   <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', alignItems: 'center' }}>
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
+                        onClick={() => setQrProduct(prod)}
+                        style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', display: 'inline-flex', color: '#64748b', transition: 'color 0.2s' }}
+                        title="Product QR"
+                        onMouseEnter={(e) => e.currentTarget.style.color = '#0d9488'}
+                        onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5ZM13.5 13.5h3m-3 3h3m1.5 3.75h-4.5" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleEditProduct(prod)}
                         style={{ background: 'none', border: 'none', padding: '4px', cursor: 'pointer', display: 'inline-flex', color: '#64748b', transition: 'color 0.2s' }}
                         title="Edit Product"
@@ -688,6 +703,8 @@ export function StockProducts({ api }) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ProductQrDialog product={qrProduct} onClose={() => setQrProduct(null)} />
 
       {/* Floating Success Toast */}
       {toastShow && (

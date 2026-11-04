@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 
 class StockCategory(models.Model):
@@ -13,6 +15,9 @@ class StockProduct(models.Model):
     description = models.TextField(blank=True, default='')
     qty = models.IntegerField(default=0)
     reorder = models.IntegerField(default=10)
+    # Immutable identifier the product's QR code points to, so a printed label
+    # never breaks even if the code or name is edited later.
+    qr_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
 
     def __str__(self):
         return f"{self.name} ({self.code})"

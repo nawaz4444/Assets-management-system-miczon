@@ -37,23 +37,19 @@ class ExpenseType(models.Model):
 
 
 class BudgetRoleAssignment(models.Model):
-    """Maps approval-engine roles (Accounts, CEO, ...) to real employees.
-    The Department Manager role is resolved dynamically from
-    Department.manager, so it is never stored here."""
-    ROLE_CHOICES = [
-        ('FINANCE', 'Finance'),
-        ('CEO', 'CEO'),
-    ]
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    """Maps an approval role (a user-defined ApprovalRole, e.g. Finance, CEO,
+    Director) to a real employee. The Department Manager approver is resolved
+    dynamically from Department.manager, so it is never stored here."""
+    role = models.ForeignKey('ApprovalRole', on_delete=models.CASCADE, related_name='assignments')
     employee = models.ForeignKey('inventory.Employee', on_delete=models.CASCADE, related_name='budget_roles')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = [('role', 'employee')]
-        ordering = ['role']
+        ordering = ['role__name']
 
     def __str__(self):
-        return f"{self.get_role_display()} — {self.employee.name}"
+        return f"{self.role.name} — {self.employee.name}"
 
 
 class DepartmentBudget(models.Model):
@@ -64,24 +60,30 @@ class DepartmentBudget(models.Model):
         ('ANNUAL', 'Annual'),
     ]
     department = models.ForeignKey('inventory.Department', on_delete=models.CASCADE, related_name='budgets')
+    name = models.CharField(max_length=120, default='General', help_text='Budget category, e.g. IT Inventory, IT Assets.')
     fiscal_year = models.PositiveIntegerField()
     period_type = models.CharField(max_length=10, choices=PERIOD_CHOICES, default='MONTHLY')
     amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     custodian = models.ForeignKey(
         'inventory.Employee', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='custodian_budgets',
-        help_text='The person who requests advances and logs expenses for this department.',
+        help_text='The person who requests advances and logs expenses for this budget.',
+    )
+    pipeline = models.ForeignKey(
+        'ApprovalPipeline', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='budget_categories',
+        help_text='The approval chain a budget request for this category walks through.',
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = [('department', 'fiscal_year', 'period_type')]
-        ordering = ['-fiscal_year', 'department__name']
+        unique_together = [('department', 'fiscal_year', 'name')]
+        ordering = ['-fiscal_year', 'department__name', 'name']
 
     def __str__(self):
-        return f"{self.department.name} {self.fiscal_year} ({self.get_period_type_display()})"
+        return f"{self.department.name} · {self.name} ({self.fiscal_year})"
 
 
 class RecurringLine(models.Model):
@@ -168,6 +170,7 @@ class BudgetCycle(models.Model):
     """One month of spending for one department. Carries the opening balance
     forward from the previous cycle."""
     STATUS_CHOICES = [('OPEN', 'Open'), ('CLOSED', 'Closed')]
+    budget = models.ForeignKey('DepartmentBudget', on_delete=models.CASCADE, null=True, blank=True, related_name='cycles')
     department = models.ForeignKey('inventory.Department', on_delete=models.CASCADE, related_name='budget_cycles')
     custodian = models.ForeignKey(
         'inventory.Employee', on_delete=models.SET_NULL, null=True, blank=True,
@@ -181,7 +184,7 @@ class BudgetCycle(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = [('department', 'month', 'year')]
+        unique_together = [('budget', 'month', 'year')]
         ordering = ['-year', '-month', 'department__name']
 
     def __str__(self):
@@ -191,8 +194,9 @@ class BudgetCycle(models.Model):
 class AdvanceRequest(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
-        ('PENDING_FINANCE', 'Waiting on Finance'),
-        ('PENDING_CEO', 'Waiting on CEO'),
+        ('PENDING', 'Pending approval'),
+        ('PENDING_FINANCE', 'Waiting on Finance'),   # legacy, pre-pipeline
+        ('PENDING_CEO', 'Waiting on CEO'),           # legacy, pre-pipeline
         ('APPROVED', 'Approved — funds released'),
         ('REJECTED', 'Rejected'),
         ('CANCELLED', 'Cancelled'),
@@ -201,6 +205,7 @@ class AdvanceRequest(models.Model):
         BudgetCycle, on_delete=models.CASCADE, null=True, blank=True,
         related_name='advance_requests',
     )
+    budget = models.ForeignKey('DepartmentBudget', on_delete=models.SET_NULL, null=True, blank=True, related_name='advance_requests')
     department = models.ForeignKey('inventory.Department', on_delete=models.CASCADE, related_name='advance_requests')
     requested_by = models.ForeignKey(
         'inventory.Employee', on_delete=models.SET_NULL, null=True, blank=True,
@@ -244,6 +249,7 @@ class ApprovalTask(models.Model):
     request = models.ForeignKey(AdvanceRequest, on_delete=models.CASCADE, related_name='tasks')
     step = models.ForeignKey(ApprovalStep, on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks')
     order = models.PositiveIntegerField(default=1)
+    stage_label = models.CharField(max_length=120, blank=True, default='')
     approver = models.ForeignKey(
         'inventory.Employee', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='approval_tasks',
@@ -313,3 +319,148 @@ class Bill(models.Model):
 
     def __str__(self):
         return f"Bill for Expense #{self.expense_id}"
+
+
+# ---------------------------------------------------------------------------
+# Employee expense claims — Manager → Finance → CEO (separate from budgets)
+# ---------------------------------------------------------------------------
+class ClaimType(models.Model):
+    """A kind of employee expense claim, e.g. Car maintenance, Rent, Tour.
+    Only the employees in allowed_claimants may apply for this type."""
+    name = models.CharField(max_length=120, unique=True)
+    allowed_claimants = models.ManyToManyField('inventory.Employee', blank=True, related_name='claimable_types')
+    pipeline = models.ForeignKey(
+        'ApprovalPipeline', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='claim_types',
+        help_text='The approval chain a claim of this type walks through.',
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class ExpenseClaim(models.Model):
+    KIND_CHOICES = [
+        ('REIMBURSEMENT', 'Reimbursement'),
+        ('ADVANCE', 'Advance'),
+    ]
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending approval'),
+        ('PENDING_MANAGER', 'Waiting on Manager'),   # legacy, pre-pipeline
+        ('PENDING_FINANCE', 'Waiting on Finance'),   # legacy, pre-pipeline
+        ('PENDING_CEO', 'Waiting on CEO'),           # legacy, pre-pipeline
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+    claimant = models.ForeignKey('inventory.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='expense_claims')
+    department = models.ForeignKey('inventory.Department', on_delete=models.SET_NULL, null=True, blank=True, related_name='expense_claims')
+    claim_type = models.ForeignKey(ClaimType, on_delete=models.SET_NULL, null=True, blank=True, related_name='claims')
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default='REIMBURSEMENT')
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    reason = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    current_step = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Claim #{self.pk} — {self.claimant} — {self.amount}"
+
+
+class ClaimAction(models.Model):
+    """One approval step taken on a claim — the history trail."""
+    STATUS_CHOICES = [('APPROVED', 'Approved'), ('REJECTED', 'Rejected')]
+    claim = models.ForeignKey(ExpenseClaim, on_delete=models.CASCADE, related_name='actions')
+    stage = models.CharField(max_length=20)  # MANAGER / FINANCE / CEO
+    approver = models.ForeignKey('inventory.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='claim_actions')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    note = models.TextField(blank=True, default='')
+    acted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['claim', 'id']
+
+    def __str__(self):
+        return f"{self.stage} {self.status} on claim #{self.claim_id}"
+
+
+def claim_bill_path(instance, filename):
+    return f"claim_bills/{instance.claim_id}/{filename}"
+
+
+class ClaimBill(models.Model):
+    """A receipt/proof file attached to an expense claim."""
+    claim = models.ForeignKey(ExpenseClaim, on_delete=models.CASCADE, related_name='bills')
+    file = models.FileField(upload_to=claim_bill_path)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Bill for Claim #{self.claim_id}"
+
+
+# ---------------------------------------------------------------------------
+# Approval roles — user-defined (Finance, CEO, Director, …). Employees are
+# mapped to a role via BudgetRoleAssignment; a pipeline stage can target a role.
+# ---------------------------------------------------------------------------
+class ApprovalRole(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+# ---------------------------------------------------------------------------
+# Configurable approval pipelines — a named, reusable ordered list of stages.
+# One pipeline can be attached to any number of budget categories and claim
+# types (DepartmentBudget.pipeline / ClaimType.pipeline).
+# ---------------------------------------------------------------------------
+class ApprovalPipeline(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class ApprovalStage(models.Model):
+    """One step in a pipeline. Any one person who qualifies approves it to
+    advance. amount_min is reserved for a future 'applies when amount ≥ X' rule."""
+    KIND_CHOICES = [
+        ('ROLE', 'Role'),
+        ('PERSON', 'Specific people'),
+        ('DEPT_MANAGER', 'Department Manager'),
+    ]
+    pipeline = models.ForeignKey(ApprovalPipeline, on_delete=models.CASCADE, related_name='stages')
+    order = models.PositiveIntegerField(default=1)
+    approver_kind = models.CharField(max_length=15, choices=KIND_CHOICES, default='ROLE')
+    role = models.ForeignKey(
+        'ApprovalRole', on_delete=models.SET_NULL, null=True, blank=True, related_name='stages')
+    people = models.ManyToManyField('inventory.Employee', blank=True, related_name='approval_stages')
+    label = models.CharField(max_length=120, blank=True, default='')
+    amount_min = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        ordering = ['pipeline', 'order']
+
+    def __str__(self):
+        return f"{self.pipeline} #{self.order} ({self.get_approver_kind_display()})"

@@ -3,7 +3,7 @@ from django.contrib import admin
 from .models import (
     ExpenseCategory, ExpenseType, BudgetRoleAssignment, DepartmentBudget,
     ApprovalFlow, ApprovalStep, BudgetCycle, AdvanceRequest, ApprovalTask,
-    Cheque, Expense, Bill, RecurringLine,
+    Cheque, Expense, Bill, RecurringLine, ClaimType, ExpenseClaim, ClaimAction, ClaimBill,
 )
 
 
@@ -69,6 +69,20 @@ class RecurringLineAdmin(admin.ModelAdmin):
     list_filter = ('is_active', 'department')
 
 
+@admin.register(ClaimType)
+class ClaimTypeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_active')
+    list_filter = ('is_active',)
+
+
+@admin.register(ExpenseClaim)
+class ExpenseClaimAdmin(admin.ModelAdmin):
+    list_display = ('id', 'claimant', 'department', 'claim_type', 'kind', 'amount', 'status', 'created_at')
+    list_filter = ('status', 'kind')
+
+
+admin.site.register(ClaimAction)
+admin.site.register(ClaimBill)
 admin.site.register(ApprovalStep)
 admin.site.register(ApprovalTask)
 admin.site.register(Cheque)

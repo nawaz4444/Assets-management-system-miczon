@@ -1,3 +1,4 @@
+import uuid
 from collections import defaultdict
 from django.db import transaction
 from django.db.models import Count, F, Q, Sum
@@ -48,6 +49,28 @@ class StockProductViewSet(viewsets.ModelViewSet):
             'total_in_qty': movement_totals.get('IN') or 0,
             'total_out_qty': movement_totals.get('OUT') or 0,
         })
+
+    @action(detail=False, methods=['get'])
+    def resolve(self, request):
+        """Turn a scanned value (QR URL, qr_token, or bare product code) into a
+        product, so both the camera and a handheld scanner can be used."""
+        raw = (request.query_params.get('q') or '').strip()
+        if not raw:
+            return Response({'error': 'No code provided.'}, status=400)
+        # A scanned QR holds a URL like .../stock/scan/<token>; take the tail.
+        tail = raw.rstrip('/').split('/')[-1] if '/' in raw else raw
+
+        product = None
+        try:
+            product = StockProduct.objects.filter(qr_token=uuid.UUID(tail)).first()
+        except (ValueError, AttributeError, TypeError):
+            product = None
+        if product is None:
+            product = (StockProduct.objects.filter(code__iexact=raw).first()
+                       or StockProduct.objects.filter(code__iexact=tail).first())
+        if product is None:
+            return Response({'error': 'No product matches this code.'}, status=404)
+        return Response(StockProductSerializer(product).data)
 
 
 class StockTransactionViewSet(viewsets.ModelViewSet):

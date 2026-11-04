@@ -15,11 +15,13 @@ import {
   DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
+import { StockScanOut, StockScanRedirect } from '../stock/StockScanOut';
 import { TicketsPage, AddTicketForm } from './TicketsPage';
 import { StockOperatorSelector } from '../stock/StockOperatorSelector';
 import '../stock/stock-operator.css';
 import { AccountsPage } from '../accounts/AccountsModule';
 import { BudgetsPage } from '../budgets/BudgetModule';
+import { MyExpenseClaims, AddClaimForm } from '../budgets/ExpenseClaims';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
   if (!superCategories || superCategories.length === 0) return null;
@@ -141,6 +143,7 @@ export function AppShell({ token, handleLogout }) {
     if (user?.is_stock_only) {
       return [
         { path: '/stock/adjustments', label: 'Stock Outbound', icon: 'layers' },
+        { path: '/stock/scan-out', label: 'Scan Out', icon: 'layers' },
       ];
     }
     return navItems.filter(item => {
@@ -249,6 +252,8 @@ export function AppShell({ token, handleLogout }) {
           {user?.is_stock_only ? (
             <Routes>
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
+              <Route path="/stock/scan-out" element={<StockScanOut api={api} />} />
+              <Route path="/stock/scan/:token" element={<StockScanRedirect />} />
               <Route path="*" element={<Navigate to="/stock/adjustments" replace />} />
             </Routes>
           ) : user?.is_superuser ? (
@@ -266,6 +271,8 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
               <Route path="/stock/reports" element={<StockReports api={api} />} />
+              <Route path="/stock/scan-out" element={<StockScanOut api={api} />} />
+              <Route path="/stock/scan/:token" element={<StockScanRedirect />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={true} />} />
               <Route path="/accounts" element={<AccountsPage api={api} />} />
               <Route path="/budgets" element={<BudgetsPage api={api} />} />
@@ -3251,6 +3258,9 @@ export function EmployeePortal({ api, user }) {
   const [ticketsDialogOpen, setTicketsDialogOpen] = useState(false);
   const [myTickets, setMyTickets] = useState([]);
   const [showRequestForm, setShowRequestForm] = useState(false);
+  const [requestType, setRequestType] = useState('ticket'); // 'ticket' | 'expense'
+  const [claimAllowed, setClaimAllowed] = useState(false);
+  const [claimsRefresh, setClaimsRefresh] = useState(0);
   const [viewTicket, setViewTicket] = useState(null);
   const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
 
@@ -3284,6 +3294,10 @@ export function EmployeePortal({ api, user }) {
     // This effect synchronizes the portal with remote API data.
     loadPortal().catch(err => setNotice(apiError(err, 'Unable to load your gear and inspections.')));
   }, [loadPortal]);
+
+  useEffect(() => {
+    api.get('/budgets/my-access/').then((r) => setClaimAllowed(!!r.data?.is_claimant)).catch(() => setClaimAllowed(false));
+  }, [api]);
 
   const reloadMyTickets = async () => {
     const data = await fetchAll(api, '/tickets/?request_type=mine').catch(() => null);
@@ -3373,7 +3387,7 @@ export function EmployeePortal({ api, user }) {
         <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length || inspectionLoading} onClick={startLatestInspection}>
           {inspectionLoading ? 'Loading Inspection...' : 'Start Inspection'}
         </Button>
-        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setTicketsDialogOpen(true); setShowRequestForm(false); }}>My Tickets</Button>
+        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setTicketsDialogOpen(true); setShowRequestForm(false); setRequestType('ticket'); }}>My Request</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
       {notice && <Notice>{notice}</Notice>}
@@ -3460,25 +3474,44 @@ export function EmployeePortal({ api, user }) {
       <Dialog open={ticketsDialogOpen}>
         <DialogContent style={{ maxWidth: '640px' }}>
           <DialogHeader
-            title={showRequestForm ? 'New Request' : 'My Tickets'}
-            description={showRequestForm ? 'Pick a category and type, then describe your request.' : 'Raise a request and track your tickets.'}
+            title={showRequestForm ? 'New Request' : 'My Request'}
+            description={showRequestForm ? 'Choose what you want to raise, then fill in the details.' : 'Raise a request and track your tickets.'}
             onClose={() => { setTicketsDialogOpen(false); setShowRequestForm(false); }}
           />
 
           <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
             {showRequestForm ? (
-              <AddTicketForm
-                api={api}
-                submitLabel="Submit request"
-                onCancel={() => setShowRequestForm(false)}
-                onDone={() => { setShowRequestForm(false); setNotice('Your request has been submitted.'); reloadMyTickets(); }}
-              />
+              <>
+                {claimAllowed && (
+                  <Field label="What do you want to raise?" className="field-inline">
+                    <Select value={requestType} onChange={(e) => setRequestType(e.target.value)}>
+                      <option value="ticket">Help Desk ticket</option>
+                      <option value="expense">Expense claim</option>
+                    </Select>
+                  </Field>
+                )}
+                {requestType === 'expense' && claimAllowed ? (
+                  <AddClaimForm
+                    api={api}
+                    submitLabel="Submit claim"
+                    onCancel={() => setShowRequestForm(false)}
+                    onDone={() => { setShowRequestForm(false); setNotice('Your expense claim has been submitted.'); setClaimsRefresh((c) => c + 1); }}
+                  />
+                ) : (
+                  <AddTicketForm
+                    api={api}
+                    submitLabel="Submit request"
+                    onCancel={() => setShowRequestForm(false)}
+                    onDone={() => { setShowRequestForm(false); setNotice('Your request has been submitted.'); reloadMyTickets(); }}
+                  />
+                )}
+              </>
             ) : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
-                  <Button type="button" variant="primary" onClick={() => setShowRequestForm(true)}>+ New request</Button>
+                  <Button type="button" variant="primary" onClick={() => { setRequestType('ticket'); setShowRequestForm(true); }}>+ New request</Button>
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your requests</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your Help Desk tickets</div>
                 {myTickets.length === 0 ? (
                   <p className="empty-state">You have not raised any tickets yet.</p>
                 ) : (
@@ -3501,6 +3534,11 @@ export function EmployeePortal({ api, user }) {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+                {claimAllowed && (
+                  <div style={{ marginTop: '22px' }}>
+                    <MyExpenseClaims api={api} refresh={claimsRefresh} />
                   </div>
                 )}
               </>
