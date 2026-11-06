@@ -89,18 +89,27 @@ def stage_approvers(stage, department=None):
     return list(stage.people.all())
 
 
-def _eligible(stage, department, exclude_id):
-    """Approvers for a stage, minus the requester (no self-approval)."""
-    return [e for e in stage_approvers(stage, department) if e and e.id != exclude_id]
+def _can_approve(stage, department, employee, requester_id):
+    """Whether `employee` may approve this stage. No one approves their own
+    ticket — EXCEPT when they are the only approver of the stage (a sole
+    approver may self-approve, so a one-person setup isn't deadlocked)."""
+    approver_ids = {e.id for e in stage_approvers(stage, department) if e}
+    if not employee or employee.id not in approver_ids:
+        return False
+    if requester_id and employee.id == requester_id:
+        return len(approver_ids) == 1
+    return True
 
 
-def _walk(stages, from_step, department, exclude_id):
-    """From `from_step` (1-based), find the next stage that has a real approver,
-    skipping empty / self-only stages. Returns the step number, or None when the
-    pipeline is exhausted (→ fully approved)."""
+def _walk(stages, from_step, department):
+    """From `from_step` (1-based), find the next stage that has at least one
+    approver (a self-only stage is a valid stop — the sole approver may approve
+    their own ticket; only truly empty stages, e.g. a Dept-Manager stage with no
+    manager, are skipped). Returns the step number, or None when the pipeline is
+    exhausted (→ fully approved)."""
     step = from_step
     while step <= len(stages):
-        if _eligible(stages[step - 1], department, exclude_id):
+        if stage_approvers(stages[step - 1], department):
             return step
         step += 1
     return None
@@ -115,7 +124,7 @@ def submit_request(req):
         raise PipelineNotConfigured(
             'This budget category has no approval pipeline attached. '
             'Ask an admin to attach one in Setup → Department budgets.')
-    step = _walk(stages, 1, req.department, req.requested_by_id)
+    step = _walk(stages, 1, req.department)
     if step is None:
         req.status = 'APPROVED'
         req.current_step = 0
@@ -147,14 +156,14 @@ def can_act(req, employee):
     stage = _current_budget_stage(req)
     if not stage:
         return False
-    return any(e and e.id == employee.id for e in stage_approvers(stage, req.department))
+    return _can_approve(stage, req.department, employee, req.requested_by_id)
 
 
 def act_on_request(req, employee, approve, note=''):
     """Approve or reject at the current stage. Returns (req, outcome) where
     outcome is 'advanced', 'approved' or 'rejected'."""
     if not can_act(req, employee):
-        raise PermissionError('You are not an approver for this request at its current stage.')
+        raise PermissionError('You are not an approver for this Budget Ticket at its current stage.')
 
     stage = _current_budget_stage(req)
     ApprovalTask.objects.create(
@@ -170,7 +179,7 @@ def act_on_request(req, employee, approve, note=''):
         return req, 'rejected'
 
     stages = pipeline_stages(pipeline_for_budget(req))
-    nxt = _walk(stages, req.current_step + 1, req.department, req.requested_by_id)
+    nxt = _walk(stages, req.current_step + 1, req.department)
     if nxt is None:
         req.status = 'APPROVED'
         req.current_step = 0
@@ -290,16 +299,16 @@ def notify_budget_stage(req):
         return 0
     recipients = valid_emails(stage_approvers(stage, req.department))
     label = stage_label(stage)
-    subject = f"Budget request (Ticket #{req.id}) needs {label} approval"
-    body = f"A budget request is waiting for your approval ({label}).\n\n" + _lines(req) + "\nReview it in Budgets → Approvals."
+    subject = f"Budget Ticket #{req.id} needs {label} approval"
+    body = f"A Budget Ticket is waiting for your approval ({label}).\n\n" + _lines(req) + "\nReview it in Budgets → Approvals."
     return queue_emails(recipients, subject, body)
 
 
 _REQUESTER_EVENTS = {
-    'approved': ("Your budget request (Ticket #{id}) is approved",
-                 "Your budget request has been fully approved and the funds are now available to spend."),
-    'rejected': ("Your budget request (Ticket #{id}) was rejected",
-                 "Your budget request was rejected."),
+    'approved': ("Your Budget Ticket #{id} is approved",
+                 "Your Budget Ticket has been fully approved and the funds are now available to spend."),
+    'rejected': ("Your Budget Ticket #{id} was rejected",
+                 "Your Budget Ticket was rejected."),
 }
 
 
@@ -346,7 +355,7 @@ def submit_claim(claim):
         raise PipelineNotConfigured(
             'This claim type has no approval pipeline attached. '
             'Ask an admin to attach one in Setup → Claim types.')
-    step = _walk(stages, 1, claim.department, claim.claimant_id)
+    step = _walk(stages, 1, claim.department)
     if step is None:
         claim.status = 'APPROVED'
         claim.current_step = 0
@@ -378,12 +387,12 @@ def claim_can_act(claim, employee):
     stage = _current_claim_stage(claim)
     if not stage:
         return False
-    return any(e and e.id == employee.id for e in stage_approvers(stage, claim.department))
+    return _can_approve(stage, claim.department, employee, claim.claimant_id)
 
 
 def act_on_claim(claim, employee, approve, note=''):
     if not claim_can_act(claim, employee):
-        raise PermissionError('You are not an approver for this claim at its current stage.')
+        raise PermissionError('You are not an approver for this Expense Ticket at its current stage.')
     stage = _current_claim_stage(claim)
     ClaimAction.objects.create(
         claim=claim, stage=stage_label(stage), approver=employee,
@@ -396,7 +405,7 @@ def act_on_claim(claim, employee, approve, note=''):
         return claim, 'rejected'
 
     stages = pipeline_stages(pipeline_for_claim(claim))
-    nxt = _walk(stages, claim.current_step + 1, claim.department, claim.claimant_id)
+    nxt = _walk(stages, claim.current_step + 1, claim.department)
     if nxt is None:
         claim.status = 'APPROVED'
         claim.current_step = 0
@@ -428,14 +437,14 @@ def _claim_lines(claim):
 
 def notify_claim_approvers(claim):
     recipients = valid_emails(claim_current_approvers(claim))
-    subject = f"Expense claim (Ticket #{claim.id}) needs your approval"
-    body = "An employee expense claim is waiting for your approval.\n\n" + _claim_lines(claim) + "\nReview it in Budgets → Approvals."
+    subject = f"Expense Ticket #{claim.id} needs your approval"
+    body = "An Expense Ticket is waiting for your approval.\n\n" + _claim_lines(claim) + "\nReview it in Budgets → Approvals."
     return queue_emails(recipients, subject, body)
 
 
 _CLAIM_EVENTS = {
-    'approved': ("Your expense claim (Ticket #{id}) is approved", "Your expense claim has been fully approved."),
-    'rejected': ("Your expense claim (Ticket #{id}) was rejected", "Your expense claim was rejected."),
+    'approved': ("Your Expense Ticket #{id} is approved", "Your Expense Ticket has been fully approved."),
+    'rejected': ("Your Expense Ticket #{id} was rejected", "Your Expense Ticket was rejected."),
 }
 
 
@@ -448,5 +457,5 @@ def notify_claimant(claim, event, note=''):
     body = tmpl[1] + "\n\n" + _claim_lines(claim)
     if note:
         body += f"\nNote:\n{note}\n"
-    body += "\nSee your Employee Portal → My Expense Claims."
+    body += "\nSee your Employee Portal → My Expense Tickets."
     return queue_emails(recipients, subject, body)

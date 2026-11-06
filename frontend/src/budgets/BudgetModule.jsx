@@ -46,7 +46,7 @@ export function BudgetsPage({ api }) {
     const t = [];
     if (access.is_admin || access.is_approver || access.is_custodian) t.push({ key: 'dashboard', label: 'Dashboard' });
     if (access.department || access.is_admin) t.push({ key: 'mybudget', label: 'My Budget' });
-    if (access.is_approver || access.is_manager || access.approvals_count) {
+    if (access.is_admin || access.is_approver || access.is_manager || access.approvals_count) {
       t.push({ key: 'approvals', label: `Approvals${access.approvals_count ? ` (${access.approvals_count})` : ''}` });
     }
     if (access.is_admin) t.push({ key: 'setup', label: 'Setup' });
@@ -208,8 +208,8 @@ function DashboardTab({ api, access }) {
           <Button type="button" size="sm" variant={view === 'budget' ? 'primary' : 'outline'} onClick={() => setView('budget')}>Budget</Button>
           <Button type="button" size="sm" variant={view === 'expense' ? 'primary' : 'outline'} onClick={() => setView('expense')}>Expense</Button>
         </div>
-        <div style={{ minWidth: '220px' }}>
-          <Select value={dept} onChange={(e) => setDept(e.target.value)}>
+        <div>
+          <Select size="sm" value={dept} onChange={(e) => setDept(e.target.value)} style={{ width: '200px' }}>
             <option value="all">All departments</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </Select>
@@ -220,7 +220,7 @@ function DashboardTab({ api, access }) {
         </div>
       </div>
       <p style={{ fontSize: '12.5px', color: '#64748b', margin: '0 0 14px' }}>
-        {view === 'budget' ? 'Budget' : 'Expense claims'} · {scopeName} · fiscal year to date
+        {view === 'budget' ? 'Budget' : 'Expense Tickets'} · {scopeName} · fiscal year to date
       </p>
 
       {view === 'budget' ? (
@@ -258,7 +258,7 @@ function DashboardTab({ api, access }) {
           <div className="metric-grid">
             <TileCard
               label={isAll ? 'All Departments' : scopeName}
-              subtext={`${claimTotals.total_count} claim(s)`}
+              subtext={`${claimTotals.total_count} ticket(s)`}
               tone="slate"
               value={claimValue(claimTotals.total, claimTotals.approved_count, claimTotals.pending_count, claimTotals.rejected_count)}
             />
@@ -280,7 +280,7 @@ function DashboardTab({ api, access }) {
               ['Total', money(claimTotals.total), money(claimTotals.approved), money(claimTotals.pending), money(claimTotals.rejected), claimTotals.total_count],
               ...rowsInScope.map((r) => [r.department_name, money(r.total), money(r.approved), money(r.pending), money(r.rejected), r.total_count]),
             ]}
-            empty="No expense claims to show."
+            empty="No Expense Tickets to show."
           />
         )
       )}
@@ -337,9 +337,12 @@ function MyBudgetTab({ api }) {
   const submitRequest = async () => {
     setWorking(true);
     try {
-      await api.post('/budgets/advance-requests/', { budget: budgetId, amount: reqDialog.amount || 0, reason: reqDialog.reason || '' });
-      setReqDialog(null); setNotice('Budget request sent to Finance.'); load();
-    } catch (err) { setNotice(apiError(err, 'Unable to submit request.')); } finally { setWorking(false); }
+      const r = await api.post('/budgets/advance-requests/', { budget: budgetId, amount: reqDialog.amount || 0, reason: reqDialog.reason || '' });
+      setReqDialog(null);
+      const stage = r.data?.next_with;
+      setNotice(stage ? `Budget Ticket submitted — now with ${stage}.` : 'Budget Ticket submitted.');
+      load();
+    } catch (err) { setNotice(apiError(err, 'Unable to submit Budget Ticket.')); } finally { setWorking(false); }
   };
 
   const submitExpense = async () => {
@@ -364,7 +367,7 @@ function MyBudgetTab({ api }) {
   };
 
   const cancelRequest = async (id) => {
-    if (!window.confirm('Cancel this request?')) return;
+    if (!window.confirm('Cancel this Budget Ticket?')) return;
     try { await api.post(`/budgets/advance-requests/${id}/cancel/`); load(); } catch (err) { setNotice(apiError(err, 'Unable to cancel.')); }
   };
 
@@ -390,14 +393,14 @@ function MyBudgetTab({ api }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {budgets.length > 0 && (
-            <Select value={budgetId} onChange={(e) => setBudgetId(e.target.value)}>
+            <Select size="sm" value={budgetId} onChange={(e) => setBudgetId(e.target.value)} style={{ width: '260px' }}>
               {budgets.map((b) => <option key={b.id} value={b.id}>{b.department_name} · {b.name}</option>)}
             </Select>
           )}
           {cycle && <span style={{ color: '#64748b', fontSize: '14px' }}>{MONTHS[cycle.month]} {cycle.year}{closed ? ' · closed' : ''}</span>}
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <Button type="button" size="sm" disabled={!budgetId} onClick={() => setReqDialog({ amount: topUpDefault, reason: '' })}>Apply for Budget</Button>
+          <Button type="button" size="sm" disabled={!budgetId} onClick={() => setReqDialog({ amount: topUpDefault, reason: '' })}>New Budget Ticket</Button>
           {cycle && !closed && <Button type="button" size="sm" variant="outline" onClick={closeMonth}>Close Month</Button>}
         </div>
       </div>
@@ -436,8 +439,8 @@ function MyBudgetTab({ api }) {
           />
 
           <div style={{ margin: '22px 0 8px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px' }}>This month's budget requests</h3>
-            <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>Each approved request adds to this month's budget. Apply again anytime you need more.</p>
+            <h3 style={{ margin: 0, fontSize: '15px' }}>This month's Budget Tickets</h3>
+            <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>Each approved ticket adds to this month's budget. Submit another anytime you need more.</p>
           </div>
           <DataTable
             columns={['Ticket #', 'Amount', 'Status', '']}
@@ -447,7 +450,7 @@ function MyBudgetTab({ api }) {
                 ? <Button type="button" variant="ghost" size="sm" onClick={() => cancelRequest(r.id)}>Cancel</Button>
                 : '',
             ])}
-            empty="No budget requested for this month yet. Use 'Apply for Budget' above."
+            empty="No Budget Tickets this month yet. Use 'New Budget Ticket' above."
           />
         </>
       )}
@@ -455,7 +458,7 @@ function MyBudgetTab({ api }) {
       <Dialog open={!!reqDialog}>
         {reqDialog && (
           <DialogContent className="dialog-sm">
-            <DialogHeader title="Apply for Budget" onClose={() => setReqDialog(null)} />
+            <DialogHeader title="New Budget Ticket" onClose={() => setReqDialog(null)} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <Field label="Amount (Rs)"><input type="number" step="0.01" value={reqDialog.amount} onChange={(e) => setReqDialog({ ...reqDialog, amount: e.target.value })} /></Field>
               {monthlyBudget != null && (
@@ -467,7 +470,7 @@ function MyBudgetTab({ api }) {
               <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>This goes through your department's approval pipeline. You'll be emailed when it's approved.</p>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
                 <Button type="button" variant="outline" onClick={() => setReqDialog(null)}>Cancel</Button>
-                <Button type="button" onClick={submitRequest} disabled={working || !(Number(reqDialog.amount) > 0)}>{working ? 'Sending…' : 'Send Request'}</Button>
+                <Button type="button" onClick={submitRequest} disabled={working || !(Number(reqDialog.amount) > 0)}>{working ? 'Submitting…' : 'Submit'}</Button>
               </div>
             </div>
           </DialogContent>
@@ -638,7 +641,7 @@ function ApprovalsTab({ api, access }) {
             ]}
           />
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <Select value={period} onChange={(e) => setPeriod(e.target.value)} style={{ width: 'auto' }}>
+            <Select size="sm" value={period} onChange={(e) => setPeriod(e.target.value)}>
               {PERIOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </Select>
             {period === 'custom' && (
@@ -661,13 +664,13 @@ function ApprovalsTab({ api, access }) {
       <div>
         {bar}
         <p style={{ fontSize: '12.5px', color: '#64748b', margin: '0 0 14px' }}>
-          {access?.is_admin ? 'Every budget request and expense claim — all statuses, all departments.' : 'Requests and claims you have approved, with their current status.'} Showing {periodLabel}.
+          {access?.is_admin ? 'Every Budget Ticket and Expense Ticket — all statuses, all departments.' : 'Budget and Expense Tickets you have approved, with their current status.'} Showing {periodLabel}.
         </p>
         {hLoading ? (
           <div style={{ padding: '24px', color: '#64748b' }}>Loading…</div>
         ) : list.length === 0 ? (
           <div style={{ padding: '24px', color: '#64748b', fontSize: '14px', border: '1px dashed #cbd5e1', borderRadius: '8px' }}>
-            {kind === 'budget' ? 'No budget requests' : 'No expense claims'} for {periodLabel}.
+            {kind === 'budget' ? 'No Budget Tickets' : 'No Expense Tickets'} for {periodLabel}.
           </div>
         ) : kind === 'budget' ? (
           hReqs.map((req) => (
@@ -687,7 +690,7 @@ function ApprovalsTab({ api, access }) {
           hClaims.map((c) => (
             <HistoryCard
               key={`c${c.id}`}
-              title={`Ticket #${c.id} · ${c.claim_type_name || 'Claim'} · ${money(c.amount)}`}
+              title={`Ticket #${c.id} · ${c.claim_type_name || 'Expense Ticket'} · ${money(c.amount)}`}
               sub={`${c.department_name || '—'} · ${c.kind_label}${c.next_with ? ` · waiting on ${c.next_with}` : ''}`}
               reason={c.reason}
               status={c.status}
@@ -713,7 +716,7 @@ function ApprovalsTab({ api, access }) {
       {reqs.map((req) => (
         <ApprovalCard
           key={`r${req.id}`}
-          tag="Budget request"
+          tag="Budget Ticket"
           title={`Ticket #${req.id} · ${req.department_name}${req.budget_name ? ` · ${req.budget_name}` : ''} · ${money(req.amount)}`}
           sub={`By ${req.requested_by_name || '—'} · waiting on ${req.next_with}`}
           reason={req.reason}
@@ -726,8 +729,8 @@ function ApprovalsTab({ api, access }) {
       {claims.map((c) => (
         <ApprovalCard
           key={`c${c.id}`}
-          tag="Expense claim"
-          title={`Ticket #${c.id} · ${c.claim_type_name || 'Claim'} · ${money(c.amount)}`}
+          tag="Expense Ticket"
+          title={`Ticket #${c.id} · ${c.claim_type_name || 'Expense Ticket'} · ${money(c.amount)}`}
           sub={`By ${c.claimant_name || '—'} (${c.department_name || '—'}) · ${c.kind_label} · waiting on ${c.next_with}`}
           reason={c.reason}
           history={c.history}
@@ -944,7 +947,7 @@ function PipelineWizard({ api, roles, employees, initial, onClose, onSaved }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ fontSize: '13px', color: '#64748b' }}>Step 2 of 2 · Add approvers in order. A request goes to each step in turn.</div>
+            <div style={{ fontSize: '13px', color: '#64748b' }}>Step 2 of 2 · Add approvers in order. A ticket goes to each step in turn.</div>
 
             {/* live preview of the chain */}
             <div>
@@ -1065,7 +1068,7 @@ function PipelineManager({ api, pipelines, roles, employees, reload }) {
             </div>
             <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
               {(p.stages || []).length === 0 ? (
-                <span style={{ fontSize: '12.5px', color: '#9a3412' }}>No steps yet — requests can't be submitted until you add some.</span>
+                <span style={{ fontSize: '12.5px', color: '#9a3412' }}>No steps yet — tickets can't be submitted until you add some.</span>
               ) : p.stages.map((s, i) => (
                 <React.Fragment key={s.id}>
                   {i > 0 && <span style={{ color: '#94a3b8' }}>→</span>}
@@ -1078,7 +1081,7 @@ function PipelineManager({ api, pipelines, roles, employees, reload }) {
           </div>
         ))}
         {pipelines.length === 0 && (
-          <div style={{ color: '#64748b', fontSize: '13px' }}>No pipelines yet. Create one, then attach it to a budget category or claim type.</div>
+          <div style={{ color: '#64748b', fontSize: '13px' }}>No pipelines yet. Create one, then attach it to a budget category or expense type.</div>
         )}
       </div>
 
@@ -1169,7 +1172,7 @@ function SetupTab({ api }) {
       if (claimTypeDialog.id) await api.put(`/budgets/claim-types/${claimTypeDialog.id}/`, payload);
       else await api.post('/budgets/claim-types/', payload);
       setClaimTypeDialog(null); loadClaimTypes();
-    } catch (err) { setNotice(apiError(err, 'Unable to save claim type.')); }
+    } catch (err) { setNotice(apiError(err, 'Unable to save expense type.')); }
   };
 
   const toggleAllowed = (empId) => {
@@ -1268,9 +1271,9 @@ function SetupTab({ api }) {
       </Collapsible>
 
       <Collapsible
-        title="Claim types"
+        title="Expense types"
         count={claimTypes.length}
-        hint="The kinds of expense an employee can claim (e.g. Car maintenance, Rent, Tour). For each type, pick who may apply and the approval pipeline it uses."
+        hint="The kinds of expense an employee can submit an Expense Ticket for (e.g. Car maintenance, Rent, Tour). For each type, pick who may apply and the approval pipeline it uses."
         action={<Button type="button" size="sm" onClick={() => { setClaimSearch(''); setClaimTypeDialog({ name: '', is_active: true, allowed: [], pipeline: '' }); }}>Add Type</Button>}
       >
         <DataTable
@@ -1282,14 +1285,14 @@ function SetupTab({ api }) {
             t.is_active ? 'Active' : 'Inactive',
             <Button type="button" variant="ghost" size="sm" onClick={() => { setClaimSearch(''); setClaimTypeDialog({ id: t.id, name: t.name, is_active: t.is_active, allowed: (t.allowed_claimants || []).map(Number), pipeline: t.pipeline || '' }); }}><Icon name="edit" /></Button>,
           ])}
-          empty="No claim types yet."
+          empty="No expense types yet."
         />
       </Collapsible>
 
       <Collapsible
         title="Approval pipelines"
         count={pipelines.length}
-        hint="Build a named chain once, then reuse it: attach it to any budget category or claim type. Each step is a role, specific people (any one approves), or the Department Manager. A category or type must have a pipeline attached before its requests can be submitted."
+        hint="Build a named chain once, then reuse it: attach it to any budget category or expense type. Each step is a role, specific people (any one approves), or the Department Manager. A category or type must have a pipeline attached before its tickets can be submitted."
       >
         <PipelineManager api={api} pipelines={pipelines} roles={roleDefs} employees={employees} reload={loadPipelines} />
       </Collapsible>
@@ -1297,7 +1300,7 @@ function SetupTab({ api }) {
       <Dialog open={!!claimTypeDialog}>
         {claimTypeDialog && (
           <DialogContent className="dialog-sm">
-            <DialogHeader title={claimTypeDialog.id ? 'Edit Claim Type' : 'Add Claim Type'} onClose={() => setClaimTypeDialog(null)} />
+            <DialogHeader title={claimTypeDialog.id ? 'Edit Expense Type' : 'Add Expense Type'} onClose={() => setClaimTypeDialog(null)} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <Field label="Name"><input value={claimTypeDialog.name} onChange={(e) => setClaimTypeDialog({ ...claimTypeDialog, name: e.target.value })} placeholder="e.g. Car maintenance" /></Field>
               <div>
@@ -1329,7 +1332,7 @@ function SetupTab({ api }) {
               </div>
               <Field label="Approval pipeline">
                 <Select value={claimTypeDialog.pipeline || ''} onChange={(e) => setClaimTypeDialog({ ...claimTypeDialog, pipeline: e.target.value })}>
-                  <option value="">— none (claims can't be submitted) —</option>
+                  <option value="">— none (tickets can't be submitted) —</option>
                   {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </Select>
               </Field>
@@ -1369,7 +1372,7 @@ function SetupTab({ api }) {
               </Field>
               <Field label="Approval pipeline">
                 <Select value={budgetDialog.pipeline || ''} onChange={(e) => setBudgetDialog({ ...budgetDialog, pipeline: e.target.value })}>
-                  <option value="">— none (requests can't be submitted) —</option>
+                  <option value="">— none (tickets can't be submitted) —</option>
                   {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </Select>
               </Field>

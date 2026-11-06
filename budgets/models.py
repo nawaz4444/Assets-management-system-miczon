@@ -194,10 +194,10 @@ class BudgetCycle(models.Model):
 class AdvanceRequest(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
-        ('PENDING', 'Pending approval'),
-        ('PENDING_FINANCE', 'Waiting on Finance'),   # legacy, pre-pipeline
-        ('PENDING_CEO', 'Waiting on CEO'),           # legacy, pre-pipeline
-        ('APPROVED', 'Approved — funds released'),
+        ('PENDING', 'Pending'),
+        ('PENDING_FINANCE', 'Pending'),   # legacy, pre-pipeline
+        ('PENDING_CEO', 'Pending'),       # legacy, pre-pipeline
+        ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
         ('CANCELLED', 'Cancelled'),
     ]
@@ -350,10 +350,10 @@ class ExpenseClaim(models.Model):
         ('ADVANCE', 'Advance'),
     ]
     STATUS_CHOICES = [
-        ('PENDING', 'Pending approval'),
-        ('PENDING_MANAGER', 'Waiting on Manager'),   # legacy, pre-pipeline
-        ('PENDING_FINANCE', 'Waiting on Finance'),   # legacy, pre-pipeline
-        ('PENDING_CEO', 'Waiting on CEO'),           # legacy, pre-pipeline
+        ('PENDING', 'Pending'),
+        ('PENDING_MANAGER', 'Pending'),   # legacy, pre-pipeline
+        ('PENDING_FINANCE', 'Pending'),   # legacy, pre-pipeline
+        ('PENDING_CEO', 'Pending'),       # legacy, pre-pipeline
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
         ('CANCELLED', 'Cancelled'),

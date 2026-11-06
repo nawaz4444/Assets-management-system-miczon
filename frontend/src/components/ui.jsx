@@ -25,8 +25,9 @@ export function Button({ variant = 'default', size = 'default', className = '', 
   return <button className={`button button-${variant} button-${size} ${className}`.trim()} {...props} />;
 }
 
-export function Select({ className = '', ...props }) {
-  return <select className={`select ${className}`.trim()} {...props} />;
+export function Select({ className = '', size = 'default', ...props }) {
+  const sizeClass = size === 'sm' ? 'select-sm' : '';
+  return <select className={`select ${sizeClass} ${className}`.trim()} {...props} />;
 }
 
 export function Dialog({ open, children }) {

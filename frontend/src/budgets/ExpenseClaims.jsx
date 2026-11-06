@@ -29,7 +29,7 @@ export function AddClaimForm({ api, onDone, onCancel, submitLabel = 'Submit' }) 
       if (form.file) fd.append('bill', form.file);
       await api.post('/budgets/expense-claims/', fd);
       if (onDone) onDone();
-    } catch (err) { setNotice(apiError(err, 'Unable to submit claim.')); } finally { setWorking(false); }
+    } catch (err) { setNotice(apiError(err, 'Unable to submit Expense Ticket.')); } finally { setWorking(false); }
   };
 
   return (
@@ -47,11 +47,11 @@ export function AddClaimForm({ api, onDone, onCancel, submitLabel = 'Submit' }) 
         </Select>
       </Field>
       <Field label="Amount (Rs)"><input type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
-      <Field label="Reason"><textarea rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="What is this claim for?" /></Field>
+      <Field label="Reason"><textarea rows={3} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="What is this expense for?" /></Field>
       <Field label={form.kind === 'REIMBURSEMENT' ? 'Bill / receipt' : 'Bill / receipt (optional, can add later)'}>
         <input type="file" onChange={(e) => setForm({ ...form, file: e.target.files?.[0] || null })} />
       </Field>
-      <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>Goes to your manager, then Finance, then the CEO.</p>
+      <p style={{ fontSize: '12.5px', color: '#64748b', margin: 0 }}>Goes through this expense type's approval pipeline. You'll be emailed when it's approved.</p>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
         {onCancel && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}
         <Button type="button" onClick={submit} disabled={working || !form.claim_type || !(Number(form.amount) > 0)}>{working ? 'Submitting…' : submitLabel}</Button>
@@ -79,7 +79,7 @@ export function MyExpenseClaims({ api, refresh = 0 }) {
   useEffect(() => { if (allowed) load(); }, [allowed, load, refresh]);
 
   const cancelClaim = async (id) => {
-    if (!window.confirm('Cancel this claim?')) return;
+    if (!window.confirm('Cancel this Expense Ticket?')) return;
     try { await api.post(`/budgets/expense-claims/${id}/cancel/`); load(); } catch (err) { setNotice(apiError(err, 'Unable to cancel.')); }
   };
 
@@ -97,6 +97,7 @@ export function MyExpenseClaims({ api, refresh = 0 }) {
   if (!allowed) return null;
 
   const dotColor = (status) => ({
+    PENDING: '#f59e0b',
     PENDING_MANAGER: '#f59e0b', PENDING_FINANCE: '#f59e0b', PENDING_CEO: '#f59e0b',
     APPROVED: '#10b981', REJECTED: '#ef4444', CANCELLED: '#94a3b8',
   }[status] || '#94a3b8');
@@ -105,15 +106,15 @@ export function MyExpenseClaims({ api, refresh = 0 }) {
   return (
     <div>
       {notice && <Notice tone={notice.includes('Unable') ? 'error' : 'success'}>{notice}</Notice>}
-      <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your expense claims</div>
+      <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your Expense Tickets</div>
       {claims.length === 0 ? (
-        <p className="empty-state">You have not raised any expense claims yet.</p>
+        <p className="empty-state">You have not raised any Expense Tickets yet.</p>
       ) : (
         <div>
           {claims.map((c) => (
             <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.claim_type_name || 'Expense claim'}</div>
+                <div style={{ fontWeight: 600, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.claim_type_name || 'Expense Ticket'}</div>
                 <div style={{ fontSize: '12px', color: '#64748b' }}>{c.kind_label} · {money(c.amount)} · {new Date(c.created_at).toLocaleDateString()}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', whiteSpace: 'nowrap' }}>
@@ -146,15 +147,15 @@ export function MyExpenseClaims({ api, refresh = 0 }) {
                 {(view.bills || []).length
                   ? (view.bills || []).map((b, i) => <a key={b.id} href={b.file_url} target="_blank" rel="noreferrer" style={{ marginRight: '8px', color: '#2563eb' }}>bill{i + 1}</a>)
                   : <span style={{ color: '#64748b', fontSize: '13px' }}>None yet.</span>}
-                {['PENDING_MANAGER', 'PENDING_FINANCE', 'PENDING_CEO', 'APPROVED'].includes(view.status) && (
+                {['PENDING', 'PENDING_MANAGER', 'PENDING_FINANCE', 'PENDING_CEO', 'APPROVED'].includes(view.status) && (
                   <div style={{ marginTop: '8px' }}>
                     <input type="file" onChange={(e) => addBill(view.id, e.target.files?.[0])} />
                   </div>
                 )}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                {['PENDING_MANAGER', 'PENDING_FINANCE', 'PENDING_CEO'].includes(view.status)
-                  ? <Button type="button" variant="ghost" onClick={() => { cancelClaim(view.id); setView(null); }}>Cancel claim</Button>
+                {['PENDING', 'PENDING_MANAGER', 'PENDING_FINANCE', 'PENDING_CEO'].includes(view.status)
+                  ? <Button type="button" variant="ghost" onClick={() => { cancelClaim(view.id); setView(null); }}>Cancel Ticket</Button>
                   : <span />}
                 <Button type="button" variant="outline" onClick={() => setView(null)}>Close</Button>
               </div>

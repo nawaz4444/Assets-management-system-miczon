@@ -20,16 +20,6 @@ const STATUS_LABELS = {
   NEW: 'New', IN_PROGRESS: 'In Progress', RESOLVED: 'Resolved', REOPENED: 'Reopened', CLOSED: 'Closed',
 };
 
-// One clean label/value row in the ticket detail list.
-function InfoRow({ label, value }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '12px', padding: '9px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
-      <div style={{ color: '#64748b' }}>{label}</div>
-      <div style={{ color: '#0f172a', fontWeight: 500 }}>{value}</div>
-    </div>
-  );
-}
-
 function GroupMembersEditor({ group, employees, onSave }) {
   const [selected, setSelected] = useState((group.members || []).map(String));
   const [saving, setSaving] = useState(false);
@@ -248,17 +238,16 @@ export function TicketsPage({ api, isAdmin }) {
       </div>
 
       <section className="panel">
-        <div className="filter-bar" style={{ gridTemplateColumns: 'auto auto 1fr', alignItems: 'center' }}>
+        <div className="filter-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
           <div style={{ display: 'inline-flex', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
             <Button type="button" variant={view === 'mine' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('mine')}>My Tickets</Button>
             <Button type="button" variant={view === 'to_resolve' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('to_resolve')}>To Resolve</Button>
             {isAdmin && <Button type="button" variant={view === 'all' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('all')}>All</Button>}
           </div>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: '200px' }}>
+          <Select size="sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ marginLeft: 'auto', width: '160px' }}>
             <option value="">All Statuses</option>
             {TICKET_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </Select>
-          <span />
         </div>
         <DataTable
           columns={['Code', 'Title', 'Category', 'Priority', 'Status', view === 'to_resolve' ? 'Raised By' : 'Assigned To', 'Created', '']}
@@ -310,12 +299,22 @@ export function TicketsPage({ api, isAdmin }) {
             <>
               <DialogHeader title={`${activeTicket.code} · ${activeTicket.title}`} description={`${activeTicket.category_name} → ${activeTicket.ticket_type_name}`} onClose={() => setActiveTicket(null)} />
               <div className="stack-form">
-                <div>
-                  <InfoRow label="Status" value={STATUS_LABELS[activeTicket.status] || activeTicket.status} />
-                  <InfoRow label="Priority" value={(activeTicket.priority || 'Medium').charAt(0) + (activeTicket.priority || 'Medium').slice(1).toLowerCase()} />
-                  <InfoRow label="Raised by" value={raisedBy} />
-                  <InfoRow label="Assigned to" value={activeTicket.assigned_agent_name || activeTicket.assigned_group_name || 'Not assigned'} />
-                  <InfoRow label="Created" value={activeTicket.created_at ? new Date(activeTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 28px', alignItems: 'flex-start', padding: '4px 0 14px', borderBottom: '1px solid #f1f5f9' }}>
+                  {[
+                    ['Status', (() => {
+                      const tone = { NEW: '#2563eb', IN_PROGRESS: '#d97706', RESOLVED: '#16a34a', REOPENED: '#7c3aed', CLOSED: '#64748b' }[activeTicket.status] || '#64748b';
+                      return <span style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, padding: '2px 10px', borderRadius: '999px', background: `${tone}1a`, color: tone }}>{STATUS_LABELS[activeTicket.status] || activeTicket.status}</span>;
+                    })()],
+                    ['Priority', (activeTicket.priority || 'Medium').charAt(0) + (activeTicket.priority || 'Medium').slice(1).toLowerCase()],
+                    ['Raised by', raisedBy],
+                    ['Assigned to', activeTicket.assigned_agent_name || activeTicket.assigned_group_name || 'Not assigned'],
+                    ['Created', activeTicket.created_at ? new Date(activeTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>{label}</span>
+                      <span style={{ fontSize: '14px', color: '#0f172a', fontWeight: 500 }}>{value}</span>
+                    </div>
+                  ))}
                 </div>
 
                 <div>
