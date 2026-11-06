@@ -6,6 +6,7 @@ export const navItems = [
   { path: '/health-checks', label: 'Health Checks', icon: 'pulse' },
   { path: '/tickets', label: 'Help Desk', icon: 'ticket' },
   { path: '/accounts', label: 'Accounts', icon: 'coins' },
+  { path: '/budgets', label: 'Budgets', icon: 'wallet' },
   { path: '/portal', label: 'Employee Portal', icon: 'user' },
 ];
 

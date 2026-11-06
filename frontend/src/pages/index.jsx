@@ -15,17 +15,20 @@ import {
   DialogHeader, Field, Notice, StatusBadge, DataTable, InspectionFindings,
 } from '../components/ui';
 import { StockDashboard, StockAdjustments, StockProducts, StockReports } from '../stock/StockModule';
+import { StockScanOut, StockScanRedirect } from '../stock/StockScanOut';
 import { TicketsPage, AddTicketForm } from './TicketsPage';
 import { StockOperatorSelector } from '../stock/StockOperatorSelector';
 import '../stock/stock-operator.css';
 import { AccountsPage } from '../accounts/AccountsModule';
+import { BudgetsPage } from '../budgets/BudgetModule';
+import { MyExpenseClaims, AddClaimForm } from '../budgets/ExpenseClaims';
 
 export function SuperCategorySelector({ superCategories, activeSuperCategory, onSelect, className = '' }) {
   if (!superCategories || superCategories.length === 0) return null;
 
   return (
-    <div className={`super-category-selector ${className}`.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#ffffff', padding: '6px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-      <span style={{ fontSize: '13px', fontWeight: '600', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+    <div className={`super-category-selector ${className}`.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#ffffff', padding: '3px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+      <span style={{ fontSize: '12px', fontWeight: '600', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
         <Icon name="layers" /> Category:
       </span>
       <select
@@ -40,7 +43,7 @@ export function SuperCategorySelector({ superCategories, activeSuperCategory, on
             if (found) onSelect(found);
           }
         }}
-        style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 10px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', outline: 'none' }}
+        style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '4px 8px', fontSize: '13px', fontWeight: '700', color: '#0f172a', cursor: 'pointer', outline: 'none' }}
       >
         <option value="all">All Categories</option>
         {superCategories.map((cat) => (
@@ -140,14 +143,15 @@ export function AppShell({ token, handleLogout }) {
     if (user?.is_stock_only) {
       return [
         { path: '/stock/adjustments', label: 'Stock Outbound', icon: 'layers' },
+        { path: '/stock/scan-out', label: 'Scan Out', icon: 'layers' },
       ];
     }
     return navItems.filter(item => {
       if (user?.is_superuser) return true;
       if (user?.employee_details?.is_manager) {
-        return ['/portal', '/inventory', '/health-checks', '/tickets'].includes(item.path);
+        return ['/portal', '/inventory', '/health-checks', '/tickets', '/budgets'].includes(item.path);
       }
-      return ['/portal', '/tickets'].includes(item.path);
+      return ['/portal', '/tickets', '/budgets'].includes(item.path);
     });
   }, [user]);
 
@@ -248,6 +252,8 @@ export function AppShell({ token, handleLogout }) {
           {user?.is_stock_only ? (
             <Routes>
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
+              <Route path="/stock/scan-out" element={<StockScanOut api={api} />} />
+              <Route path="/stock/scan/:token" element={<StockScanRedirect />} />
               <Route path="*" element={<Navigate to="/stock/adjustments" replace />} />
             </Routes>
           ) : user?.is_superuser ? (
@@ -265,8 +271,11 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/stock/products" element={<StockProducts api={api} />} />
               <Route path="/stock/adjustments" element={<StockAdjustments api={api} />} />
               <Route path="/stock/reports" element={<StockReports api={api} />} />
+              <Route path="/stock/scan-out" element={<StockScanOut api={api} />} />
+              <Route path="/stock/scan/:token" element={<StockScanRedirect />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={true} />} />
               <Route path="/accounts" element={<AccountsPage api={api} />} />
+              <Route path="/budgets" element={<BudgetsPage api={api} />} />
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -279,12 +288,14 @@ export function AppShell({ token, handleLogout }) {
               <Route path="/health-checks" element={<HealthChecks key={activeSuperCategory?.code} api={api} isAdmin={false} isManager={true} user={user} />} />
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
+              <Route path="/budgets" element={<BudgetsPage api={api} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
             </Routes>
           ) : (
             <Routes>
               <Route path="/portal" element={<EmployeePortal api={api} user={user} />} />
               <Route path="/tickets" element={<TicketsPage api={api} isAdmin={false} />} />
+              <Route path="/budgets" element={<BudgetsPage api={api} />} />
               <Route path="/scan/:miczonId" element={<ScanRedirect api={api} />} />
               <Route path="/inventory/asset/:assetId" element={<AssetDetailPage api={api} isAdmin={false} />} />
               <Route path="*" element={<Navigate to="/portal" replace />} />
@@ -297,11 +308,33 @@ export function AppShell({ token, handleLogout }) {
   );
 }
 
+const GridIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+const RowsIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+    <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+  </svg>
+);
+
+function ViewToggle({ cardView, setCardView }) {
+  return (
+    <div style={{ display: 'flex', gap: '4px' }}>
+      <Button type="button" size="sm" variant={cardView ? 'primary' : 'outline'} onClick={() => setCardView(true)} aria-label="Card view" title="Card view"><GridIcon /></Button>
+      <Button type="button" size="sm" variant={!cardView ? 'primary' : 'outline'} onClick={() => setCardView(false)} aria-label="List view" title="List view"><RowsIcon /></Button>
+    </div>
+  );
+}
+
 // Top-level dashboard: one card per super-category. Clicking a card opens
 // the per-category dashboard (`/dashboard/:categoryCode`).
 export function DashboardOverview({ api, isAdmin }) {
   const { superCategories } = useContext(SuperCategoryContext);
   const [summaries, setSummaries] = useState({}); // code -> summary
+  const [cardView, setCardView] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -324,49 +357,53 @@ export function DashboardOverview({ api, isAdmin }) {
 
   const tones = ['blue', 'green', 'violet', 'amber', 'red', 'slate'];
 
-  const totalAll = Object.values(summaries).reduce((sum, s) => sum + (s?.total_devices || 0), 0);
-
   return (
     <>
-      <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Dashboard'} title="Categories Overview" />
+      <PageHeader eyebrow={isAdmin ? 'Admin Dashboard' : 'Dashboard'} title="Categories Overview">
+        <ViewToggle cardView={cardView} setCardView={setCardView} />
+      </PageHeader>
       {error && <Notice tone="error">{error}</Notice>}
-      <div className="metric-grid">
-        {/* All categories aggregate */}
-        <MetricCard
-          label="All Categories"
-          subtext="Every asset — click to open"
-          to="/dashboard/all"
-          tone="slate"
-          value={
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              <strong style={{ fontSize: '30px' }}>{totalAll}</strong>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Total devices</span>
-            </div>
-          }
+      {cardView ? (
+        <div className="metric-grid">
+          {(superCategories || []).map((cat, i) => {
+            const s = summaries[cat.code];
+            return (
+              <MetricCard
+                key={cat.id}
+                label={cat.name}
+                subtext="Click to open dashboard"
+                to={`/dashboard/${cat.code}`}
+                tone={tones[i % tones.length]}
+                value={
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <strong style={{ fontSize: '30px' }}>{s?.total_devices ?? 0}</strong>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
+                      {s
+                        ? `${s.assigned} assigned · ${s.available} available · ${s.repair} repair`
+                        : 'Loading…'}
+                    </span>
+                  </div>
+                }
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <DataTable
+          columns={['Category', 'Total devices', 'Assigned', 'Available', 'Repair']}
+          rows={(superCategories || []).map((cat) => {
+            const s = summaries[cat.code];
+            return [
+              <Link to={`/dashboard/${cat.code}`} style={{ fontWeight: 600, color: '#0f766e', textDecoration: 'none' }}>{cat.name}</Link>,
+              s?.total_devices ?? 0,
+              s?.assigned ?? '—',
+              s?.available ?? '—',
+              s?.repair ?? '—',
+            ];
+          })}
+          empty="No categories yet."
         />
-        {(superCategories || []).map((cat, i) => {
-          const s = summaries[cat.code];
-          return (
-            <MetricCard
-              key={cat.id}
-              label={cat.name}
-              subtext="Click to open dashboard"
-              to={`/dashboard/${cat.code}`}
-              tone={tones[i % tones.length]}
-              value={
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <strong style={{ fontSize: '30px' }}>{s?.total_devices ?? 0}</strong>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>
-                    {s
-                      ? `${s.assigned} assigned · ${s.available} available · ${s.repair} repair`
-                      : 'Loading…'}
-                  </span>
-                </div>
-              }
-            />
-          );
-        })}
-      </div>
+      )}
     </>
   );
 }
@@ -377,6 +414,7 @@ export function Dashboard({ api, isAdmin }) {
   const [summary, setSummary] = useState(null);
   const [breakdown, setBreakdown] = useState([]); // subcategory options for the active category
   const [subCategory, setSubCategory] = useState(''); // '' = all subcategories
+  const [cardView, setCardView] = useState(true);
   const [error, setError] = useState('');
 
   const catCode = routeCode || activeSuperCategory?.code || 'it_assets';
@@ -447,12 +485,24 @@ export function Dashboard({ api, isAdmin }) {
               ))}
             </select>
           )}
+          <ViewToggle cardView={cardView} setCardView={setCardView} />
         </div>
       </PageHeader>
       {error && <Notice tone="error">{error}</Notice>}
-      <div className="metric-grid">
-        {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
-      </div>
+      {cardView ? (
+        <div className="metric-grid">
+          {metrics.map((metric) => <MetricCard key={metric.label} {...metric} />)}
+        </div>
+      ) : (
+        <DataTable
+          columns={['Metric', 'Count']}
+          rows={metrics.map((m) => [
+            <Link to={m.to} style={{ fontWeight: 600, color: '#0f766e', textDecoration: 'none' }}>{m.label}</Link>,
+            m.value ?? 0,
+          ])}
+          empty="No data."
+        />
+      )}
     </>
   );
 }
@@ -1875,6 +1925,9 @@ export function EmployeeDirectory({ api, isAdmin }) {
 
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]); // for the manager picker
+  const [deptManagerOpen, setDeptManagerOpen] = useState(false);
+  const [deptDialog, setDeptDialog] = useState(null); // { id?, name, floor, manager }
   const [search, setSearch] = useState(savedEmpFilters.search || '');
   const [departmentFilter, setDepartmentFilter] = useState(savedEmpFilters.departmentFilter || '');
   const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
@@ -1902,9 +1955,32 @@ export function EmployeeDirectory({ api, isAdmin }) {
     loadEmployees();
   }, [loadEmployees]);
 
-  useEffect(() => {
-    fetchAll(api, '/departments/').then(setDepartments);
-  }, [api]);
+  const loadDepartments = useCallback(() => fetchAll(api, '/departments/').then(setDepartments), [api]);
+  useEffect(() => { loadDepartments(); }, [loadDepartments]);
+  useEffect(() => { if (isAdmin) fetchAll(api, '/employees/').then(setAllEmployees).catch(() => {}); }, [api, isAdmin]);
+
+  const saveDepartment = async () => {
+    const name = (deptDialog.name || '').trim();
+    if (!name) return;
+    try {
+      const payload = { name, floor: deptDialog.floor || '', manager: deptDialog.manager || null };
+      if (deptDialog.id) await api.put(`/departments/${deptDialog.id}/`, payload);
+      else await api.post('/departments/', payload);
+      setDeptDialog(null); setNotice('Department saved.'); loadDepartments();
+    } catch (err) {
+      setNotice(err.response?.data?.name?.[0] || err.response?.data?.error || 'Unable to save department.');
+    }
+  };
+
+  const deleteDepartment = async (d) => {
+    if (!window.confirm(`Delete "${d.name}"?\n\nThis also removes its budgets, cycles and Budget Tickets. Employees keep their records but lose this department.`)) return;
+    try {
+      await api.delete(`/departments/${d.id}/`);
+      setNotice('Department deleted.'); loadDepartments(); loadEmployees();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to delete department.');
+    }
+  };
 
   // Persist search/filter so it can be restored after leaving and returning to this page
   useEffect(() => {
@@ -2024,6 +2100,7 @@ export function EmployeeDirectory({ api, isAdmin }) {
     <>
       <PageHeader eyebrow="Employee Directory" title="People and assigned gear">
         <div style={{ display: 'flex', gap: '10px' }}>
+          {isAdmin && <Button type="button" variant="outline" onClick={() => setDeptManagerOpen(true)}>Departments</Button>}
           {isAdmin && <Button type="button" variant="outline" onClick={() => setImportDialogOpen(true)}>Import Employees</Button>}
           {isAdmin && <Button type="button" variant="primary" onClick={() => setEmployeeDialogOpen(true)}>Add Employee</Button>}
         </div>
@@ -2050,6 +2127,55 @@ export function EmployeeDirectory({ api, isAdmin }) {
           empty="No employees match the current filters."
         />
       </section>
+
+      {/* Departments manager */}
+      <Dialog open={deptManagerOpen}>
+        <DialogContent>
+          <DialogHeader title="Departments" description="Add, edit or remove departments and set each one's manager." onClose={() => setDeptManagerOpen(false)} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+            <Button type="button" variant="primary" onClick={() => setDeptDialog({ name: '', floor: '', manager: '' })}>Add Department</Button>
+          </div>
+          <DataTable
+            columns={['Name', 'Floor', 'Manager', '']}
+            rows={departments.map((d) => [
+              d.name,
+              d.floor || '—',
+              d.manager_name || '—',
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setDeptDialog({ id: d.id, name: d.name, floor: d.floor || '', manager: d.manager || '' })}><Icon name="edit" /></Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => deleteDepartment(d)}><Icon name="trash" /></Button>
+              </div>,
+            ])}
+            empty="No departments yet."
+          />
+          <div className="dialog-footer">
+            <Button type="button" variant="ghost" onClick={() => setDeptManagerOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add / edit a department */}
+      <Dialog open={!!deptDialog}>
+        {deptDialog && (
+          <DialogContent className="dialog-sm">
+            <DialogHeader title={deptDialog.id ? 'Edit Department' : 'Add Department'} onClose={() => setDeptDialog(null)} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <Field label="Name"><input value={deptDialog.name} onChange={(e) => setDeptDialog({ ...deptDialog, name: e.target.value })} placeholder="e.g. IT Department" autoFocus /></Field>
+              <Field label="Floor (optional)"><input value={deptDialog.floor} onChange={(e) => setDeptDialog({ ...deptDialog, floor: e.target.value })} placeholder="e.g. 2nd floor" /></Field>
+              <Field label="Manager">
+                <Select value={deptDialog.manager} onChange={(e) => setDeptDialog({ ...deptDialog, manager: e.target.value })}>
+                  <option value="">No manager</option>
+                  {allEmployees.map((em) => <option key={em.id} value={em.id}>{em.name}</option>)}
+                </Select>
+              </Field>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                <Button type="button" variant="outline" onClick={() => setDeptDialog(null)}>Cancel</Button>
+                <Button type="button" variant="primary" onClick={saveDepartment} disabled={!deptDialog.name.trim()}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
 
       <Dialog open={!!selectedEmployee}>
         <DialogContent className="employee-assets-dialog">
@@ -2799,19 +2925,19 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
 
   return (
     <>
-      <PageHeader eyebrow={`Monthly ${activeCatName} Inspection`} title={`${activeCatName} Inspection Report`}>
+      <PageHeader eyebrow="Health Checks" title="Inspection Report">
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <SuperCategorySelector
             superCategories={superCategories}
             activeSuperCategory={activeSuperCategory}
             onSelect={setActiveSuperCategory}
           />
-          <Button type="button" variant="outline" onClick={openReportModal}>
+          <Button type="button" size="sm" variant="outline" onClick={openReportModal}>
             📊 Inspection Report & Download
           </Button>
           {isAdmin && (
-            <Button type="button" variant="primary" onClick={trigger}>
-              Start {activeCatName} Inspection
+            <Button type="button" size="sm" variant="primary" onClick={trigger}>
+              Start Inspection
             </Button>
           )}
         </div>
@@ -2825,7 +2951,7 @@ export function HealthChecks({ api, isAdmin, isManager, user }) {
         </div>
         <div className="report-period-control">
           <span>Inspection period</span>
-          <Select aria-label="Inspection session" value={selectedSession} onChange={(event) => { setSelectedSession(event.target.value); setReportSearch(''); setReportDepartment(''); }} disabled={sessions.length === 0}>
+          <Select size="sm" aria-label="Inspection session" value={selectedSession} onChange={(event) => { setSelectedSession(event.target.value); setReportSearch(''); setReportDepartment(''); }} disabled={sessions.length === 0} style={{ width: '100%' }}>
             {sessions.length === 0 ? (
               <option value="">No sessions</option>
             ) : sessions.map((session) => (
@@ -3247,6 +3373,9 @@ export function EmployeePortal({ api, user }) {
   const [ticketsDialogOpen, setTicketsDialogOpen] = useState(false);
   const [myTickets, setMyTickets] = useState([]);
   const [showRequestForm, setShowRequestForm] = useState(false);
+  const [requestType, setRequestType] = useState('ticket'); // 'ticket' | 'expense'
+  const [claimAllowed, setClaimAllowed] = useState(false);
+  const [claimsRefresh, setClaimsRefresh] = useState(0);
   const [viewTicket, setViewTicket] = useState(null);
   const [inspectionDialogOpen, setInspectionDialogOpen] = useState(false);
 
@@ -3280,6 +3409,10 @@ export function EmployeePortal({ api, user }) {
     // This effect synchronizes the portal with remote API data.
     loadPortal().catch(err => setNotice(apiError(err, 'Unable to load your gear and inspections.')));
   }, [loadPortal]);
+
+  useEffect(() => {
+    api.get('/budgets/my-access/').then((r) => setClaimAllowed(!!r.data?.is_claimant)).catch(() => setClaimAllowed(false));
+  }, [api]);
 
   const reloadMyTickets = async () => {
     const data = await fetchAll(api, '/tickets/?request_type=mine').catch(() => null);
@@ -3369,7 +3502,7 @@ export function EmployeePortal({ api, user }) {
         <Button type="button" variant="ghost" disabled={!employee || !activeSession || !pendingAssets.length || inspectionLoading} onClick={startLatestInspection}>
           {inspectionLoading ? 'Loading Inspection...' : 'Start Inspection'}
         </Button>
-        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setTicketsDialogOpen(true); setShowRequestForm(false); }}>My Tickets</Button>
+        <Button type="button" variant="primary" disabled={!employee} onClick={() => { setTicketsDialogOpen(true); setShowRequestForm(false); setRequestType('ticket'); }}>My Request</Button>
       </PageHeader>
       {!employee && <Notice tone="error">Your login is not linked to an employee profile yet. Ask an admin to link your user to an employee record before using My Gear, requests, or health checks.</Notice>}
       {notice && <Notice>{notice}</Notice>}
@@ -3456,25 +3589,44 @@ export function EmployeePortal({ api, user }) {
       <Dialog open={ticketsDialogOpen}>
         <DialogContent style={{ maxWidth: '640px' }}>
           <DialogHeader
-            title={showRequestForm ? 'New Request' : 'My Tickets'}
-            description={showRequestForm ? 'Pick a category and type, then describe your request.' : 'Raise a request and track your tickets.'}
+            title={showRequestForm ? 'New Request' : 'My Request'}
+            description={showRequestForm ? 'Choose what you want to raise, then fill in the details.' : 'Raise a request and track your tickets.'}
             onClose={() => { setTicketsDialogOpen(false); setShowRequestForm(false); }}
           />
 
           <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
             {showRequestForm ? (
-              <AddTicketForm
-                api={api}
-                submitLabel="Submit request"
-                onCancel={() => setShowRequestForm(false)}
-                onDone={() => { setShowRequestForm(false); setNotice('Your request has been submitted.'); reloadMyTickets(); }}
-              />
+              <>
+                {claimAllowed && (
+                  <Field label="What do you want to raise?" className="field-inline">
+                    <Select value={requestType} onChange={(e) => setRequestType(e.target.value)}>
+                      <option value="ticket">Help Desk ticket</option>
+                      <option value="expense">Expense Ticket</option>
+                    </Select>
+                  </Field>
+                )}
+                {requestType === 'expense' && claimAllowed ? (
+                  <AddClaimForm
+                    api={api}
+                    submitLabel="Submit"
+                    onCancel={() => setShowRequestForm(false)}
+                    onDone={() => { setShowRequestForm(false); setNotice('Your Expense Ticket has been submitted.'); setClaimsRefresh((c) => c + 1); }}
+                  />
+                ) : (
+                  <AddTicketForm
+                    api={api}
+                    submitLabel="Submit request"
+                    onCancel={() => setShowRequestForm(false)}
+                    onDone={() => { setShowRequestForm(false); setNotice('Your request has been submitted.'); reloadMyTickets(); }}
+                  />
+                )}
+              </>
             ) : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
-                  <Button type="button" variant="primary" onClick={() => setShowRequestForm(true)}>+ New request</Button>
+                  <Button type="button" variant="primary" onClick={() => { setRequestType('ticket'); setShowRequestForm(true); }}>+ New request</Button>
                 </div>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your requests</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>Your Help Desk tickets</div>
                 {myTickets.length === 0 ? (
                   <p className="empty-state">You have not raised any tickets yet.</p>
                 ) : (
@@ -3499,6 +3651,11 @@ export function EmployeePortal({ api, user }) {
                     })}
                   </div>
                 )}
+                {claimAllowed && (
+                  <div style={{ marginTop: '22px' }}>
+                    <MyExpenseClaims api={api} refresh={claimsRefresh} />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -3515,19 +3672,19 @@ export function EmployeePortal({ api, user }) {
                 description={`${viewTicket.category_name} → ${viewTicket.ticket_type_name}`}
                 onClose={() => setViewTicket(null)}
               />
-              <div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 28px', alignItems: 'flex-start', padding: '4px 0 14px', borderBottom: '1px solid #f1f5f9' }}>
                 {[
-                  ['Status', viewTicket.status_display || viewTicket.status],
+                  ['Status', <StatusBadge status={viewTicket.status_display || viewTicket.status} />],
                   ['Handled by', viewTicket.assigned_agent_name || viewTicket.assigned_group_name || 'Not yet assigned'],
                   ['Created', viewTicket.created_at ? new Date(viewTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'],
                 ].map(([label, value]) => (
-                  <div key={label} style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '12px', padding: '9px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
-                    <div style={{ color: '#64748b' }}>{label}</div>
-                    <div style={{ color: '#0f172a', fontWeight: 500 }}>{value}</div>
+                  <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>{label}</span>
+                    <span style={{ fontSize: '14px', color: '#0f172a', fontWeight: 500 }}>{value}</span>
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: '16px' }}>
+              <div style={{ marginTop: '14px' }}>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Description</div>
                 <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{viewTicket.description || <span className="cell-muted">No description</span>}</div>
               </div>

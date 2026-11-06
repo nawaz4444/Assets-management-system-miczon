@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'inventory',
     'stock_management',
     'accounts',
+    'budgets',
     'corsheaders',
     'anymail',
 ]

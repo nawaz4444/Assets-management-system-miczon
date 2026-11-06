@@ -12,6 +12,7 @@ urlpatterns = [
     path('accounts/', include('allauth.urls')),
     path('api/stock/', include('stock_management.urls')),
     path('api/accounts/', include('accounts.urls')),
+    path('api/budgets/', include('budgets.urls')),
 ]
 
 if settings.DEBUG:

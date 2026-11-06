@@ -12,9 +12,11 @@ class StockProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)
     status = serializers.SerializerMethodField()
 
+    qr_token = serializers.UUIDField(read_only=True)
+
     class Meta:
         model = StockProduct
-        fields = ['id', 'code', 'name', 'category', 'category_name', 'description', 'qty', 'reorder', 'status']
+        fields = ['id', 'code', 'name', 'category', 'category_name', 'description', 'qty', 'reorder', 'status', 'qr_token']
 
     def get_status(self, obj):
         if obj.qty <= 0:

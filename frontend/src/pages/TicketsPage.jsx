@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { normalizeList, fetchAll } from '../lib/api';
 import {
   Button, Select, Dialog, DialogContent, PageHeader,
-  DialogHeader, Field, Notice, DataTable,
+  DialogHeader, Field, Notice, DataTable, Icon,
 } from '../components/ui';
 
 // --- HELP DESK: TICKETS PORTAL (Add Ticket + My Tickets / To Resolve) ---
@@ -19,16 +19,6 @@ const boxStyle = { background: '#f8fafc', border: '1px solid #e2e8f0', borderRad
 const STATUS_LABELS = {
   NEW: 'New', IN_PROGRESS: 'In Progress', RESOLVED: 'Resolved', REOPENED: 'Reopened', CLOSED: 'Closed',
 };
-
-// One clean label/value row in the ticket detail list.
-function InfoRow({ label, value }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '12px', padding: '9px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
-      <div style={{ color: '#64748b' }}>{label}</div>
-      <div style={{ color: '#0f172a', fontWeight: 500 }}>{value}</div>
-    </div>
-  );
-}
 
 function GroupMembersEditor({ group, employees, onSave }) {
   const [selected, setSelected] = useState((group.members || []).map(String));
@@ -151,6 +141,8 @@ export function TicketsPage({ api, isAdmin }) {
   const [working, setWorking] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [groups, setGroups] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [catDialog, setCatDialog] = useState(null); // { id?, name, description, default_agent_group, is_active }
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [employees, setEmployees] = useState([]);
@@ -206,10 +198,41 @@ export function TicketsPage({ api, isAdmin }) {
     } finally { setWorking(false); }
   };
 
+  const loadCategories = useCallback(() => api.get('/ticket-categories/').then((r) => setCategories(normalizeList(r.data))).catch(() => {}), [api]);
+
   const openSettings = () => {
     setSettingsOpen(true);
     api.get('/agent-groups/').then((r) => setGroups(normalizeList(r.data))).catch(() => {});
+    loadCategories();
     if (employees.length === 0) fetchAll(api, '/employees/').then(setEmployees).catch(() => {});
+  };
+
+  const saveCategory = async () => {
+    const name = (catDialog.name || '').trim();
+    if (!name) return;
+    try {
+      const payload = {
+        name,
+        description: catDialog.description || '',
+        default_agent_group: catDialog.default_agent_group || null,
+        is_active: catDialog.is_active !== false,
+      };
+      if (catDialog.id) await api.put(`/ticket-categories/${catDialog.id}/`, payload);
+      else await api.post('/ticket-categories/', payload);
+      setCatDialog(null); setNotice('Category saved.'); loadCategories();
+    } catch (err) {
+      setNotice(err.response?.data?.name?.[0] || err.response?.data?.error || 'Unable to save category.');
+    }
+  };
+
+  const deleteCategory = async (c) => {
+    if (!window.confirm(`Delete category "${c.name}"?${c.type_count ? ` This also removes its ${c.type_count} ticket type(s).` : ''}`)) return;
+    try {
+      await api.delete(`/ticket-categories/${c.id}/`);
+      setNotice('Category deleted.'); loadCategories();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to delete category.');
+    }
   };
 
   const saveGroupMembers = async (groupId, memberIds) => {
@@ -248,17 +271,16 @@ export function TicketsPage({ api, isAdmin }) {
       </div>
 
       <section className="panel">
-        <div className="filter-bar" style={{ gridTemplateColumns: 'auto auto 1fr', alignItems: 'center' }}>
+        <div className="filter-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
           <div style={{ display: 'inline-flex', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
             <Button type="button" variant={view === 'mine' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('mine')}>My Tickets</Button>
             <Button type="button" variant={view === 'to_resolve' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('to_resolve')}>To Resolve</Button>
             {isAdmin && <Button type="button" variant={view === 'all' ? 'primary' : 'ghost'} size="sm" onClick={() => setView('all')}>All</Button>}
           </div>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: '200px' }}>
+          <Select size="sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ marginLeft: 'auto', width: '160px' }}>
             <option value="">All Statuses</option>
             {TICKET_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </Select>
-          <span />
         </div>
         <DataTable
           columns={['Code', 'Title', 'Category', 'Priority', 'Status', view === 'to_resolve' ? 'Raised By' : 'Assigned To', 'Created', '']}
@@ -310,12 +332,22 @@ export function TicketsPage({ api, isAdmin }) {
             <>
               <DialogHeader title={`${activeTicket.code} · ${activeTicket.title}`} description={`${activeTicket.category_name} → ${activeTicket.ticket_type_name}`} onClose={() => setActiveTicket(null)} />
               <div className="stack-form">
-                <div>
-                  <InfoRow label="Status" value={STATUS_LABELS[activeTicket.status] || activeTicket.status} />
-                  <InfoRow label="Priority" value={(activeTicket.priority || 'Medium').charAt(0) + (activeTicket.priority || 'Medium').slice(1).toLowerCase()} />
-                  <InfoRow label="Raised by" value={raisedBy} />
-                  <InfoRow label="Assigned to" value={activeTicket.assigned_agent_name || activeTicket.assigned_group_name || 'Not assigned'} />
-                  <InfoRow label="Created" value={activeTicket.created_at ? new Date(activeTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 28px', alignItems: 'flex-start', padding: '4px 0 14px', borderBottom: '1px solid #f1f5f9' }}>
+                  {[
+                    ['Status', (() => {
+                      const tone = { NEW: '#2563eb', IN_PROGRESS: '#d97706', RESOLVED: '#16a34a', REOPENED: '#7c3aed', CLOSED: '#64748b' }[activeTicket.status] || '#64748b';
+                      return <span style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, padding: '2px 10px', borderRadius: '999px', background: `${tone}1a`, color: tone }}>{STATUS_LABELS[activeTicket.status] || activeTicket.status}</span>;
+                    })()],
+                    ['Priority', (activeTicket.priority || 'Medium').charAt(0) + (activeTicket.priority || 'Medium').slice(1).toLowerCase()],
+                    ['Raised by', raisedBy],
+                    ['Assigned to', activeTicket.assigned_agent_name || activeTicket.assigned_group_name || 'Not assigned'],
+                    ['Created', activeTicket.created_at ? new Date(activeTicket.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—'],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>{label}</span>
+                      <span style={{ fontSize: '14px', color: '#0f172a', fontWeight: 500 }}>{value}</span>
+                    </div>
+                  ))}
                 </div>
 
                 <div>
@@ -364,24 +396,75 @@ export function TicketsPage({ api, isAdmin }) {
         </DialogContent>
       </Dialog>
 
-      {/* Help Desk Settings — agent group membership */}
+      {/* Help Desk Settings — categories + agent group membership */}
       <Dialog open={settingsOpen}>
         <DialogContent>
-          <DialogHeader title="Help Desk Settings" description="Assign employees to agent groups. A ticket routes to a group; its members receive it and appear under 'To Resolve'." />
+          <DialogHeader title="Help Desk Settings" description="Manage ticket categories and who handles them. A ticket routes to its category's default group; the group's members see it under 'To Resolve'." />
           <div className="stack-form">
-            {groups.length === 0 && <p className="cell-muted">Loading groups…</p>}
-            {groups.map((g) => (
-              <div key={g.id} style={boxStyle}>
-                <div style={{ fontWeight: 700, color: '#0f172a' }}>{g.name}</div>
-                {g.description && <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>{g.description}</div>}
-                <GroupMembersEditor group={g} employees={employees} onSave={saveGroupMembers} />
+            <div>
+              <div className="panel-heading">
+                <div><h2>Ticket categories</h2><p className="panel-subtitle">The top-level buckets people choose when raising a ticket, and the group that handles each.</p></div>
+                <Button type="button" size="sm" variant="primary" onClick={() => setCatDialog({ name: '', description: '', default_agent_group: '', is_active: true })}>Add Category</Button>
               </div>
-            ))}
+              <DataTable
+                columns={['Name', 'Default group', 'Types', 'Active', '']}
+                rows={categories.map((c) => [
+                  c.name,
+                  c.default_agent_group_name || '—',
+                  c.type_count ?? 0,
+                  c.is_active ? 'Yes' : 'No',
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setCatDialog({ id: c.id, name: c.name, description: c.description || '', default_agent_group: c.default_agent_group || '', is_active: c.is_active })}><Icon name="edit" /></Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => deleteCategory(c)}><Icon name="trash" /></Button>
+                  </div>,
+                ])}
+                empty="No categories yet."
+              />
+            </div>
+
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '18px' }}>
+              <h2 style={{ marginBottom: '4px' }}>Agent groups</h2>
+              <p className="panel-subtitle" style={{ marginBottom: '12px' }}>Assign employees to each group. A ticket routes to a group; its members appear under 'To Resolve'.</p>
+              {groups.length === 0 && <p className="cell-muted">Loading groups…</p>}
+              {groups.map((g) => (
+                <div key={g.id} style={boxStyle}>
+                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{g.name}</div>
+                  {g.description && <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>{g.description}</div>}
+                  <GroupMembersEditor group={g} employees={employees} onSave={saveGroupMembers} />
+                </div>
+              ))}
+            </div>
           </div>
           <div className="dialog-footer">
             <Button type="button" variant="ghost" onClick={() => setSettingsOpen(false)}>Close</Button>
           </div>
         </DialogContent>
+      </Dialog>
+
+      {/* Add / edit a ticket category */}
+      <Dialog open={!!catDialog}>
+        {catDialog && (
+          <DialogContent className="dialog-sm">
+            <DialogHeader title={catDialog.id ? 'Edit Category' : 'Add Category'} onClose={() => setCatDialog(null)} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <Field label="Name"><input value={catDialog.name} onChange={(e) => setCatDialog({ ...catDialog, name: e.target.value })} placeholder="e.g. IT And Technical Support" autoFocus /></Field>
+              <Field label="Description (optional)"><textarea rows={2} value={catDialog.description} onChange={(e) => setCatDialog({ ...catDialog, description: e.target.value })} /></Field>
+              <Field label="Default agent group">
+                <Select value={catDialog.default_agent_group} onChange={(e) => setCatDialog({ ...catDialog, default_agent_group: e.target.value })}>
+                  <option value="">— none —</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </Select>
+              </Field>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                <input type="checkbox" checked={catDialog.is_active !== false} onChange={(e) => setCatDialog({ ...catDialog, is_active: e.target.checked })} /> Active
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                <Button type="button" variant="outline" onClick={() => setCatDialog(null)}>Cancel</Button>
+                <Button type="button" variant="primary" onClick={saveCategory} disabled={!catDialog.name.trim()}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        )}
       </Dialog>
     </>
   );
