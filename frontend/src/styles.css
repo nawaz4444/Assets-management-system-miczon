@@ -2238,12 +2238,25 @@ input[type="checkbox"] {
 
 /* Stock print (from main) */
 @media print {
-  body:has(.stock-print-surface) .workspace * { visibility: hidden; }
+  /* Stock reports: show only the active print surface. Scoped + !important so
+     these win over the thermal-label block below (which hides `body *` and
+     locks body overflow) no matter the source order. */
+  body:has(.stock-print-surface) * { visibility: hidden !important; }
   body:has(.stock-print-surface) .stock-print-surface,
-  body:has(.stock-print-surface) .stock-print-surface * { visibility: visible; }
-  body:has(.stock-print-surface) .stock-print-surface { position: absolute; inset: 0; width: 100%; overflow: visible !important; }
-  .stock-print-surface button { display: none; }
-  .stock-print-surface table { min-width: 0; font-size: 10px !important; }
+  body:has(.stock-print-surface) .stock-print-surface * { visibility: visible !important; }
+  body:has(.stock-print-surface) .stock-print-surface {
+    position: absolute !important;
+    inset: 0;
+    width: 100%;
+    overflow: visible !important;
+  }
+  html:has(.stock-print-surface),
+  body:has(.stock-print-surface) {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body:has(.stock-print-surface) .stock-print-surface button { display: none !important; }
+  body:has(.stock-print-surface) .stock-print-surface table { min-width: 0; font-size: 10px !important; }
   @page { margin: 10mm; }
 }
 
