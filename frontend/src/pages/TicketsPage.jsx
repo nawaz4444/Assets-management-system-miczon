@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { normalizeList, fetchAll } from '../lib/api';
 import {
   Button, Select, Dialog, DialogContent, PageHeader,
-  DialogHeader, Field, Notice, DataTable,
+  DialogHeader, Field, Notice, DataTable, Icon,
 } from '../components/ui';
 
 // --- HELP DESK: TICKETS PORTAL (Add Ticket + My Tickets / To Resolve) ---
@@ -141,6 +141,8 @@ export function TicketsPage({ api, isAdmin }) {
   const [working, setWorking] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [groups, setGroups] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [catDialog, setCatDialog] = useState(null); // { id?, name, description, default_agent_group, is_active }
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [employees, setEmployees] = useState([]);
@@ -196,10 +198,41 @@ export function TicketsPage({ api, isAdmin }) {
     } finally { setWorking(false); }
   };
 
+  const loadCategories = useCallback(() => api.get('/ticket-categories/').then((r) => setCategories(normalizeList(r.data))).catch(() => {}), [api]);
+
   const openSettings = () => {
     setSettingsOpen(true);
     api.get('/agent-groups/').then((r) => setGroups(normalizeList(r.data))).catch(() => {});
+    loadCategories();
     if (employees.length === 0) fetchAll(api, '/employees/').then(setEmployees).catch(() => {});
+  };
+
+  const saveCategory = async () => {
+    const name = (catDialog.name || '').trim();
+    if (!name) return;
+    try {
+      const payload = {
+        name,
+        description: catDialog.description || '',
+        default_agent_group: catDialog.default_agent_group || null,
+        is_active: catDialog.is_active !== false,
+      };
+      if (catDialog.id) await api.put(`/ticket-categories/${catDialog.id}/`, payload);
+      else await api.post('/ticket-categories/', payload);
+      setCatDialog(null); setNotice('Category saved.'); loadCategories();
+    } catch (err) {
+      setNotice(err.response?.data?.name?.[0] || err.response?.data?.error || 'Unable to save category.');
+    }
+  };
+
+  const deleteCategory = async (c) => {
+    if (!window.confirm(`Delete category "${c.name}"?${c.type_count ? ` This also removes its ${c.type_count} ticket type(s).` : ''}`)) return;
+    try {
+      await api.delete(`/ticket-categories/${c.id}/`);
+      setNotice('Category deleted.'); loadCategories();
+    } catch (err) {
+      setNotice(err.response?.data?.error || 'Unable to delete category.');
+    }
   };
 
   const saveGroupMembers = async (groupId, memberIds) => {
@@ -363,24 +396,75 @@ export function TicketsPage({ api, isAdmin }) {
         </DialogContent>
       </Dialog>
 
-      {/* Help Desk Settings — agent group membership */}
+      {/* Help Desk Settings — categories + agent group membership */}
       <Dialog open={settingsOpen}>
         <DialogContent>
-          <DialogHeader title="Help Desk Settings" description="Assign employees to agent groups. A ticket routes to a group; its members receive it and appear under 'To Resolve'." />
+          <DialogHeader title="Help Desk Settings" description="Manage ticket categories and who handles them. A ticket routes to its category's default group; the group's members see it under 'To Resolve'." />
           <div className="stack-form">
-            {groups.length === 0 && <p className="cell-muted">Loading groups…</p>}
-            {groups.map((g) => (
-              <div key={g.id} style={boxStyle}>
-                <div style={{ fontWeight: 700, color: '#0f172a' }}>{g.name}</div>
-                {g.description && <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>{g.description}</div>}
-                <GroupMembersEditor group={g} employees={employees} onSave={saveGroupMembers} />
+            <div>
+              <div className="panel-heading">
+                <div><h2>Ticket categories</h2><p className="panel-subtitle">The top-level buckets people choose when raising a ticket, and the group that handles each.</p></div>
+                <Button type="button" size="sm" variant="primary" onClick={() => setCatDialog({ name: '', description: '', default_agent_group: '', is_active: true })}>Add Category</Button>
               </div>
-            ))}
+              <DataTable
+                columns={['Name', 'Default group', 'Types', 'Active', '']}
+                rows={categories.map((c) => [
+                  c.name,
+                  c.default_agent_group_name || '—',
+                  c.type_count ?? 0,
+                  c.is_active ? 'Yes' : 'No',
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setCatDialog({ id: c.id, name: c.name, description: c.description || '', default_agent_group: c.default_agent_group || '', is_active: c.is_active })}><Icon name="edit" /></Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => deleteCategory(c)}><Icon name="trash" /></Button>
+                  </div>,
+                ])}
+                empty="No categories yet."
+              />
+            </div>
+
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '18px' }}>
+              <h2 style={{ marginBottom: '4px' }}>Agent groups</h2>
+              <p className="panel-subtitle" style={{ marginBottom: '12px' }}>Assign employees to each group. A ticket routes to a group; its members appear under 'To Resolve'.</p>
+              {groups.length === 0 && <p className="cell-muted">Loading groups…</p>}
+              {groups.map((g) => (
+                <div key={g.id} style={boxStyle}>
+                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{g.name}</div>
+                  {g.description && <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>{g.description}</div>}
+                  <GroupMembersEditor group={g} employees={employees} onSave={saveGroupMembers} />
+                </div>
+              ))}
+            </div>
           </div>
           <div className="dialog-footer">
             <Button type="button" variant="ghost" onClick={() => setSettingsOpen(false)}>Close</Button>
           </div>
         </DialogContent>
+      </Dialog>
+
+      {/* Add / edit a ticket category */}
+      <Dialog open={!!catDialog}>
+        {catDialog && (
+          <DialogContent className="dialog-sm">
+            <DialogHeader title={catDialog.id ? 'Edit Category' : 'Add Category'} onClose={() => setCatDialog(null)} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <Field label="Name"><input value={catDialog.name} onChange={(e) => setCatDialog({ ...catDialog, name: e.target.value })} placeholder="e.g. IT And Technical Support" autoFocus /></Field>
+              <Field label="Description (optional)"><textarea rows={2} value={catDialog.description} onChange={(e) => setCatDialog({ ...catDialog, description: e.target.value })} /></Field>
+              <Field label="Default agent group">
+                <Select value={catDialog.default_agent_group} onChange={(e) => setCatDialog({ ...catDialog, default_agent_group: e.target.value })}>
+                  <option value="">— none —</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </Select>
+              </Field>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px' }}>
+                <input type="checkbox" checked={catDialog.is_active !== false} onChange={(e) => setCatDialog({ ...catDialog, is_active: e.target.checked })} /> Active
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                <Button type="button" variant="outline" onClick={() => setCatDialog(null)}>Cancel</Button>
+                <Button type="button" variant="primary" onClick={saveCategory} disabled={!catDialog.name.trim()}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        )}
       </Dialog>
     </>
   );

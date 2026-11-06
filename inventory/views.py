@@ -2150,6 +2150,14 @@ class TicketCategoryViewSet(viewsets.ModelViewSet):
     queryset = TicketCategory.objects.all().select_related('default_agent_group').order_by('name')
     serializer_class = TicketCategorySerializer
 
+    def destroy(self, request, *args, **kwargs):
+        category = self.get_object()
+        if category.tickets.exists():
+            return Response(
+                {'error': 'This category has tickets and cannot be deleted. Mark it inactive instead.'},
+                status=400)
+        return super().destroy(request, *args, **kwargs)
+
 
 class TicketTypeViewSet(viewsets.ModelViewSet):
     serializer_class = TicketTypeSerializer
