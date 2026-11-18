@@ -6,6 +6,7 @@ import { UserContext, SuperCategoryContext, StockOperatorContext } from '../lib/
 import { useApi, normalizeList, apiError, getQrPayload, extractMiczonIdFromScan, fetchAll } from '../lib/api';
 import { localDate } from '../utils/dates';
 import { latestOpenInspection } from '../utils/inspections';
+import { buildLabelPayload, sendLabelToPrinter } from '../utils/labelPrinter';
 import {
   navItems, emptyAsset, emptyEmployee, assetStatuses,
   getInspectionFields, ratingOptions, inventoryPageSize,
@@ -546,6 +547,8 @@ export function InventoryPage({ api, isAdmin }) {
   const toolsRef = useRef(null);
   const [qrAsset, setQrAsset] = useState(null);
   const [quickQrSize, setQuickQrSize] = useState('3x2in');
+  const [qrPrinting, setQrPrinting] = useState(false);
+  const [qrPrintMessage, setQrPrintMessage] = useState(null);
   const [form, setForm] = useState(emptyAsset);
   const [editingId, setEditingId] = useState(null);
   const [importFile, setImportFile] = useState(null);
@@ -556,6 +559,20 @@ export function InventoryPage({ api, isAdmin }) {
   const [stagingErrors, setStagingErrors] = useState([]); // Rows with reconciliation issues
   const [stagingSummary, setStagingSummary] = useState(null);
   const [notice, setNotice] = useState('');
+
+  // Prints straight to the XP-365B through the local print helper (window.print cannot fit the 40 x 30 mm label).
+  const printQrLabel = async () => {
+    setQrPrinting(true);
+    setQrPrintMessage(null);
+    try {
+      await sendLabelToPrinter(buildLabelPayload(qrAsset, getQrPayload(qrAsset.miczon_id)));
+      setQrPrintMessage({ tone: 'success', message: `Label for ${qrAsset.miczon_id} sent to the printer.` });
+    } catch (err) {
+      setQrPrintMessage({ tone: 'error', message: err.message || 'Unable to print the label.' });
+    } finally {
+      setQrPrinting(false);
+    }
+  };
 
   // 1. Debounce Search. Only reset to page 1 when the search text actually changes
   // (tracking the previous value keeps a restored page intact on mount, incl. under StrictMode).
@@ -1117,11 +1134,13 @@ export function InventoryPage({ api, isAdmin }) {
             }
           `}</style>
 
+          {qrPrintMessage && <Notice tone={qrPrintMessage.tone}>{qrPrintMessage.message}</Notice>}
+
           <div className="dialog-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-            <Button type="button" variant="ghost" onClick={() => setQrAsset(null)}>Close</Button>
+            <Button type="button" variant="ghost" onClick={() => { setQrAsset(null); setQrPrintMessage(null); }}>Close</Button>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <Button type="button" variant="primary" onClick={() => window.print()}>
-                🖨️ Print Label (XP-365B)
+              <Button type="button" variant="primary" onClick={printQrLabel} disabled={qrPrinting}>
+                {qrPrinting ? 'Printing...' : '🖨️ Print Label (XP-365B)'}
               </Button>
               <Button type="button" variant="outline" onClick={() => navigate(`/inventory/asset/${qrAsset?.id}`)}>
                 Open Asset
@@ -1149,7 +1168,23 @@ export function AssetDetailPage({ api, isAdmin }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tagSize, setTagSize] = useState('3x2in');
   const [tagLayout, setTagLayout] = useState('auto');
+  const [printing, setPrinting] = useState(false);
+  const [printNotice, setPrintNotice] = useState(null);
   const activePreset = LABEL_SIZES[tagSize] || LABEL_SIZES['3x2in'];
+
+  // Prints straight to the XP-365B through the local print helper (window.print cannot fit the 40 x 30 mm label).
+  const printLabel = async () => {
+    setPrinting(true);
+    setPrintNotice(null);
+    try {
+      await sendLabelToPrinter(buildLabelPayload(asset, getQrPayload(asset.miczon_id), { qrOnly: tagLayout === 'qr-only' }));
+      setPrintNotice({ tone: 'success', message: `Label for ${asset.miczon_id} sent to the printer.` });
+    } catch (err) {
+      setPrintNotice({ tone: 'error', message: err.message || 'Unable to print the label.' });
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   useEffect(() => {
     api.get(`/assets/${assetId}/`)
@@ -1218,9 +1253,10 @@ export function AssetDetailPage({ api, isAdmin }) {
         <Button type="button" variant="ghost" onClick={() => navigate('/inventory')}>Back</Button>
         {isAdmin && <Button type="button" variant="outline" onClick={editAsset}>Edit</Button>}
         {isAdmin && <Button type="button" variant="danger" onClick={removeAsset}>Remove</Button>}
-        <Button type="button" variant="primary" onClick={() => window.print()}>🖨️ Print Label (XP-365B)</Button>
+        <Button type="button" variant="primary" onClick={printLabel} disabled={printing}>{printing ? 'Printing...' : '🖨️ Print Label (XP-365B)'}</Button>
       </PageHeader>
       {notice && <Notice>{notice}</Notice>}
+      {printNotice && <Notice tone={printNotice.tone}>{printNotice.message}</Notice>}
 
       {/* Overview Grid Card */}
       <section className="panel asset-detail-panel" style={{ marginBottom: '1.5rem' }}>
@@ -1403,8 +1439,8 @@ export function AssetDetailPage({ api, isAdmin }) {
               <option value="qr-only">QR + ID Only (Fast Scan)</option>
             </Select>
 
-            <Button type="button" variant="primary" size="sm" onClick={() => window.print()}>
-              🖨️ Print Label (XP-365B)
+            <Button type="button" variant="primary" size="sm" onClick={printLabel} disabled={printing}>
+              {printing ? 'Printing...' : '🖨️ Print Label (XP-365B)'}
             </Button>
           </div>
         </div>

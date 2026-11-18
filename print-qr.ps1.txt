@@ -1,0 +1,172 @@
+# Prints a QR code on the Xprinter XP-365B (38 mm wide x 28 mm tall label on 40 x 30 mm paper).
+# QR only, centred:
+#   powershell -ExecutionPolicy Bypass -File print-qr.ps1 -Data "https://example.com" -Copies 1
+# QR on top with text lines under it (label used upright, 28 mm wide x 38 mm tall; lines separated by |):
+#   powershell -ExecutionPolicy Bypass -File print-qr.ps1 -Data "https://example.com" -Text "ITEM 12345|Sample Name"
+param(
+    [Parameter(Mandatory = $true)][string]$Data,
+    [string]$Text = "",
+    [ValidateRange(1, 100)][int]$Copies = 1,
+    [string]$PrinterName = "Xprinter XP-365B"
+)
+
+# Label geometry. The printer works at 203 dpi = 8 dots per mm.
+$dotsPerMm   = 8
+$paperWidth  = 40   # mm, backing paper width (across the print head)
+$labelWidth  = 38   # mm, across the print head
+$labelHeight = 28   # mm, in the feed direction
+$gap         = 2    # mm between labels (30 mm paper step - 28 mm label)
+$margin      = 3    # mm kept empty around the QR so scanners can read it
+# Fine-tuning, as you look at the label coming out of the printer.
+$shiftX      = -3   # mm: negative moves the QR left, positive right
+$shiftY      = -1.5 # mm: negative moves the QR up (away from the tear bar), positive down
+
+# Text under the QR (upright label), printer font "2". Measured on this printer: each
+# character takes 16 dots of width (not the 12 the TSPL manual lists).
+$charWidth   = 16   # dots
+$charHeight  = 20   # dots
+$linePitch   = 22   # dots from one line to the next
+$textMargin  = 2    # mm kept empty left and right of the text
+$topMargin   = 2.5  # mm above the QR on the upright label
+$textGap     = 1.5  # mm between the QR and the first text line
+$bottomMargin = 1   # mm below the last text line
+
+if ([string]::IsNullOrWhiteSpace($Data)) { Write-Error "Data is empty."; exit 1 }
+if ($Data -match "[\r\n]") { Write-Error "Data must be a single line."; exit 1 }
+if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
+    Write-Error "Printer '$PrinterName' is not installed."; exit 1
+}
+
+# Text lines: trimmed, empty ones dropped, plain printable characters only.
+$lines = @()
+if (-not [string]::IsNullOrWhiteSpace($Text)) {
+    $lines = @($Text.Split('|') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+}
+$maxChars = [Math]::Floor(($labelHeight - 2 * $textMargin) * $dotsPerMm / $charWidth)
+foreach ($line in $lines) {
+    if ($line -notmatch '^[\x20-\x7E]+$') { Write-Error "Text line '$line' has characters this printer font cannot print (use plain English letters, digits and symbols)."; exit 1 }
+    if ($line.Length -gt $maxChars) { Write-Error "Text line '$line' is too long (max $maxChars characters per line, got $($line.Length))."; exit 1 }
+}
+
+# Pick the smallest QR version that holds the data (byte mode, error correction M).
+$bytes = [Text.Encoding]::UTF8.GetBytes($Data)
+$capacity = 14, 26, 42, 62, 84, 106, 122, 152, 180, 213
+$version = 0
+for ($i = 0; $i -lt $capacity.Count; $i++) {
+    if ($bytes.Length -le $capacity[$i]) { $version = $i + 1; break }
+}
+if ($version -eq 0) { Write-Error "Data is too long for this label (max 213 bytes, got $($bytes.Length))."; exit 1 }
+
+# Largest dot size per QR square that still fits the label's shorter side.
+$modules = 17 + 4 * $version
+$usable  = ([Math]::Min($labelWidth, $labelHeight) - 2 * $margin) * $dotsPerMm
+$cell    = [Math]::Min(10, [Math]::Floor($usable / $modules))
+if ($cell -lt 3) { Write-Error "Data is too long to print a scannable QR on this label."; exit 1 }
+$qrSize = $modules * $cell
+
+# Centre of the label in printer dots. The printer draws the label rotated 180 degrees
+# from how it is viewed, so the shifts are subtracted.
+$centreX = $paperWidth * $dotsPerMm / 2 - $shiftX * $dotsPerMm
+$centreY = $labelHeight * $dotsPerMm / 2 - $shiftY * $dotsPerMm
+
+$body = ""
+if ($lines.Count -eq 0) {
+    # QR only: centred on the label.
+    $x = [Math]::Max(0, [Math]::Floor($centreX - $qrSize / 2))
+    $y = [Math]::Max(0, [Math]::Floor($centreY - $qrSize / 2))
+    $body = "QRCODE $x,$y,M,$cell,A,0,`"$($Data.Replace('"', '\["]'))`"`r`n"
+} else {
+    # Upright label (28 mm wide, 38 mm tall): px runs left to right, py top to bottom, in dots.
+    # Printer position of an upright point:  x = originX - py,  y = originY + px.
+    $uprightWidth  = $labelHeight * $dotsPerMm
+    $uprightHeight = $labelWidth * $dotsPerMm
+    $originX = $centreX + $uprightHeight / 2
+    $originY = $centreY - $uprightWidth / 2
+
+    $qrTop   = $topMargin * $dotsPerMm
+    $textTop = $qrTop + $qrSize + $textGap * $dotsPerMm
+    $room    = $uprightHeight - $bottomMargin * $dotsPerMm - $textTop
+    $maxLines = [Math]::Max(0, [Math]::Floor(($room - $charHeight) / $linePitch) + 1)
+    if ($lines.Count -gt $maxLines) { Write-Error "Too many text lines: $($lines.Count) given, only $maxLines fit under this QR."; exit 1 }
+
+    # Centre the block of lines in the space between the QR and the bottom edge of the label,
+    # but never closer to the QR than the minimum gap.
+    $blockHeight = ($lines.Count - 1) * $linePitch + $charHeight
+    $spaceBelowQr = $uprightHeight - ($qrTop + $qrSize)
+    $textTop = [Math]::Max($textTop, $qrTop + $qrSize + ($spaceBelowQr - $blockHeight) / 2)
+
+    # The QR is not rotated (it scans from any side), so only its corner is converted.
+    $qrLeft = ($uprightWidth - $qrSize) / 2
+    $x = [Math]::Floor($originX - ($qrTop + $qrSize))
+    $y = [Math]::Floor($originY + $qrLeft)
+    if ($x -lt 0 -or $y -lt 0 -or ($x + $qrSize) -gt ($paperWidth * $dotsPerMm)) { Write-Error "QR does not fit the label with the current fine-tuning shifts."; exit 1 }
+    $body = "QRCODE $x,$y,M,$cell,A,0,`"$($Data.Replace('"', '\["]'))`"`r`n"
+
+    # Each line is centred under the QR and turned 90 degrees so it reads on the upright label.
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $lineLeft = ($uprightWidth - $lines[$i].Length * $charWidth) / 2
+        $lineTop  = $textTop + $i * $linePitch
+        $tx = [Math]::Floor($originX - $lineTop)
+        $ty = [Math]::Floor($originY + $lineLeft)
+        $body += "TEXT $tx,$ty,`"2`",90,1,1,`"$($lines[$i].Replace('"', '\["]'))`"`r`n"
+    }
+}
+
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class RawPrint {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public class DOCINFO {
+        [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPWStr)] public string pDataType;
+    }
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool OpenPrinter(string name, out IntPtr h, IntPtr defaults);
+    [DllImport("winspool.drv", SetLastError = true)]
+    public static extern bool ClosePrinter(IntPtr h);
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern int StartDocPrinter(IntPtr h, int level, [In] DOCINFO di);
+    [DllImport("winspool.drv", SetLastError = true)]
+    public static extern bool EndDocPrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError = true)]
+    public static extern bool StartPagePrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError = true)]
+    public static extern bool EndPagePrinter(IntPtr h);
+    [DllImport("winspool.drv", SetLastError = true)]
+    public static extern bool WritePrinter(IntPtr h, byte[] data, int count, out int written);
+
+    public static string Send(string printer, byte[] data) {
+        IntPtr h;
+        if (!OpenPrinter(printer, out h, IntPtr.Zero)) return "OpenPrinter failed: " + Marshal.GetLastWin32Error();
+        try {
+            DOCINFO di = new DOCINFO();
+            di.pDocName = "QR label";
+            di.pDataType = "RAW";
+            if (StartDocPrinter(h, 1, di) == 0) return "StartDocPrinter failed: " + Marshal.GetLastWin32Error();
+            StartPagePrinter(h);
+            int written;
+            bool ok = WritePrinter(h, data, data.Length, out written);
+            int err = Marshal.GetLastWin32Error();
+            EndPagePrinter(h);
+            EndDocPrinter(h);
+            if (!ok) return "WritePrinter failed: " + err;
+            if (written != data.Length) return "Only " + written + " of " + data.Length + " bytes were sent";
+            return "OK";
+        } finally { ClosePrinter(h); }
+    }
+}
+"@
+
+# TSPL (the printer's command language). A quote inside the data is written as \["].
+$tspl = "SIZE $paperWidth mm,$labelHeight mm`r`n" +
+        "GAP $gap mm,0 mm`r`n" +
+        "DIRECTION 1`r`n" +
+        "CLS`r`n" +
+        $body +
+        "PRINT $Copies`r`n"
+
+$result = [RawPrint]::Send($PrinterName, [Text.Encoding]::UTF8.GetBytes($tspl))
+if ($result -ne "OK") { Write-Error $result; exit 1 }
+"Sent $Copies label(s): QR about $([Math]::Round($qrSize / $dotsPerMm, 1)) mm wide, $($bytes.Length) bytes of data, $($lines.Count) text line(s)."
